@@ -1,16 +1,19 @@
 class_name IslandHud
 extends Hud
 ## Interface for the new island: the same frosted-glass look as the classic
-## town, with the landscape brushes for now (streets and growing come next).
+## town, with the street and landscape brushes (growing the town comes next).
 
 signal back_to_town
 
 const BRUSH_INFO := {
+	"street": ["Street", "Draw a line: the street lays itself over the land"],
+	"clear": ["Clear", "Drag over streets to take them away"],
 	"raise": ["Raise", "Drag to lift hills out of the land"],
 	"lower": ["Lower", "Drag to carve valleys, coves and bays"],
 	"smooth": ["Smooth", "Drag to soften bumps and rough slopes"],
 	"flatten": ["Flatten", "Drag to level the ground to where you started"],
 }
+const ICONS := {"street": "road", "clear": "bulldoze"}
 const SIZES := [["S", 3.0], ["M", 5.0], ["L", 8.5]]
 
 var island: IslandWorld
@@ -77,7 +80,7 @@ func _build_island_top() -> void:
 	chip.add_child(_label("Preview", 16, true, MINT))
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	name_row.add_child(chip)
-	_help = _label("Shape the land: pick a brush and drag", 14, false, SOFT)
+	_help = _label("Draw streets, or shape the land: pick a brush", 14, false, SOFT)
 	v.add_child(_help)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -138,7 +141,7 @@ func _build_brushes() -> void:
 		v.add_theme_constant_override("separation", -2)
 		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		b.add_child(v)
-		var ic := _icon(id, 44)
+		var ic := _icon(ICONS.get(id, id), 44)
 		ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(ic)
 		var cl := _label(BRUSH_INFO[id][0], 13, true, INK)
@@ -149,6 +152,11 @@ func _build_brushes() -> void:
 			island.set_brush(id))
 		row.add_child(b)
 		_brush_keys[id] = b
+		if id == "clear":
+			var gap := Control.new()
+			gap.custom_minimum_size = Vector2(10, 0)
+			gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			row.add_child(gap)
 	_size_btn = _key(64, 84)
 	_size_btn.toggle_mode = false
 	_size_btn.add_theme_font_override("font", font_bold)
@@ -171,7 +179,7 @@ func _refresh_brushes() -> void:
 	if island.brush != "":
 		_help.text = BRUSH_INFO[island.brush][1]
 	else:
-		_help.text = "Shape the land: pick a brush and drag"
+		_help.text = "Draw streets, or shape the land: pick a brush"
 
 
 func _process(delta: float) -> void:

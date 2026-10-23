@@ -186,9 +186,66 @@ func _each_in(centre: Vector3, radius: float, f: Callable) -> void:
 		for i in range(i0, i1 + 1):
 			if i <= 1 or j <= 1 or i >= CELLS - 1 or j >= CELLS - 1:
 				heights[j * SIDE + i] = minf(heights[j * SIDE + i], LOW)
+	_mark(i0, j0, i1, j1)
+
+
+func _mark(i0: int, j0: int, i1: int, j1: int) -> void:
 	for cz in range(maxi(0, (j0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (j1 + 1) / CHUNK) + 1):
 		for cx in range(maxi(0, (i0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (i1 + 1) / CHUNK) + 1):
 			_dirty[Vector2i(cx, cz)] = true
+
+
+## Cut and fill the ground to meet a street: flat at the street's height within
+## `core` of its centre line, easing back into the natural slope over `blend`.
+func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend: float) -> void:
+	if pts.size() < 2:
+		return
+	var reach := core + blend
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in pts:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	var i0 := maxi(2, int(floor((lo.x - reach + HALF) / STEP)))
+	var i1 := mini(CELLS - 2, int(ceil((hi.x + reach + HALF) / STEP)))
+	var j0 := maxi(2, int(floor((lo.y - reach + HALF) / STEP)))
+	var j1 := mini(CELLS - 2, int(ceil((hi.y + reach + HALF) / STEP)))
+	if i0 > i1 or j0 > j1:
+		return
+	var w := i1 - i0 + 1
+	var best := PackedFloat32Array()
+	var by := PackedFloat32Array()
+	best.resize(w * (j1 - j0 + 1))
+	best.fill(INF)
+	by.resize(best.size())
+	for s in pts.size() - 1:
+		var a := pts[s]
+		var b := pts[s + 1]
+		var ab := b - a
+		var l2 := maxf(ab.length_squared(), 1e-6)
+		var si0 := maxi(i0, int(floor((minf(a.x, b.x) - reach + HALF) / STEP)))
+		var si1 := mini(i1, int(ceil((maxf(a.x, b.x) + reach + HALF) / STEP)))
+		var sj0 := maxi(j0, int(floor((minf(a.y, b.y) - reach + HALF) / STEP)))
+		var sj1 := mini(j1, int(ceil((maxf(a.y, b.y) + reach + HALF) / STEP)))
+		for j in range(sj0, sj1 + 1):
+			for i in range(si0, si1 + 1):
+				var p := _pos(i, j)
+				var t := clampf((p - a).dot(ab) / l2, 0.0, 1.0)
+				var d := p.distance_to(a + ab * t)
+				var k := (j - j0) * w + (i - i0)
+				if d < best[k]:
+					best[k] = d
+					by[k] = lerpf(ys[s], ys[s + 1], t)
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var k := (j - j0) * w + (i - i0)
+			var d := best[k]
+			if d >= reach:
+				continue
+			var wt := 1.0 if d <= core else 1.0 - smoothstep(0.0, 1.0, (d - core) / maxf(blend, 0.01))
+			var g := j * SIDE + i
+			heights[g] = lerpf(heights[g], by[k] - 0.03, wt)
+	_mark(i0, j0, i1, j1)
 
 
 ## Remake changed chunks, spending at most `budget_us` microseconds.

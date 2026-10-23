@@ -7,9 +7,11 @@ extends World
 signal brush_changed
 
 const SAVE_PATH := "user://island.json"
-const BRUSHES := ["raise", "lower", "smooth", "flatten"]
+const BRUSHES := ["street", "clear", "raise", "lower", "smooth", "flatten"]
+const SHAPE := ["raise", "lower", "smooth", "flatten"]
 
 var land: Land
+var streets: Streets
 var brush := ""
 var brush_radius := 5.0
 var island_seed := 0
@@ -22,6 +24,10 @@ var _ring_at: Variant = null
 var _shore_dirty := false
 var _save_timer := 0.0
 var _sculpt_sound := 0.0
+# the line being drawn with the street brush, and the box a shaping stroke touched
+var _path := PackedVector2Array()
+var _stroke_lo := Vector2.ZERO
+var _stroke_hi := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -30,6 +36,11 @@ func _ready() -> void:
 	land = Land.new()
 	land.material = ground_mat
 	add_child(land)
+	streets = Streets.new()
+	streets.land = land
+	streets.material = city_mat
+	streets.changed.connect(func(): _shore_dirty = true)
+	add_child(streets)
 	_make_sea()
 	rig = CameraRig.new()
 	rig.ground_fn = land.height_at
@@ -44,6 +55,7 @@ func _ready() -> void:
 
 func new_island(s: int) -> void:
 	island_seed = s
+	streets.clear()
 	land.generate(s)
 	_update_maps()
 	_save()
@@ -57,6 +69,8 @@ func _load() -> void:
 		island_seed = int(data.seed)
 		land.generate(island_seed)
 		land.apply_edits(data.get("land", {}))
+		var st: Variant = data.get("streets", [])
+		streets.from_data(st if st is Array else [])
 		_update_maps()
 	else:
 		new_island(randi() % 1000000)
@@ -65,7 +79,7 @@ func _load() -> void:
 func _save() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"v": 1, "seed": island_seed, "land": land.edits()}))
+		f.store_string(JSON.stringify({"v": 1, "seed": island_seed, "land": land.edits(), "streets": streets.to_data()}))
 
 
 func _update_maps() -> void:
@@ -96,7 +110,10 @@ func _process(delta: float) -> void:
 		if _save_timer <= 0.0:
 			_save()
 	if _stroke and _ring_at != null:
-		_apply_brush(_ring_at, delta)
+		if brush == "street":
+			_extend_path(_ring_at)
+		else:
+			_apply_brush(_ring_at, delta)
 	time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
 	_update_sky()
 	_update_beams(PackedVector4Array())
@@ -110,6 +127,9 @@ func _process(delta: float) -> void:
 
 func _apply_brush(at: Vector3, delta: float) -> void:
 	var r := brush_radius
+	var c := Vector2(at.x, at.z)
+	_stroke_lo = _stroke_lo.min(c - Vector2(r, r))
+	_stroke_hi = _stroke_hi.max(c + Vector2(r, r))
 	match brush:
 		"raise":
 			land.sculpt(at, r, 2.2 * delta)
@@ -119,6 +139,10 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 			land.smooth(at, r, 6.0 * delta)
 		"flatten":
 			land.flatten(at, r, _stroke_level, 5.0 * delta)
+		"clear":
+			if streets.erase_at(c, r * 0.6):
+				Sfx.play("bulldoze", 1.0, -8.0, 0.1)
+			return
 	_shore_dirty = true
 	_sculpt_sound -= delta
 	if _sculpt_sound <= 0.0:
@@ -147,20 +171,42 @@ func _make_ring() -> void:
 ## A soft white circle lying on the ground under the brush.
 func _draw_ring() -> void:
 	_ring_mesh.clear_surfaces()
+	var w := 0.12 + rig.dist * 0.004
+	if brush == "street" and _path.size() >= 2:
+		# the line being drawn, as a soft ribbon the width of the street
+		var hw: float = Streets.KINDS.main.w
+		_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+		for i in _path.size():
+			var a := _path[maxi(i - 1, 0)]
+			var b := _path[mini(i + 1, _path.size() - 1)]
+			var t := (b - a).normalized()
+			var side := Vector2(-t.y, t.x) * hw
+			for p in [_path[i] - side, _path[i] + side]:
+				_ring_mesh.surface_add_vertex(Vector3(p.x, maxf(land.height_at(p.x, p.y), 0.0) + 0.1, p.y))
+		_ring_mesh.surface_end()
 	if brush == "" or _ring_at == null:
 		return
 	var at: Vector3 = _ring_at
 	var segs := 48
-	var w := 0.12 + rig.dist * 0.004
+	var radius := _ring_radius()
 	_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	for k in segs + 1:
 		var a := TAU * k / segs
 		var dir := Vector3(cos(a), 0, sin(a))
-		for rr in [brush_radius - w, brush_radius + w]:
+		for rr in [radius - w, radius + w]:
 			var p: Vector3 = at + dir * rr
 			p.y = maxf(land.height_at(p.x, p.z), 0.0) + 0.06
 			_ring_mesh.surface_add_vertex(p)
 	_ring_mesh.surface_end()
+
+
+func _ring_radius() -> float:
+	match brush:
+		"street":
+			return Streets.KINDS.main.w + Streets.PAVE
+		"clear":
+			return brush_radius * 0.6
+	return brush_radius
 
 
 func _hover_at(screen: Vector2) -> void:
@@ -175,10 +221,29 @@ func _begin_stroke(screen: Vector2) -> void:
 		return
 	_stroke = true
 	_stroke_level = land.height_at(_ring_at.x, _ring_at.z)
+	_stroke_lo = Vector2(INF, INF)
+	_stroke_hi = Vector2(-INF, -INF)
+	_path = PackedVector2Array()
+	if brush == "street":
+		_extend_path(_ring_at)
 
 
 func _end_stroke() -> void:
+	if not _stroke:
+		return
 	_stroke = false
+	if brush == "street":
+		if streets.add_stroke(_path) != null:
+			Sfx.play("road", 1.0, -4.0)
+		_path = PackedVector2Array()
+	elif brush in SHAPE and _stroke_lo.x < _stroke_hi.x:
+		streets.regrade_in(_stroke_lo, _stroke_hi)
+
+
+func _extend_path(at: Vector3) -> void:
+	var p := Vector2(at.x, at.z)
+	if _path.is_empty() or _path[_path.size() - 1].distance_to(p) > 0.4:
+		_path.append(p)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -190,6 +255,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_moved = false
 				_begin_stroke(event.position)
 			else:
+				# a second finger means the camera, not a street
+				_path = PackedVector2Array()
 				_end_stroke()
 				_gesture_prev = {}
 		else:
