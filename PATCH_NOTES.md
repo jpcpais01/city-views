@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-23 22:29 UTC
+- Once your harbour has grown, a wooden pier reaches out into the sea from its shore, with a T-shaped end, rails, lamps, a bench, a striped kiosk and rowing boats tied alongside.
+
 ## 2026-10-23 22:25 UTC
 - Landmarks rise as your island grows. A windmill turns its sails on the highest hill once a village has formed.
 - Once your island is a proper town, a red-and-white lighthouse with a keeper's cottage stands on the headland that reaches furthest into the sea. At night its beam sweeps the water and the shore.

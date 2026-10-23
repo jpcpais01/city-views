@@ -218,7 +218,7 @@ func _island_budget() -> void:
 	island.landmarks._check = 0.0
 	island.landmarks._process(0.0)
 	await get_tree().process_frame
-	check(island.landmarks.spots.has("windmill") and island.landmarks.spots.has("lighthouse"), "a big town gets a windmill and a lighthouse (%s)" % str(island.landmarks.spots))
+	check(island.landmarks.spots.has("windmill") and island.landmarks.spots.has("lighthouse") and island.landmarks.spots.has("pier"), "a big town gets a windmill, a lighthouse and a pier (%s)" % str(island.landmarks.spots))
 	var lh: Vector2 = island.landmarks.spots.get("lighthouse", Vector2.ZERO)
 	check(island.town.is_built(lh) and island.landmarks.beams().size() <= 1, "the town leaves room round a landmark")
 	var acc := TriBudget.count(island)
