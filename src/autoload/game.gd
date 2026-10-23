@@ -11,11 +11,14 @@ signal tool_unlocked(tool_id: String)
 signal title_changed(title: String)
 signal toast(text: String, kind: String)
 signal income_tick(amount: float)
+signal seabed_changed
+signal history_changed
 
 const SAVE_VERSION := 1
 const N := 64
 const TILE := 2.0
-const LEVEL_Y: Array[float] = [-0.9, 0.22, 0.62, 1.22, 1.82, 2.42, 3.02]
+const LEVEL_Y: Array[float] = [-0.5, 0.16, 0.42, 0.72, 1.02, 1.32, 1.62]
+const SEA_FLOOR := -3.4
 const MAX_LEVEL := 6
 
 enum K { EMPTY, ROAD, HOUSE, SHOP, OFFICE, PARK, TREE, LANDMARK }
@@ -54,6 +57,8 @@ var growth := PackedByteArray()
 var base_level := PackedByteArray()
 var base_kind := PackedByteArray()
 var base_param := PackedByteArray()
+var seabed := PackedFloat32Array()
+var shore := PackedFloat32Array() # tiles to the nearest land (0 on land)
 
 var coins := 600.0
 var population := 0
@@ -72,6 +77,12 @@ var _growth_timer := 0.0
 var _income_timer := 0.0
 var _autosave_timer := 0.0
 var _rng := RandomNumberGenerator.new()
+
+# undo/redo: each stroke is a list of [x, z, k0, l0, p0, g0, k1, l1, p1, cost]
+const HISTORY_MAX := 60
+var _undo: Array = []
+var _redo: Array = []
+var _stroke: Array = []
 
 
 func _ready() -> void:
@@ -113,7 +124,41 @@ func grw(x: int, z: int) -> int:
 
 
 func tile_y(x: int, z: int) -> float:
-	return LEVEL_Y[lvl(x, z)]
+	if inside(x, z) and level[idx(x, z)] == 0 and seabed.size() == N * N:
+		return seabed[idx(x, z)]
+	return LEVEL_Y[lvl(x, z)] if inside(x, z) else SEA_FLOOR
+
+
+## Sea floor deepens with distance from land (multi-source BFS from every land tile).
+func compute_seabed() -> void:
+	var dist := PackedInt32Array()
+	dist.resize(N * N)
+	dist.fill(999)
+	var queue: Array[int] = []
+	for i in N * N:
+		if level[i] > 0:
+			dist[i] = 0
+			queue.append(i)
+	var head := 0
+	while head < queue.size():
+		var i: int = queue[head]
+		head += 1
+		var x := i % N
+		var z := i / N
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var nx: int = x + d.x
+			var nz: int = z + d.y
+			if inside(nx, nz) and dist[idx(nx, nz)] > dist[i] + 1:
+				dist[idx(nx, nz)] = dist[i] + 1
+				queue.append(idx(nx, nz))
+	seabed.resize(N * N)
+	shore.resize(N * N)
+	for i in N * N:
+		shore[i] = minf(float(dist[i]), 8.0)
+		var dd := dist[i]
+		seabed[i] = LEVEL_Y[0] - minf(float(dd - 1), 8.0) * 0.36 if level[i] == 0 else LEVEL_Y[level[i]]
+		if level[i] == 0:
+			seabed[i] = maxf(seabed[i], SEA_FLOOR)
 
 
 ## Height a road surface sits at (bridges over water sit at beach height).
@@ -152,6 +197,7 @@ func hashf(x: int, z: int, salt: int = 0) -> float:
 func new_world(s: int) -> void:
 	seed_value = s
 	_generate_terrain()
+	clear_history()
 	coins = 600.0
 	unlocked.clear()
 	tutorial_step = 0
@@ -249,6 +295,7 @@ func _generate_terrain() -> void:
 			elif l == 1 and f > 0.45:
 				kind[idx(x, z)] = K.TREE
 				param[idx(x, z)] = 1
+	compute_seabed()
 	base_level = level.duplicate()
 	base_kind = kind.duplicate()
 	base_param = param.duplicate()
@@ -384,6 +431,7 @@ func apply_tool(id: String, x: int, z: int) -> bool:
 	var cost := tool_cost(id, x, z)
 	var k := knd(x, z)
 	var l := lvl(x, z)
+	var before := [k, l, prm(x, z), grw(x, z)]
 	match id:
 		"raise":
 			set_tile(x, z, K.EMPTY, l + 1, 0)
@@ -404,8 +452,88 @@ func apply_tool(id: String, x: int, z: int) -> bool:
 			var p := _landmark_for(id) if nk == K.LANDMARK else hash2(x, z, 7) % 250
 			set_tile(x, z, nk, l, p)
 	add_coins(-cost)
+	_stroke.append([x, z, before[0], before[1], before[2], before[3], knd(x, z), lvl(x, z), prm(x, z), cost])
 	if tutorial_step < 3:
 		_advance_tutorial(id)
+	return true
+
+
+# ------------------------------------------------------------------ undo / redo
+
+## Closes the current drag so it undoes as one step.
+func end_stroke() -> void:
+	if _stroke.is_empty():
+		return
+	_undo.append(_stroke)
+	_stroke = []
+	if _undo.size() > HISTORY_MAX:
+		_undo.pop_front()
+	_redo.clear()
+	history_changed.emit()
+
+
+func can_undo() -> bool:
+	return not _undo.is_empty() or not _stroke.is_empty()
+
+
+func can_redo() -> bool:
+	return not _redo.is_empty()
+
+
+func clear_history() -> void:
+	_undo.clear()
+	_redo.clear()
+	_stroke.clear()
+	history_changed.emit()
+
+
+func _matches(e: Array, off: int) -> bool:
+	return knd(e[0], e[1]) == e[off] and lvl(e[0], e[1]) == e[off + 1] and prm(e[0], e[1]) == e[off + 2]
+
+
+## Reverts the last stroke and gives back exactly what it cost.
+func undo() -> bool:
+	end_stroke()
+	if _undo.is_empty():
+		return false
+	var stroke: Array = _undo.pop_back()
+	var refund := 0.0
+	for i in range(stroke.size() - 1, -1, -1):
+		var e: Array = stroke[i]
+		# skip tiles someone else changed since (co-op), so nothing gets clobbered
+		if not _matches(e, 6):
+			continue
+		set_tile(e[0], e[1], e[2], e[3], e[4])
+		growth[idx(e[0], e[1])] = e[5]
+		growth_changed.emit(e[0], e[1], false)
+		refund += e[9]
+	if refund != 0.0:
+		add_coins(refund)
+	_redo.append(stroke)
+	_recount()
+	history_changed.emit()
+	return true
+
+
+## Re-applies an undone stroke for the same price it had the first time.
+func redo() -> bool:
+	if _redo.is_empty():
+		return false
+	var stroke: Array = _redo.back()
+	var cost := 0.0
+	for e in stroke:
+		if _matches(e, 2):
+			cost += e[9]
+	if cost > coins + 0.001:
+		toast.emit("Not enough coins to redo", "warn")
+		return false
+	_redo.pop_back()
+	for e in stroke:
+		if _matches(e, 2):
+			set_tile(e[0], e[1], e[6], e[7], e[8])
+	add_coins(-cost)
+	_undo.append(stroke)
+	history_changed.emit()
 	return true
 
 
@@ -417,6 +545,7 @@ func set_tile(x: int, z: int, k: int, l: int, p: int, remote := false) -> void:
 	if kind[i] == k and level[i] == l and param[i] == p:
 		return
 	var was := kind[i]
+	var old_level := level[i]
 	kind[i] = k
 	level[i] = clampi(l, 0, MAX_LEVEL)
 	param[i] = p
@@ -424,6 +553,9 @@ func set_tile(x: int, z: int, k: int, l: int, p: int, remote := false) -> void:
 		growth[i] = 0
 	if k == K.ROAD or k == K.PARK or k == K.TREE or k == K.LANDMARK:
 		growth[i] = 1
+	if level[i] != old_level and (level[i] == 0 or old_level == 0):
+		compute_seabed()
+		seabed_changed.emit()
 	tile_changed.emit(x, z)
 	if not remote:
 		Net.push_tile(x, z)
@@ -617,6 +749,7 @@ func to_dict() -> Dictionary:
 func from_dict(d: Dictionary, keep_economy := false) -> void:
 	seed_value = int(d.get("seed", 1))
 	_generate_terrain()
+	clear_history()
 	var edits: Dictionary = d.get("edits", {})
 	for key in edits:
 		var i := int(key)
@@ -627,6 +760,7 @@ func from_dict(d: Dictionary, keep_economy := false) -> void:
 		level[i] = int(e[1])
 		param[i] = int(e[2])
 		growth[i] = int(e[3]) if e.size() > 3 else 0
+	compute_seabed()
 	city_name = str(d.get("name", city_name))
 	if not keep_economy:
 		coins = float(d.get("coins", 600.0))

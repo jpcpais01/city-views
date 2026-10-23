@@ -70,9 +70,9 @@ func _build_chunk(cx: int, cz: int) -> void:
 			for i in 4:
 				var d: Vector2i = dirs[i]
 				var nl := Game.lvl(x + d.x, z + d.y) if Game.inside(x + d.x, z + d.y) else 0
-				if nl < l:
+				if nl < l or (l == 0 and nl == 0 and Game.inside(x + d.x, z + d.y) and Game.tile_y(x + d.x, z + d.y) < c.y - 0.01):
 					drops[i] = true
-					low[i] = Game.LEVEL_Y[nl]
+					low[i] = Game.tile_y(x + d.x, z + d.y) if Game.inside(x + d.x, z + d.y) else Game.SEA_FLOOR
 			var bx1 := LIP if drops[0] else 0.0
 			var bx0 := LIP if drops[1] else 0.0
 			var bz1 := LIP if drops[2] else 0.0

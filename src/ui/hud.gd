@@ -35,12 +35,20 @@ var _password: LineEdit
 var _room_code: LineEdit
 var _name_edit: LineEdit
 var _confirm_new := false
+var _undo_btn: Button
+var _menu_card: PanelContainer
+var _redo_btn: Button
+var _glass_light: ShaderMaterial
+var _glass_dark: ShaderMaterial
+var _glass_accent: ShaderMaterial
 
 const INK := Color("2b3440")
 const SOFT := Color("6b7785")
 const CARD := Color(1, 1, 1, 0.9)
 const ACCENT := Color("ff7a6b")
 const MINT := Color("3fae8c")
+const GLASS := Color(0.9, 0.93, 0.98)
+const GLASS_DARK := Color(0.1, 0.13, 0.18)
 
 
 func _ready() -> void:
@@ -52,6 +60,9 @@ func _ready() -> void:
 	font_reg = FontVariation.new()
 	font_reg.base_font = base
 	font_reg.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 650}
+	_glass_light = _glass_mat(0.5)
+	_glass_dark = _glass_mat(0.62)
+	_glass_accent = _glass_mat(0.72)
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -69,6 +80,7 @@ func _ready() -> void:
 	Game.title_changed.connect(_on_title)
 	Game.toast.connect(func(t, k): show_toast(t, k))
 	Game.world_reset.connect(_on_reset)
+	Game.history_changed.connect(_refresh_history)
 	Net.room_changed.connect(_refresh_players)
 	Net.players_changed.connect(_refresh_players)
 	Net.message.connect(func(t): show_toast(t, "info"))
@@ -82,9 +94,47 @@ func _ready() -> void:
 	_refresh_account()
 	_refresh_players()
 	_update_tutorial()
+	_refresh_history()
 
 
 # ------------------------------------------------------------------ theme
+
+func _glass_mat(tint: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = preload("res://src/ui/glass.gdshader")
+	m.set_shader_parameter("tint", tint)
+	return m
+
+
+## Frosted glass panel style: a soft tint, hairline white rim (brighter on top,
+## like light catching the edge) and a faint drop shadow.
+func _glass_box(tint := GLASS, radius := 24, pad := 14, rim := Color(1, 1, 1, 0.95), shadow := true) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = tint
+	sb.set_corner_radius_all(radius)
+	sb.corner_detail = 12
+	sb.content_margin_left = pad
+	sb.content_margin_right = pad
+	sb.content_margin_top = pad * 0.7
+	sb.content_margin_bottom = pad * 0.7
+	sb.border_color = rim
+	sb.border_width_top = 2
+	sb.border_width_left = 1
+	sb.border_width_right = 1
+	sb.border_width_bottom = 1
+	sb.border_blend = true
+	sb.anti_aliasing = true
+	if shadow:
+		sb.shadow_color = Color(0.05, 0.1, 0.2, 0.14)
+		sb.shadow_size = 14
+		sb.shadow_offset = Vector2(0, 6)
+	return sb
+
+
+func _glassify(c: Control, dark := false) -> void:
+	c.material = _glass_dark if dark else _glass_light
+	if c is PanelContainer:
+		c.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK if dark else GLASS, 24, 14, Color(1, 1, 1, 0.35) if dark else Color(1, 1, 1, 0.95)))
 
 func _box(bg: Color, radius := 22, pad := 14, shadow := true) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -108,14 +158,14 @@ func _make_theme() -> Theme:
 	t.default_font_size = 20
 	t.set_color("font_color", "Label", INK)
 	t.set_stylebox("panel", "PanelContainer", _box(CARD))
-	var b := _box(Color(1, 1, 1, 0.96), 18, 16)
+	var b := _box(Color(1, 1, 1, 0.96), 25, 16)
 	t.set_stylebox("normal", "Button", b)
-	var bh := _box(Color("fff6ee"), 18, 16)
+	var bh := _box(Color("fff6ee"), 25, 16)
 	t.set_stylebox("hover", "Button", bh)
-	var bp := _box(Color("ffe3d9"), 18, 16, false)
+	var bp := _box(Color("ffe3d9"), 25, 16, false)
 	t.set_stylebox("pressed", "Button", bp)
 	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
-	t.set_stylebox("disabled", "Button", _box(Color(0.92, 0.92, 0.92, 0.9), 18, 16, false))
+	t.set_stylebox("disabled", "Button", _box(Color(0.92, 0.92, 0.92, 0.9), 25, 16, false))
 	t.set_color("font_color", "Button", INK)
 	t.set_color("font_hover_color", "Button", INK)
 	t.set_color("font_pressed_color", "Button", INK)
@@ -165,6 +215,7 @@ func _build_top() -> void:
 	# city card
 	var card := PanelContainer.new()
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_glassify(card)
 	row.add_child(card)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
@@ -210,8 +261,7 @@ func _build_top() -> void:
 	_pop_label = _pill(stats, "people")
 	_coin_label = _pill(stats, "coin")
 	_happy_label = _pill(stats, "smile")
-	var menu_btn := Button.new()
-	menu_btn.custom_minimum_size = Vector2(58, 58)
+	var menu_btn := _glass_button(58)
 	var mi := _icon("menu", 30)
 	mi.set_anchors_preset(Control.PRESET_FULL_RECT)
 	menu_btn.add_child(mi)
@@ -222,7 +272,8 @@ func _build_top() -> void:
 func _pill(parent: Control, icon: String) -> Label:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.add_theme_stylebox_override("panel", _box(CARD, 29, 14))
+	_glassify(p)
+	p.add_theme_stylebox_override("panel", _glass_box(GLASS, 29, 14))
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
 	p.add_child(h)
@@ -268,67 +319,116 @@ func _process(delta: float) -> void:
 func _build_toolbar() -> void:
 	var bottom := VBoxContainer.new()
 	bottom.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	bottom.offset_top = -190
-	bottom.offset_bottom = -14
+	bottom.offset_top = -200
+	bottom.offset_bottom = -10
 	bottom.offset_left = 16
 	bottom.offset_right = -16
 	bottom.alignment = BoxContainer.ALIGNMENT_END
+	bottom.add_theme_constant_override("separation", 6)
 	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(bottom)
+	# undo / redo float on the left above the tools; the hint sits centred
+	var over := HBoxContainer.new()
+	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	over.add_theme_constant_override("separation", 10)
+	bottom.add_child(over)
+	_undo_btn = _glass_button(56, "undo")
+	_undo_btn.pressed.connect(_on_undo)
+	over.add_child(_undo_btn)
+	_redo_btn = _glass_button(56, "redo")
+	_redo_btn.pressed.connect(_on_redo)
+	over.add_child(_redo_btn)
 	var hint_row := CenterContainer.new()
 	hint_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bottom.add_child(hint_row)
+	hint_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	over.add_child(hint_row)
+	var pad := Control.new()
+	pad.custom_minimum_size.x = 122
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	over.add_child(pad)
 	_hint_card = PanelContainer.new()
 	_hint_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hint_card.add_theme_stylebox_override("panel", _box(Color(0.17, 0.2, 0.25, 0.82), 16, 14))
-	_hint = _label("", 17, false, Color.WHITE)
+	_hint_card.material = _glass_dark
+	_hint_card.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK, 18, 16, Color(1, 1, 1, 0.3)))
+	_hint = _label("", 17, true, Color.WHITE)
 	_hint_card.add_child(_hint)
 	_hint_card.modulate.a = 0.0
 	hint_row.add_child(_hint_card)
+	# no bar behind the tools: each one is its own floating glass key
 	var center := CenterContainer.new()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bottom.add_child(center)
-	var bar := PanelContainer.new()
-	bar.add_theme_stylebox_override("panel", _box(CARD, 30, 12))
-	center.add_child(bar)
 	var scroll := ScrollContainer.new()
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	scroll.custom_minimum_size = Vector2(min(1180, 86 * Game.TOOLS.size()), 112)
-	bar.add_child(scroll)
+	scroll.custom_minimum_size = Vector2(min(1248, 84 * Game.TOOLS.size() + 16), 100)
+	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	center.add_child(scroll)
+	var m := MarginContainer.new()
+	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + side, 8)
+	scroll.add_child(m)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 4)
-	scroll.add_child(row)
+	row.add_theme_constant_override("separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m.add_child(row)
 	for t in Game.TOOLS:
 		row.add_child(_tool_button(t))
 
 
+## A round glass key holding only an icon (menu, undo, redo).
+func _glass_button(px: int, icon := "menu") -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(px, px)
+	b.material = _glass_light
+	var r := px / 2
+	b.add_theme_stylebox_override("normal", _glass_box(GLASS, r, 0))
+	b.add_theme_stylebox_override("hover", _glass_box(Color(0.97, 0.98, 1.0), r, 0))
+	b.add_theme_stylebox_override("pressed", _glass_box(Color(1, 0.88, 0.84), r, 0, Color.WHITE, false))
+	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, r, 0, Color(1, 1, 1, 0.4), false))
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var ic := _icon(icon, int(px * 0.5))
+	ic.set_anchors_preset(Control.PRESET_FULL_RECT)
+	b.add_child(ic)
+	b.pivot_offset = Vector2(px, px) * 0.5
+	b.button_down.connect(func(): _squish(b, 0.9))
+	b.button_up.connect(func(): _squish(b, 1.0))
+	return b
+
+
+func _squish(c: Control, to: float) -> void:
+	var tw := create_tween()
+	tw.tween_property(c, "scale", Vector2(to, to), 0.12 if to < 1.0 else 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
 func _tool_button(t: Dictionary) -> Control:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(82, 108)
+	b.custom_minimum_size = Vector2(76, 84)
 	b.toggle_mode = true
-	b.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-	b.add_theme_stylebox_override("hover", _box(Color(0, 0, 0, 0.04), 20, 4, false))
-	b.add_theme_stylebox_override("pressed", _box(Color("ffe3d9"), 20, 4, false))
-	b.add_theme_stylebox_override("hover_pressed", _box(Color("ffd6c9"), 20, 4, false))
-	b.add_theme_stylebox_override("disabled", StyleBoxEmpty.new())
+	b.material = _glass_light
+	b.pivot_offset = Vector2(38, 42)
+	b.add_theme_stylebox_override("normal", _glass_box(GLASS, 26, 4))
+	b.add_theme_stylebox_override("hover", _glass_box(Color(0.97, 0.98, 1.0), 26, 4))
+	b.add_theme_stylebox_override("pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
+	b.add_theme_stylebox_override("hover_pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
+	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, 26, 4))
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 0)
+	v.add_theme_constant_override("separation", -2)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(v)
-	var ic := _icon(t.id, 54)
+	var ic := _icon(t.id, 46)
 	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(ic)
-	var nl := _label(t.name, 15, true)
-	nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(nl)
-	var cl := _label("", 13, false, SOFT)
+	var cl := _label("", 14, true, INK)
 	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(cl)
 	b.pressed.connect(_on_tool_pressed.bind(t.id))
-	_tool_buttons[t.id] = {"button": b, "icon": ic, "cost": cl, "name": nl}
+	b.button_down.connect(func(): _squish(b, 0.92))
+	_tool_buttons[t.id] = {"button": b, "icon": ic, "cost": cl}
 	return b
 
 
@@ -341,11 +441,48 @@ func _refresh_tools() -> void:
 		var ic: UiIcon = e.icon
 		ic.set_kind(t.id if unlocked else "lock")
 		ic.color = SOFT
-		e.cost.text = ("%d" % t.cost if t.cost > 0 else "free") if unlocked else "at %d pop" % t.unlock
-		if not unlocked:
-			e.cost.text = "at %d pop" % t.unlock
-		e.button.modulate = Color(1, 1, 1, 1) if unlocked else Color(1, 1, 1, 0.55)
-		e.button.button_pressed = _selected == t.id
+		e.cost.text = ("%d" % t.cost if t.cost > 0 else "free") if unlocked else "%d pop" % t.unlock
+		e.button.modulate = Color(1, 1, 1, 1) if unlocked else Color(1, 1, 1, 0.6)
+		var sel: bool = _selected == t.id
+		e.button.button_pressed = sel
+		e.cost.add_theme_color_override("font_color", Color.WHITE if sel else (INK if unlocked else SOFT))
+		# PS5-style focus: the chosen key lifts and grows, the rest settle
+		var target := Vector2(1.12, 1.12) if sel else Vector2.ONE
+		if e.button.scale != target and e.button.is_inside_tree():
+			var tw := create_tween()
+			tw.tween_property(e.button, "scale", target, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _refresh_history() -> void:
+	if _undo_btn == null:
+		return
+	_undo_btn.disabled = not Game.can_undo()
+	_redo_btn.disabled = not Game.can_redo()
+	_undo_btn.modulate.a = 1.0 if Game.can_undo() else 0.45
+	_redo_btn.modulate.a = 1.0 if Game.can_redo() else 0.45
+
+
+func _on_undo() -> void:
+	if Game.undo():
+		Sfx.play("pop", 0.8, -3.0)
+		_flash_hint("Undone · coins refunded", false, 1.2)
+	_refresh_history()
+
+
+func _on_redo() -> void:
+	if Game.redo():
+		Sfx.play("pop", 1.2, -3.0)
+		_flash_hint("Redone", false, 1.0)
+	_refresh_history()
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and (event.ctrl_pressed or event.meta_pressed) and event.keycode == KEY_Z:
+		if event.shift_pressed:
+			_on_redo()
+		else:
+			_on_undo()
+		get_viewport().set_input_as_handled()
 
 
 func _on_tool_pressed(id: String) -> void:
@@ -360,13 +497,13 @@ func _on_tool_pressed(id: String) -> void:
 	_refresh_tools()
 	if _selected != "":
 		var def := Game.tool_def(id)
-		_flash_hint(def.desc, false, 3.5)
+		_flash_hint("%s  ·  %s" % [def.name, def.desc], false, 3.5)
 	_info.visible = false
 
 
 func _flash_hint(text: String, warn := false, secs := 2.2) -> void:
 	_hint.text = text
-	_hint_card.add_theme_stylebox_override("panel", _box(Color(0.78, 0.3, 0.27, 0.9) if warn else Color(0.17, 0.2, 0.25, 0.82), 16, 14))
+	_hint_card.add_theme_stylebox_override("panel", _glass_box(Color(0.85, 0.3, 0.27) if warn else GLASS_DARK, 18, 16, Color(1, 1, 1, 0.3)))
 	var tw := create_tween()
 	tw.tween_property(_hint_card, "modulate:a", 1.0, 0.15)
 	tw.tween_interval(secs)
@@ -394,18 +531,25 @@ func _build_toasts() -> void:
 func show_toast(text: String, kind := "info") -> void:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg := CARD
+	var bg := GLASS
 	var col := INK
 	var size := 19
+	p.material = _glass_light
 	if kind == "unlock":
-		bg = Color("2b3440")
+		bg = GLASS_DARK
 		col = Color("ffe9c7")
 		size = 24
+		p.material = _glass_dark
 	elif kind == "title":
-		bg = Color("ff7a6b")
+		bg = ACCENT
 		col = Color.WHITE
 		size = 26
-	p.add_theme_stylebox_override("panel", _box(bg, 20, 18))
+		p.material = _glass_accent
+	elif kind == "warn":
+		bg = Color(0.85, 0.3, 0.27)
+		col = Color.WHITE
+		p.material = _glass_accent
+	p.add_theme_stylebox_override("panel", _glass_box(bg, 24, 18, Color(1, 1, 1, 0.5 if bg == GLASS_DARK else 0.95)))
 	var l := _label(text, size, true, col)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(l)
@@ -480,7 +624,7 @@ func _build_tutorial() -> void:
 	_tutorial.offset_left = 18
 	_tutorial.offset_top = -40
 	_tutorial.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tutorial.add_theme_stylebox_override("panel", _box(Color(1, 1, 1, 0.92), 18, 16))
+	_glassify(_tutorial)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
 	_tutorial.add_child(h)
@@ -516,6 +660,7 @@ func _build_info() -> void:
 	_info.offset_right = -18
 	_info.offset_top = -60
 	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_glassify(_info)
 	_info_label = _label("", 17, false)
 	_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info_label.custom_minimum_size.x = 270
@@ -571,7 +716,7 @@ func _refresh_players() -> void:
 		_refresh_account()
 		return
 	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", _box(CARD, 18, 12))
+	_glassify(chip)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
 	chip.add_child(h)
@@ -595,6 +740,13 @@ func _toggle_menu() -> void:
 	if _menu.visible:
 		_name_edit.text = Game.player_name
 		_refresh_account()
+		# springy sheet entrance
+		_menu_card.pivot_offset = _menu_card.size * 0.5
+		_menu_card.scale = Vector2(0.92, 0.92)
+		_menu.modulate.a = 0.0
+		var tw := create_tween().set_parallel(true)
+		tw.tween_property(_menu_card, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tw.tween_property(_menu, "modulate:a", 1.0, 0.18)
 
 
 func _section(parent: Control, title: String) -> VBoxContainer:
@@ -629,7 +781,7 @@ func _build_menu() -> void:
 	_menu.visible = false
 	_root.add_child(_menu)
 	var dim := ColorRect.new()
-	dim.color = Color(0.1, 0.14, 0.2, 0.35)
+	dim.color = Color(0.06, 0.09, 0.14, 0.3)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.gui_input.connect(func(e):
 		if e is InputEventMouseButton and e.pressed:
@@ -642,7 +794,9 @@ func _build_menu() -> void:
 	card.offset_right = 310
 	card.offset_top = -300
 	card.offset_bottom = 300
-	card.add_theme_stylebox_override("panel", _box(Color(1, 1, 1, 0.97), 28, 26))
+	_menu_card = card
+	card.material = _glass_mat(0.72)
+	card.add_theme_stylebox_override("panel", _glass_box(Color(0.96, 0.97, 0.99), 34, 28))
 	_menu.add_child(card)
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 12)
@@ -652,11 +806,7 @@ func _build_menu() -> void:
 	var t := _label("City Views", 30, true)
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(t)
-	var close := Button.new()
-	close.custom_minimum_size = Vector2(48, 48)
-	var ci := _icon("close", 22)
-	ci.set_anchors_preset(Control.PRESET_FULL_RECT)
-	close.add_child(ci)
+	var close := _glass_button(48, "close")
 	close.pressed.connect(_toggle_menu)
 	head.add_child(close)
 	var scroll := ScrollContainer.new()

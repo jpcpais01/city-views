@@ -143,3 +143,11 @@ func _draw() -> void:
 			draw_circle(P.call(0.5, 0.56), 0.24 * s, c)
 			for i in 4:
 				_rr(Rect2(P.call(0.3 + i * 0.11, 0.16 + absf(i - 1.5) * 0.06), Vector2(0.09, 0.4) * s), 0.045 * s, c)
+		"undo", "redo":
+			# a curled arrow; redo is the mirror image
+			var m := 1.0 if kind == "undo" else -1.0
+			var Q := func(x: float, y: float) -> Vector2: return P.call(0.5 + (x - 0.5) * m, y)
+			draw_arc(Q.call(0.52, 0.56), 0.24 * s, -PI * 0.5 if kind == "undo" else PI * 0.5, PI * 0.5 if kind == "undo" else PI * 1.5, 20, c, 0.09 * s, true)
+			draw_line(Q.call(0.52, 0.8), Q.call(0.36, 0.8), c, 0.09 * s, true)
+			draw_line(Q.call(0.52, 0.32), Q.call(0.36, 0.32), c, 0.09 * s, true)
+			draw_colored_polygon(PackedVector2Array([Q.call(0.14, 0.32), Q.call(0.4, 0.14), Q.call(0.4, 0.5)]), c)

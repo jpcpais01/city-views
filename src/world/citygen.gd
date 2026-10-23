@@ -101,8 +101,8 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 	if water:
 		# bridge deck with rails and pillars down to the sea floor
 		var deck := Color(0.9, 0.86, 0.8)
-		mk.rbox(Vector3(0, -0.12, 0), Vector3(2.0, 0.24, 2.0), 0.05, deck)
-		var depth := lift + 0.9
+		mk.rbox(Vector3(0, -0.07, 0), Vector3(2.0, 0.14, 2.0), 0.04, deck)
+		var depth := lift + 0.1
 		for px in [-0.75, 0.75]:
 			for pz in [-0.75, 0.75]:
 				mk.cylinder(Vector3(px, -depth - 0.1, pz), 0.12, depth, 8, deck.darkened(0.15), false)

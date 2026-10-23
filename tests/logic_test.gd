@@ -102,5 +102,27 @@ func _ready() -> void:
 	Game.apply_tool("lower", 30, 30)
 	Game.apply_tool("lower", 30, 30)
 	check(Game.lvl(30, 30) == 1, "lower works")
+	# undo / redo: a whole drag undoes as one step and money comes back exactly
+	Game.end_stroke()
+	Game.set_tile(30, 30, Game.K.EMPTY, 2, 0)
+	Game.set_tile(31, 30, Game.K.EMPTY, 2, 0)
+	Game.set_tile(32, 30, Game.K.EMPTY, 2, 0)
+	Game.coins = 1000.0
+	Game.apply_tool("road", 30, 30)
+	Game.apply_tool("road", 31, 30)
+	Game.apply_tool("road", 32, 30)
+	Game.end_stroke()
+	var spent := 1000.0 - Game.coins
+	check(spent > 0.0, "roads cost coins")
+	check(Game.undo() and Game.knd(31, 30) == Game.K.EMPTY and Game.knd(30, 30) == Game.K.EMPTY, "undo clears the stroke")
+	check(absf(Game.coins - 1000.0) < 0.01, "undo refunds in full")
+	check(Game.redo() and Game.knd(32, 30) == Game.K.ROAD, "redo puts it back")
+	check(absf(1000.0 - Game.coins - spent) < 0.01, "redo costs the same, no extra")
+	check(not Game.can_redo(), "redo stack empties")
+	Game.apply_tool("bulldoze", 31, 30)
+	Game.end_stroke()
+	var after_doze := Game.coins
+	Game.undo()
+	check(Game.knd(31, 30) == Game.K.ROAD and Game.coins < after_doze, "undo bulldoze restores road and takes back the refund")
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
