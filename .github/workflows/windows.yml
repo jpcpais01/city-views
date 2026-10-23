@@ -1,10 +1,17 @@
-name: Windows build (on demand)
+name: Windows build
 
-# On demand only: run from the Actions tab ("Run workflow"), or push a tag named win-<anything>
-# (e.g. git tag win-0.1.27 && git push origin win-0.1.27). Never runs on ordinary merges.
+# Runs after every release from android.yml (workflow_call), and can also be run by hand
+# from the Actions tab or by pushing a tag named win-<version> (e.g. win-0.1.27).
 on:
   push:
     tags: ["win-*"]
+  workflow_call:
+    inputs:
+      attach_to:
+        description: "Release tag to attach the zip to"
+        type: string
+        required: false
+        default: ""
   workflow_dispatch:
     inputs:
       attach_to:

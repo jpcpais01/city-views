@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-23 18:30 UTC
+- Every new version now comes with a Windows download too: grab CityViews-Windows.zip from the release, unzip it and run CityViews.exe.
+
 ## 2026-10-23 18:00 UTC
 - New build bar: Roads, Homes, Shops, Work, Parks, Nature, Landmarks, Land and Clear. Tap a category to pick from its types, each with its own price and perks.
 - 22 new things to build. Roads come as streets, tree-lined avenues and cobbled lanes. Homes come as cottages, row houses, villas and apartments. Shops come as corner shops, cafés, markets and department stores. Work comes as office towers, studios and seaside hotels.
