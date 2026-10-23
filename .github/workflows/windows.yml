@@ -1,7 +1,10 @@
 name: Windows build (on demand)
 
-# Manual only: run from the Actions tab ("Run workflow") when a Windows build is wanted.
+# On demand only: run from the Actions tab ("Run workflow"), or push a tag named win-<anything>
+# (e.g. git tag win-0.1.27 && git push origin win-0.1.27). Never runs on ordinary merges.
 on:
+  push:
+    tags: ["win-*"]
   workflow_dispatch:
     inputs:
       attach_to:
@@ -64,7 +67,7 @@ jobs:
           WANT: ${{ inputs.attach_to }}
         run: |
           set -e
-          if [ -n "$WANT" ]; then TAG="$WANT"; else TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName); fi
+          if [ -n "$WANT" ]; then TAG="$WANT"; elif [ -n "$(gh release view "v${GITHUB_REF_NAME#win-}" --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null)" ]; then TAG="v${GITHUB_REF_NAME#win-}"; else TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName); fi
           NAME="${TAG#v}"
           echo "TAG=$TAG" >> $GITHUB_ENV
           echo "APP_VERSION=$NAME" >> $GITHUB_ENV
