@@ -85,6 +85,10 @@ func _ready() -> void:
 		var pp: Dictionary = world.people._people[int(OS.get_environment("CV_PERSON"))]
 		world.rig.focus((pp.xf as Transform3D).origin)
 		await get_tree().create_timer(4.0).timeout
+	if OS.get_environment("CV_CAT") != "":
+		# open a build category so its sub-type row shows
+		hud._on_cat_pressed(OS.get_environment("CV_CAT"))
+		await get_tree().create_timer(1.0).timeout
 	if OS.get_environment("CV_MENU") != "":
 		hud._page = OS.get_environment("CV_MENU")
 		hud._toggle_menu()

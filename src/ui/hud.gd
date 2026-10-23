@@ -16,6 +16,11 @@ var _title_label: Label
 var _progress: ProgressBar
 var _next_label: Label
 var _tool_buttons := {}
+var _cat_buttons := {}
+var _sub_wrap: Control
+var _sub_row: HBoxContainer
+var _open_cat := ""
+var _last_tool := {}
 var _hint: Label
 var _hint_card: PanelContainer
 var _toasts: VBoxContainer
@@ -366,7 +371,7 @@ func _process(delta: float) -> void:
 func _build_toolbar() -> void:
 	var bottom := VBoxContainer.new()
 	bottom.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	bottom.offset_top = -200
+	bottom.offset_top = -330
 	bottom.offset_bottom = -10
 	bottom.offset_left = 16
 	bottom.offset_right = -16
@@ -401,27 +406,88 @@ func _build_toolbar() -> void:
 	_hint_card.add_child(_hint)
 	_hint_card.modulate.a = 0.0
 	hint_row.add_child(_hint_card)
-	# no bar behind the tools: each one is its own floating glass key
+	# the open category's sub-types float in their own row above the bar
+	var sub_center := CenterContainer.new()
+	sub_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom.add_child(sub_center)
+	_sub_wrap = sub_center
+	_sub_row = HBoxContainer.new()
+	_sub_row.add_theme_constant_override("separation", 8)
+	_sub_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sub_center.add_child(_sub_row)
+	_sub_wrap.visible = false
+	# no bar behind the categories: each one is its own floating glass key
 	var center := CenterContainer.new()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bottom.add_child(center)
-	var scroll := ScrollContainer.new()
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	scroll.custom_minimum_size = Vector2(min(1248, 84 * Game.TOOLS.size() + 16), 100)
-	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
-	center.add_child(scroll)
 	var m := MarginContainer.new()
 	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
 		m.add_theme_constant_override("margin_" + side, 8)
-	scroll.add_child(m)
+	center.add_child(m)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	m.add_child(row)
+	for c in Game.CATEGORIES:
+		row.add_child(_cat_button(c))
+
+
+func _tools_in(cat: String) -> Array:
+	var out := []
 	for t in Game.TOOLS:
-		row.add_child(_tool_button(t))
+		if t.cat == cat:
+			out.append(t)
+	return out
+
+
+func _cat_of(id: String) -> String:
+	return Game.tool_def(id).get("cat", "")
+
+
+## The tool a category key stands for: the last one used, else its first unlocked one.
+func _cat_tool(cat: String) -> String:
+	if _last_tool.has(cat) and Game.is_unlocked(_last_tool[cat]):
+		return _last_tool[cat]
+	for t in _tools_in(cat):
+		if Game.is_unlocked(t.id):
+			return t.id
+	return _tools_in(cat)[0].id
+
+
+func _key(w: int, h: int) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(w, h)
+	b.toggle_mode = true
+	b.material = _glass_light
+	b.pivot_offset = Vector2(w, h) * 0.5
+	b.add_theme_stylebox_override("normal", _glass_box(GLASS, 26, 4))
+	b.add_theme_stylebox_override("hover", _glass_box(Color(0.97, 0.98, 1.0), 26, 4))
+	b.add_theme_stylebox_override("pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
+	b.add_theme_stylebox_override("hover_pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
+	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, 26, 4))
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.button_down.connect(func(): _squish(b, 0.92))
+	return b
+
+
+func _cat_button(c: Dictionary) -> Control:
+	var b := _key(80, 84)
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", -2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var ic := _icon(_cat_tool(c.id), 44)
+	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(ic)
+	var cl := _label(c.name, 13, true, INK)
+	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(cl)
+	b.pressed.connect(_on_cat_pressed.bind(c.id))
+	_cat_buttons[c.id] = {"button": b, "icon": ic, "label": cl}
+	return b
 
 
 ## A round glass key holding only an icon (menu, undo, redo).
@@ -450,37 +516,71 @@ func _squish(c: Control, to: float) -> void:
 
 
 func _tool_button(t: Dictionary) -> Control:
-	var b := Button.new()
-	b.custom_minimum_size = Vector2(76, 84)
-	b.toggle_mode = true
-	b.material = _glass_light
-	b.pivot_offset = Vector2(38, 42)
-	b.add_theme_stylebox_override("normal", _glass_box(GLASS, 26, 4))
-	b.add_theme_stylebox_override("hover", _glass_box(Color(0.97, 0.98, 1.0), 26, 4))
-	b.add_theme_stylebox_override("pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
-	b.add_theme_stylebox_override("hover_pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
-	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, 26, 4))
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var b := _key(84, 96)
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", -2)
+	v.add_theme_constant_override("separation", -3)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(v)
-	var ic := _icon(t.id, 46)
+	var ic := _icon(t.id, 42)
 	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(ic)
-	var cl := _label("", 14, true, INK)
+	var nl := _label(t.name, 11, true, INK)
+	nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nl.clip_text = true
+	nl.custom_minimum_size.x = 78
+	v.add_child(nl)
+	var cl := _label("", 13, true, SOFT)
 	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(cl)
 	b.pressed.connect(_on_tool_pressed.bind(t.id))
-	b.button_down.connect(func(): _squish(b, 0.92))
-	_tool_buttons[t.id] = {"button": b, "icon": ic, "cost": cl}
+	_tool_buttons[t.id] = {"button": b, "icon": ic, "cost": cl, "name": nl}
 	return b
 
 
+## Fills the floating row with the open category's sub-types.
+func _show_subs(cat: String) -> void:
+	for c in _sub_row.get_children():
+		c.queue_free()
+	_tool_buttons.clear()
+	_open_cat = cat
+	var tools := _tools_in(cat) if cat != "" and cat != "clear" else []
+	_sub_wrap.visible = tools.size() > 0
+	var k := 0
+	for t in tools:
+		var b := _tool_button(t)
+		_sub_row.add_child(b)
+		# keys rise into place one after another
+		b.modulate.a = 0.0
+		b.position.y = 20.0
+		var tw := create_tween()
+		tw.tween_interval(k * 0.025)
+		tw.tween_property(b, "modulate:a", 1.0, 0.16)
+		k += 1
+
+
 func _refresh_tools() -> void:
-	for t in Game.TOOLS:
+	for c in Game.CATEGORIES:
+		var e: Dictionary = _cat_buttons.get(c.id, {})
+		if e.is_empty():
+			continue
+		var any := false
+		var cheapest := 1 << 30
+		for t in _tools_in(c.id):
+			if Game.is_unlocked(t.id):
+				any = true
+			cheapest = mini(cheapest, t.unlock)
+		var ic: UiIcon = e.icon
+		ic.set_kind(_cat_tool(c.id) if any else "lock")
+		ic.color = SOFT
+		e.label.text = c.name if any else "%d pop" % cheapest
+		var open: bool = _open_cat == c.id or (c.id == "clear" and _selected == "bulldoze")
+		e.button.button_pressed = open
+		e.button.modulate = Color(1, 1, 1, 1) if any else Color(1, 1, 1, 0.6)
+		e.label.add_theme_color_override("font_color", Color.WHITE if open else (INK if any else SOFT))
+		_lift(e.button, open)
+	for t in _tools_in(_open_cat):
 		var e: Dictionary = _tool_buttons.get(t.id, {})
 		if e.is_empty():
 			continue
@@ -493,11 +593,16 @@ func _refresh_tools() -> void:
 		var sel: bool = _selected == t.id
 		e.button.button_pressed = sel
 		e.cost.add_theme_color_override("font_color", Color.WHITE if sel else (INK if unlocked else SOFT))
-		# PS5-style focus: the chosen key lifts and grows, the rest settle
-		var target := Vector2(1.12, 1.12) if sel else Vector2.ONE
-		if e.button.scale != target and e.button.is_inside_tree():
-			var tw := create_tween()
-			tw.tween_property(e.button, "scale", target, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		e.name.add_theme_color_override("font_color", Color.WHITE if sel else (INK if unlocked else SOFT))
+		_lift(e.button, sel)
+
+
+## PS5-style focus: the chosen key lifts and grows, the rest settle.
+func _lift(b: Button, on: bool) -> void:
+	var target := Vector2(1.1, 1.1) if on else Vector2.ONE
+	if b.scale != target and b.is_inside_tree():
+		var tw := create_tween()
+		tw.tween_property(b, "scale", target, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _refresh_history() -> void:
@@ -537,6 +642,28 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+func _on_cat_pressed(cat: String) -> void:
+	Sfx.play("click")
+	_info.visible = false
+	if cat == "clear":
+		_show_subs("")
+		_select("" if _selected == "bulldoze" else "bulldoze")
+		return
+	if _open_cat == cat:
+		# a second tap folds the row away and puts the tool down
+		_show_subs("")
+		_select("")
+		return
+	_show_subs(cat)
+	var id := _cat_tool(cat)
+	if Game.is_unlocked(id):
+		_select(id)
+	else:
+		_select("")
+		var def := Game.tool_def(id)
+		_flash_hint("%s unlocks at %d citizens" % [def.name, def.unlock], true)
+
+
 func _on_tool_pressed(id: String) -> void:
 	Sfx.play("click")
 	if not Game.is_unlocked(id):
@@ -544,13 +671,19 @@ func _on_tool_pressed(id: String) -> void:
 		_flash_hint("%s unlocks at %d citizens" % [def.name, def.unlock], true)
 		_tool_buttons[id].button.button_pressed = false
 		return
-	_selected = "" if _selected == id else id
+	_select("" if _selected == id else id)
+	_info.visible = false
+
+
+func _select(id: String) -> void:
+	_selected = id
 	world.set_tool(_selected)
+	if id != "":
+		_last_tool[_cat_of(id)] = id
 	_refresh_tools()
 	if _selected != "":
 		var def := Game.tool_def(id)
 		_flash_hint("%s  ·  %s" % [def.name, def.desc], false, 3.5)
-	_info.visible = false
 
 
 func _flash_hint(text: String, warn := false, secs := 2.2) -> void:
@@ -624,7 +757,10 @@ func _on_unlocked(id: String) -> void:
 	Sfx.play("unlock")
 	_confetti()
 	_refresh_tools()
-	var e: Dictionary = _tool_buttons[id]
+	# the new tool's category key bounces (and the key itself, if its row is open)
+	var e: Dictionary = _tool_buttons.get(id, _cat_buttons.get(_cat_of(id), {}))
+	if e.is_empty():
+		return
 	var b: Button = e.button
 	b.pivot_offset = b.size * 0.5
 	var tw := create_tween()
@@ -692,8 +828,8 @@ func _update_tutorial() -> void:
 	if _tutorial == null:
 		return
 	var texts := [
-		"Pick Road and drag across the grass to lay your first street.",
-		"Now choose Homes and paint them right beside the road.",
+		"Tap Roads and drag a street across the grass.",
+		"Now open Homes and paint houses right beside the road.",
 		"Watch your homes grow! Add shops and parks to help them thrive.",
 	]
 	if Game.tutorial_step < texts.size() and not Net.in_room():
@@ -727,13 +863,15 @@ func _on_tile_tapped(t: Vector2i) -> void:
 		return
 	var k := Game.knd(t.x, t.y)
 	var g := Game.grw(t.x, t.y)
-	var names := {Game.K.HOUSE: ["Cottage", "Townhouse", "Apartments"], Game.K.SHOP: ["Corner shop", "High street shop", "Department store"], Game.K.OFFICE: ["Studio offices", "Office tower", "Skyscraper"]}
+	var names := {Game.K.HOUSE: [["Cottage", "Townhouse", "Apartments"], ["Row house", "Terrace", "Brownstones"], ["Bungalow", "Villa", "Mansion"], ["Flats", "Apartment block", "High-rise flats"]],
+		Game.K.SHOP: [["Corner shop", "High street shop", "Department store"], ["Café", "Bistro", "Rooftop restaurant"], ["Market stalls", "Covered market", "Market hall"], ["Store", "Department store", "Shopping centre"]],
+		Game.K.OFFICE: [["Studio offices", "Office tower", "Skyscraper"], ["Workshop", "Studios", "Campus"], ["Guesthouse", "Hotel", "Grand hotel"]]}
 	var text := ""
 	if Game.is_building(k):
 		if g == 0:
 			text = "Building site\nNeeds a road right next to it to start building."
 		else:
-			text = "%s  ·  level %d\n" % [names[k][g - 1], g]
+			text = "%s  ·  level %d\n" % [names[k][Game.sub(t.x, t.y)][g - 1], g]
 			var target := Game.target_growth(t.x, t.y)
 			if g < 3:
 				if target > g:
@@ -747,9 +885,9 @@ func _on_tile_tapped(t: Vector2i) -> void:
 			else:
 				text += "Fully grown. Lovely!"
 	elif k == Game.K.LANDMARK:
-		text = "Landmark\nLifts happiness and helps nearby buildings grow."
+		text = "%s\nLifts happiness and helps nearby buildings grow." % Game.tool_at(t.x, t.y).get("name", "Landmark")
 	elif k == Game.K.PARK:
-		text = "Park\nNeighbours within 3 tiles grow faster."
+		text = "%s\nNeighbours within 3 tiles grow faster." % Game.tool_at(t.x, t.y).get("name", "Park")
 	else:
 		_info.visible = false
 		return

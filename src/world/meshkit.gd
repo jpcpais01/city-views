@@ -28,6 +28,13 @@ var bverts := PackedVector3Array()
 var bcols := PackedColorArray()
 var buvs := PackedVector2Array()
 var bradius := PackedVector2Array()
+# sprites too thin to cast a visible shadow (the same rule _small applies to
+# boxes): drawn from their own mesh that stays out of the shadow pass
+var quiet_sprites := false
+var qverts := PackedVector3Array()
+var qcols := PackedColorArray()
+var quvs := PackedVector2Array()
+var qradius := PackedVector2Array()
 static var _blob_mat: Material
 # material for the flush-detail surface (window rows need its shader)
 static var detail_material: Material
@@ -194,8 +201,14 @@ func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bo
 	_depth -= 1
 
 
-# emission code the city shader paints as rows of roof tiles
+# emission codes the city shader paints as surface patterns (no extra triangles)
 const ROOF_TILES := 0.25
+const COBBLE := 0.33
+const PAVING := 0.37
+const SIDING := 0.41
+const BRICKS := 0.45
+const MOWN_X := 0.48
+const MOWN_Z := 0.49
 
 const TOP := 1
 const FRONT := 2  # +Z
@@ -223,6 +236,23 @@ func box_faces(center: Vector3, size: Vector3, col: Color, mask: int, e := 0.0) 
 	if mask & LEFT:
 		quad(c + Vector3(-h.x, -h.y, -h.z), c + Vector3(-h.x, -h.y, h.z), c + Vector3(-h.x, h.y, h.z), c + Vector3(-h.x, h.y, -h.z), Vector3.LEFT, col, e)
 	_depth -= 1
+
+
+## Shadow stand-in for just the walls in `mask` (a lean-to whose roof and back
+## wall already cast): two triangles per face instead of a ten-triangle box.
+func shadow_faces(center: Vector3, size: Vector3, mask: int) -> void:
+	if not _casts():
+		return
+	var h := size * 0.5
+	var c := center
+	for f in [[FRONT, Vector3(0, 0, h.z), Vector3(h.x, 0, 0)], [BACK, Vector3(0, 0, -h.z), Vector3(h.x, 0, 0)],
+			[RIGHT, Vector3(h.x, 0, 0), Vector3(0, 0, h.z)], [LEFT, Vector3(-h.x, 0, 0), Vector3(0, 0, h.z)]]:
+		if mask & int(f[0]):
+			var o: Vector3 = c + f[1]
+			var t: Vector3 = f[2]
+			var u := Vector3(0, h.y, 0)
+			_st(o - t - u, o + t - u, o + t + u)
+			_st(o - t - u, o + t + u, o - t + u)
 
 
 func _box_impl(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bottom := false, e := 0.0) -> void:
@@ -253,6 +283,36 @@ func rbox(center: Vector3, size: Vector3, radius: float, col: Color, top_col: Va
 		_sbox(center, size * 0.5)
 	_depth += 1
 	_rbox_impl(center, size, radius, col, top_col, bottom, e)
+	_depth -= 1
+
+
+## The walls of a rounded box whose top is hidden under a roof, cornice or
+## parapet: sides and vertical bevels only, so 16 triangles instead of 30.
+## Casts the same shadow as rbox().
+func rbox_walls(center: Vector3, size: Vector3, radius: float, col: Color, e := 0.0) -> void:
+	if _casts() and not _small(size) and not _ground_slab(center, size):
+		_sbox(center, size * 0.5)
+	var h := size * 0.5
+	var r: float = min(radius, min(h.x, min(h.y, h.z)) * 0.98)
+	var i := h - Vector3(r, r, r)
+	var c := center
+	_depth += 1
+	for s in [-1.0, 1.0]:
+		quad(c + Vector3(s * h.x, -h.y, -i.z), c + Vector3(s * h.x, -h.y, i.z), c + Vector3(s * h.x, h.y, i.z), c + Vector3(s * h.x, h.y, -i.z), Vector3(s, 0, 0), col, e)
+		quad(c + Vector3(-i.x, -h.y, s * h.z), c + Vector3(i.x, -h.y, s * h.z), c + Vector3(i.x, h.y, s * h.z), c + Vector3(-i.x, h.y, s * h.z), Vector3(0, 0, s), col, e)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var nx := Vector3(sx, 0, 0)
+			var nz := Vector3(0, 0, sz)
+			quad_n(c + Vector3(sx * h.x, -h.y, sz * i.z), c + Vector3(sx * h.x, h.y, sz * i.z), c + Vector3(sx * i.x, h.y, sz * h.z), c + Vector3(sx * i.x, -h.y, sz * h.z), nx, nx, nz, nz, col, e)
+	_depth -= 1
+
+
+## A cornice or parapet capping a body that already casts: the same rounded
+## box, with no shadow stand-in of its own.
+func ledge(center: Vector3, size: Vector3, radius: float, col: Color, e := 0.0) -> void:
+	_depth += 1
+	_rbox_impl(center, size, radius, col, null, false, e)
 	_depth -= 1
 
 
@@ -321,6 +381,8 @@ func _cylinder_impl(base: Vector3, radius: float, height: float, sides: int, col
 	var rt: float = radius if r_top < 0.0 else r_top
 	var tc: Color = top_col if top_col != null else col
 	var slope := (radius - rt) / maxf(height, 0.001)
+	# a disc this thin (water in a basin, soil in a planter) has no wall worth a pixel
+	var walls := height > 0.012
 	for i in sides:
 		var a0 := TAU * i / sides
 		var a1 := TAU * (i + 1) / sides
@@ -328,7 +390,8 @@ func _cylinder_impl(base: Vector3, radius: float, height: float, sides: int, col
 		var d1 := Vector3(cos(a1), 0, sin(a1))
 		var n0 := (d0 + Vector3(0, slope, 0)).normalized()
 		var n1 := (d1 + Vector3(0, slope, 0)).normalized()
-		quad_n(base + d0 * radius, base + d1 * radius, base + d1 * rt + Vector3(0, height, 0), base + d0 * rt + Vector3(0, height, 0), n0, n1, n1, n0, col, e)
+		if walls:
+			quad_n(base + d0 * radius, base + d1 * radius, base + d1 * rt + Vector3(0, height, 0), base + d0 * rt + Vector3(0, height, 0), n0, n1, n1, n0, col, e)
 		if cap and rt > 0.001:
 			var top := base + Vector3(0, height, 0)
 			tri_n(top, top + d0 * rt, top + d1 * rt, Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP, tc, e)
@@ -422,12 +485,9 @@ func blob(center: Vector3, radius: Vector3, col: Color, jitter := 0.0, e := 0.0)
 		# one camera-facing quad that the shader turns into a shaded sphere
 		var c := xf * center
 		var r := (radius.x + radius.y + radius.z) / 3.0 * xf.basis.get_scale().x
-		for k in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, -1), Vector2(1, 1), Vector2(-1, 1)]:
-			bverts.append(c)
-			bcols.append(col)
-			buvs.append(k)
-			# a jittered blob is foliage: the shader gives it a leafy outline (y = -1)
-			bradius.append(Vector2(r, -1.0 if jitter > 0.0 else 0.0))
+		# a jittered blob is foliage: the shader gives it a leafy outline (y = -1)
+		_sprite(c, col, [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, -1), Vector2(1, 1), Vector2(-1, 1)],
+			Vector2(r, -1.0 if jitter > 0.0 else 0.0), r * 2.0 < 0.12)
 		return
 	if _casts() and not _small(radius * 2.0):
 		_socta(center, radius)
@@ -442,13 +502,19 @@ func pole(base: Vector3, radius: float, height: float, sides: int, col: Color, e
 	if impostors and e == 0.0 and not detail:
 		var c := xf * base
 		var sc := xf.basis.get_scale().x
-		for k in [Vector2(-1, 0), Vector2(1, 0), Vector2(1, 1), Vector2(-1, 0), Vector2(1, 1), Vector2(-1, 1)]:
-			bverts.append(c)
-			bcols.append(col)
-			buvs.append(k)
-			bradius.append(Vector2(radius * sc, height * sc))
+		_sprite(c, col, [Vector2(-1, 0), Vector2(1, 0), Vector2(1, 1), Vector2(-1, 0), Vector2(1, 1), Vector2(-1, 1)],
+			Vector2(radius * sc, height * sc), radius * sc * 2.0 < 0.06)
 		return
 	cylinder(base, radius, height, sides, col, false, null, -1.0, e)
+
+
+func _sprite(c: Vector3, col: Color, corners: Array, rad: Vector2, thin: bool) -> void:
+	var q := quiet_sprites and thin
+	for k in corners:
+		(qverts if q else bverts).append(c)
+		(qcols if q else bcols).append(col)
+		(quvs if q else buvs).append(k)
+		(qradius if q else bradius).append(rad)
 
 
 func _blob_impl(center: Vector3, radius: Vector3, col: Color, jitter := 0.0, e := 0.0) -> void:
@@ -540,21 +606,25 @@ func _gable_roof_impl(c: Vector3, w: float, d: float, h: float, over: float, col
 	var under := col.darkened(0.25)
 	quad(Vector3(x0, y0, zf), Vector3(x1, y0, zf), Vector3(x1, y0, zf) + dt, Vector3(x0, y0, zf) + dt, Vector3.BACK, under)
 	quad(Vector3(x0, y0, zb), Vector3(x1, y0, zb), Vector3(x1, y0, zb) + dt, Vector3(x0, y0, zb) + dt, Vector3.FORWARD, under)
-	for xs in [x0, x1]:
+	# dormers, porches and sheds: rakes, soffit and ridge cap are under a pixel at any zoom
+	var small := w * d < 0.4
+	for xs in ([] if small else [x0, x1]):
 		var side := Vector3.LEFT if xs == x0 else Vector3.RIGHT
 		quad(Vector3(xs, y0, zf), Vector3(xs, yr, c.z), Vector3(xs, yr, c.z) + dt, Vector3(xs, y0, zf) + dt, side, under)
 		quad(Vector3(xs, y0, zb), Vector3(xs, yr, c.z), Vector3(xs, yr, c.z) + dt, Vector3(xs, y0, zb) + dt, side, under)
-	# soffit
-	quad(Vector3(x0, y0, zf) + dt, Vector3(x1, y0, zf) + dt, ridge1 + dt, ridge0 + dt, -nf, under)
-	quad(Vector3(x0, y0, zb) + dt, Vector3(x1, y0, zb) + dt, ridge1 + dt, ridge0 + dt, -nb, under)
+	if not small:
+		# soffit
+		quad(Vector3(x0, y0, zf) + dt, Vector3(x1, y0, zf) + dt, ridge1 + dt, ridge0 + dt, -nf, under)
+		quad(Vector3(x0, y0, zb) + dt, Vector3(x1, y0, zb) + dt, ridge1 + dt, ridge0 + dt, -nb, under)
 	# gable triangles on the wall plane
 	var gx0 := c.x - w * 0.5
 	var gx1 := c.x + w * 0.5
 	for gx in [gx0, gx1]:
 		var side := Vector3.LEFT if gx == gx0 else Vector3.RIGHT
 		tri(Vector3(gx, c.y, c.z + d * 0.5), Vector3(gx, c.y, c.z - d * 0.5), Vector3(gx, yr - 0.02, c.z), gable_col, 0.0, 0.0, side)
-	# ridge cap
-	box(Vector3(c.x, yr + 0.01, c.z), Vector3(x1 - x0 + 0.04, 0.07, 0.12), col.darkened(0.15))
+	if not small:
+		# ridge cap
+		box(Vector3(c.x, yr + 0.01, c.z), Vector3(x1 - x0 + 0.04, 0.07, 0.12), col.darkened(0.15))
 
 
 ## Hip / pyramid roof on a w x d footprint at height y.
@@ -722,6 +792,17 @@ static func _blob_aabb(v: PackedVector3Array, r: PackedVector2Array) -> AABB:
 		box = box.expand(v[i])
 		big = maxf(big, maxf(r[i].x, r[i].y))
 	return box.grow(big * 1.2)
+
+
+## The shadowless thin sprites as their own mesh (null when there are none).
+func commit_quiet() -> ArrayMesh:
+	if qverts.is_empty():
+		return null
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, blob_arrays(qverts, qcols, quvs, qradius))
+	mesh.surface_set_material(0, blob_material())
+	mesh.custom_aabb = _blob_aabb(qverts, qradius)
+	return mesh
 
 
 ## The shadow stand-ins as their own mesh (null when there are none).

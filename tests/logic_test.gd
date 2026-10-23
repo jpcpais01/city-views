@@ -129,9 +129,9 @@ func _ready() -> void:
 	get_tree().quit(1 if failures > 0 else 0)
 
 
-## Frame budget: a town the size players have now, the whole island in view,
-## every car and pedestrian out, must draw under TriBudget.BUDGET triangles
-## (shadow pass included) with room left for the HUD.
+## Frame budget: a town the size players have now with every sub-type mixed in,
+## the whole island in view and every car and pedestrian out, must draw under
+## TriBudget.BUDGET triangles (shadow pass included) with room left for the HUD.
 func _tri_budget() -> void:
 	Game.new_world(1234)
 	for z in range(24, 37):
@@ -142,7 +142,7 @@ func _tri_budget() -> void:
 			if (x - 30) % 4 != 0 and (z - 30) % 4 != 0:
 				var r := Game.hashf(x, z, 500)
 				k = Game.K.OFFICE if Vector2(x - 30, z - 30).length() < 5 and r < 0.7 else (Game.K.PARK if r < 0.12 else (Game.K.SHOP if r < 0.3 else Game.K.HOUSE))
-			Game.set_tile(x, z, k, Game.lvl(x, z), Game.hash2(x, z, 7) % 250)
+			Game.set_tile(x, z, k, Game.lvl(x, z), Game.param_for(k, Game.hash2(x, z, 7) % Game.SUB_COUNT.get(k, 1), x, z))
 	Game.set_tile(32, 32, Game.K.LANDMARK, Game.lvl(32, 32), Game.LM.FOUNTAIN)
 	for i in Game.kind.size():
 		if Game.is_building(Game.kind[i]):

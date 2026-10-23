@@ -67,6 +67,45 @@ void fragment() {
 			float fade = 1.0 - smoothstep(0.25, 0.6, aa);
 			float tile_var = 0.94 + 0.12 * g_hash(vec2(row, floor(along)));
 			base *= mix(1.0, mix(0.78, 1.0, lip) * mix(0.9, 1.0, joint) * tile_var, fade);
+		} else if (v_emit > 0.31 && v_emit < 0.35) {
+			// cobblestones: staggered rows of rounded setts with dark joints
+			vec2 q = v_world.xz * 8.0;
+			float row = floor(q.y);
+			q.x += mod(row, 2.0) * 0.5;
+			vec2 f = fract(q) - 0.5;
+			float aa = length(fwidth(q));
+			float stone = 1.0 - smoothstep(0.3, 0.46 + aa, max(abs(f.x), abs(f.y)) + 0.12 * dot(f, f));
+			float tone = 0.88 + 0.2 * g_hash(floor(q) + row * 3.1);
+			base *= mix(1.0, mix(0.62, tone, stone), 1.0 - smoothstep(0.3, 0.7, aa));
+		} else if (v_emit > 0.35 && v_emit < 0.39) {
+			// paving slabs: big squares in two tones with fine joints
+			vec2 q = v_world.xz * 2.5;
+			vec2 f = abs(fract(q) - 0.5);
+			float aa = length(fwidth(q));
+			float joint = smoothstep(0.47 - aa, 0.5, max(f.x, f.y));
+			vec2 c = floor(q);
+			float checker = mod(c.x + c.y, 2.0);
+			base *= mix(mix(0.97, 1.05, checker) * (0.97 + 0.06 * g_hash(c)), 0.8, joint * (1.0 - smoothstep(0.2, 0.5, aa)));
+		} else if (v_emit > 0.39 && v_emit < 0.43) {
+			// painted timber siding: overlapping boards with a shadow under each lip
+			float rows = v_world.y * 20.0;
+			float aa = fwidth(rows) * 1.5;
+			float lip = smoothstep(0.0, 0.25 + aa, fract(rows));
+			base *= mix(1.0, mix(0.82, 1.02, lip), 1.0 - smoothstep(0.3, 0.6, aa));
+		} else if (v_emit > 0.43 && v_emit < 0.47) {
+			// brickwork: stretcher bond with pale mortar
+			float rows = v_world.y * 26.0;
+			float row = floor(rows);
+			float along = (v_world.x + v_world.z) * 13.0 + mod(row, 2.0) * 0.5;
+			float aa = fwidth(rows) + fwidth(along);
+			float mortar = max(1.0 - smoothstep(0.0, 0.12 + aa, fract(rows)), 1.0 - smoothstep(0.0, 0.07 + aa, fract(along)));
+			float tone = 0.9 + 0.18 * g_hash(vec2(row, floor(along)));
+			base = mix(base, mix(base * tone, vec3(0.86, 0.82, 0.76), mortar), 1.0 - smoothstep(0.35, 0.8, aa));
+		} else if (v_emit > 0.47 && v_emit < 0.495) {
+			// mown grass: wide light and dark stripes (along x below 0.485, along z above)
+			float a = v_emit < 0.485 ? v_world.x : v_world.z;
+			float st = smoothstep(0.42, 0.58, abs(fract(a * 1.25) - 0.5) * 2.0);
+			base *= mix(0.93, 1.06, st);
 		}
 	}
 #endif

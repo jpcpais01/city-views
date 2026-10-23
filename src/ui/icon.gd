@@ -115,6 +115,180 @@ func _draw() -> void:
 				_circle(P.call(0.5, 0.44) + d * 0.32 * s, 0.06 * s, [Color("e85d5d"), Color("4b86d6"), Color("f2b33d"), Color("3fae8c")][k % 4])
 			draw_line(P.call(0.5, 0.44), P.call(0.32, 0.9), Color("8a96a3"), 0.05 * s, true)
 			draw_line(P.call(0.5, 0.44), P.call(0.68, 0.9), Color("8a96a3"), 0.05 * s, true)
+		"lane":
+			_rr(Rect2(P.call(0.26, 0.08), Vector2(0.48, 0.84) * s), 0.08 * s, Color("a39a8c"))
+			for yy in 5:
+				for xx in 3:
+					var off := 0.07 if yy % 2 == 0 else 0.0
+					_rr(Rect2(P.call(0.3 + xx * 0.14 + off - 0.035, 0.12 + yy * 0.16), Vector2(0.11, 0.12) * s), 0.03 * s, Color("cfc4b2"))
+			_circle(P.call(0.86, 0.22), 0.07 * s, Color("ffd36e"))
+			draw_rect(Rect2(P.call(0.845, 0.28), Vector2(0.03, 0.6) * s), Color("4a4f57"))
+		"avenue":
+			_rr(Rect2(P.call(0.14, 0.08), Vector2(0.72, 0.84) * s), 0.08 * s, Color(0.36, 0.38, 0.43))
+			_rr(Rect2(P.call(0.44, 0.08), Vector2(0.12, 0.84) * s), 0.05 * s, Color("8fc56a"))
+			for i in 3:
+				_circle(P.call(0.5, 0.2 + i * 0.3), 0.1 * s, Color("5ea552"))
+			for i in 2:
+				draw_rect(Rect2(P.call(0.27, 0.22 + i * 0.36), Vector2(0.05, 0.16) * s), Color(1, 0.95, 0.8))
+				draw_rect(Rect2(P.call(0.68, 0.22 + i * 0.36), Vector2(0.05, 0.16) * s), Color(1, 0.95, 0.8))
+		"terrace":
+			var tc := [Color("f3c6a5"), Color("c9dbe9"), Color("f6dca7")]
+			for i in 3:
+				var x0 := 0.08 + i * 0.28
+				_rr(Rect2(P.call(x0, 0.34), Vector2(0.28, 0.54) * s), 0.02 * s, tc[i])
+				draw_colored_polygon(PackedVector2Array([P.call(x0, 0.36), P.call(x0 + 0.14, 0.18), P.call(x0 + 0.28, 0.36)]), Color("b9503f").darkened(i * 0.08))
+				_rr(Rect2(P.call(x0 + 0.09, 0.66), Vector2(0.1, 0.22) * s), 0.02 * s, Color("5b4a42"))
+				_rr(Rect2(P.call(x0 + 0.08, 0.44), Vector2(0.12, 0.12) * s), 0.02 * s, Color("6fa8d8"))
+		"villa":
+			_rr(Rect2(P.call(0.06, 0.78), Vector2(0.88, 0.12) * s), 0.04 * s, Color("8fd6f5"))
+			draw_colored_polygon(PackedVector2Array([P.call(0.1, 0.4), P.call(0.3, 0.2), P.call(0.7, 0.2), P.call(0.9, 0.4)]), Color("c9774b"))
+			_rr(Rect2(P.call(0.16, 0.4), Vector2(0.68, 0.38) * s), 0.04 * s, Color("fbf1df"))
+			for i in 3:
+				_rr(Rect2(P.call(0.22 + i * 0.2, 0.48), Vector2(0.14, 0.2) * s), 0.02 * s, Color("6fa8d8"))
+			_circle(P.call(0.12, 0.7), 0.1 * s, Color("5ea552"))
+		"apartments":
+			_rr(Rect2(P.call(0.18, 0.1), Vector2(0.64, 0.8) * s), 0.05 * s, Color("e9b8a5"))
+			for yy in 4:
+				for xx in 3:
+					_rr(Rect2(P.call(0.24 + xx * 0.19, 0.16 + yy * 0.17), Vector2(0.13, 0.1) * s), 0.02 * s, Color("6fa8d8"))
+				_rr(Rect2(P.call(0.2, 0.27 + yy * 0.17), Vector2(0.6, 0.03) * s), 0.01 * s, Color.WHITE)
+			_rr(Rect2(P.call(0.43, 0.76), Vector2(0.14, 0.14) * s), 0.02 * s, Color("5b4a42"))
+		"cafe":
+			_rr(Rect2(P.call(0.18, 0.62), Vector2(0.44, 0.2) * s), 0.08 * s, Color.WHITE)
+			_rr(Rect2(P.call(0.2, 0.6), Vector2(0.4, 0.06) * s), 0.03 * s, Color("8b5a44"))
+			draw_arc(P.call(0.66, 0.72), 0.08 * s, -PI * 0.5, PI * 0.5, 10, Color.WHITE, 0.05 * s, true)
+			for k in 3:
+				var xx := 0.28 + k * 0.12
+				draw_line(P.call(xx, 0.52), P.call(xx + 0.04, 0.3), Color(0.6, 0.62, 0.68), 0.035 * s, true)
+			_rr(Rect2(P.call(0.12, 0.84), Vector2(0.62, 0.05) * s), 0.02 * s, Color("8b5a44"))
+		"market":
+			for i in 3:
+				var col: Color = [Color("e85d5d"), Color("f2b33d"), Color("3fae8c")][i]
+				var x0 := 0.06 + i * 0.3
+				draw_colored_polygon(PackedVector2Array([P.call(x0, 0.42), P.call(x0 + 0.14, 0.24), P.call(x0 + 0.28, 0.42)]), col)
+				draw_rect(Rect2(P.call(x0 + 0.02, 0.42), Vector2(0.03, 0.4) * s), Color("8b5a44"))
+				draw_rect(Rect2(P.call(x0 + 0.23, 0.42), Vector2(0.03, 0.4) * s), Color("8b5a44"))
+				_rr(Rect2(P.call(x0 + 0.02, 0.62), Vector2(0.24, 0.12) * s), 0.02 * s, Color("d9a46a"))
+				_circle(P.call(x0 + 0.09, 0.6), 0.04 * s, Color("ef5b5b"))
+				_circle(P.call(x0 + 0.18, 0.6), 0.04 * s, Color("97c45a"))
+		"store":
+			_rr(Rect2(P.call(0.08, 0.3), Vector2(0.84, 0.58) * s), 0.05 * s, Color("e8e2d6"))
+			_rr(Rect2(P.call(0.08, 0.3), Vector2(0.84, 0.12) * s), 0.04 * s, Color("8a6fd6"))
+			_rr(Rect2(P.call(0.3, 0.14), Vector2(0.4, 0.18) * s), 0.04 * s, Color("8fc8ec"))
+			for xx in 4:
+				_rr(Rect2(P.call(0.14 + xx * 0.19, 0.5), Vector2(0.14, 0.18) * s), 0.02 * s, Color("8fc8ec"))
+			_rr(Rect2(P.call(0.42, 0.72), Vector2(0.16, 0.16) * s), 0.02 * s, Color("5b8db8"))
+		"studio":
+			_rr(Rect2(P.call(0.08, 0.5), Vector2(0.84, 0.38) * s), 0.04 * s, Color("dfe6ec"))
+			_rr(Rect2(P.call(0.3, 0.3), Vector2(0.56, 0.22) * s), 0.04 * s, Color("cfe3d6"))
+			_rr(Rect2(P.call(0.3, 0.26), Vector2(0.56, 0.06) * s), 0.03 * s, Color("6fb35a"))
+			for xx in 4:
+				_rr(Rect2(P.call(0.12 + xx * 0.2, 0.58), Vector2(0.16, 0.2) * s), 0.02 * s, Color("5b8db8"))
+			for xx in 3:
+				draw_colored_polygon(PackedVector2Array([P.call(0.1 + xx * 0.06, 0.48), P.call(0.14 + xx * 0.06, 0.38), P.call(0.18 + xx * 0.06, 0.38), P.call(0.14 + xx * 0.06, 0.48)]), Color("4b5a70"))
+		"hotel":
+			_rr(Rect2(P.call(0.24, 0.12), Vector2(0.52, 0.76) * s), 0.05 * s, Color("f2d9c4"))
+			for yy in 5:
+				_rr(Rect2(P.call(0.2, 0.26 + yy * 0.12), Vector2(0.6, 0.04) * s), 0.02 * s, Color.WHITE)
+				for xx in 3:
+					_rr(Rect2(P.call(0.29 + xx * 0.15, 0.2 + yy * 0.12), Vector2(0.1, 0.06) * s), 0.02 * s, Color("6fa8d8"))
+			_rr(Rect2(P.call(0.3, 0.04), Vector2(0.4, 0.1) * s), 0.03 * s, a)
+			_rr(Rect2(P.call(0.38, 0.8), Vector2(0.24, 0.08) * s), 0.02 * s, Color("5b4a42"))
+		"playground":
+			draw_line(P.call(0.14, 0.88), P.call(0.3, 0.26), Color("e85d5d"), 0.05 * s, true)
+			draw_line(P.call(0.46, 0.88), P.call(0.3, 0.26), Color("e85d5d"), 0.05 * s, true)
+			draw_line(P.call(0.3, 0.26), P.call(0.6, 0.26), Color("e85d5d"), 0.05 * s, true)
+			draw_line(P.call(0.4, 0.28), P.call(0.4, 0.62), Color(0.4, 0.4, 0.45), 0.02 * s, true)
+			_rr(Rect2(P.call(0.34, 0.6), Vector2(0.12, 0.05) * s), 0.02 * s, Color("4b86d6"))
+			draw_colored_polygon(PackedVector2Array([P.call(0.6, 0.26), P.call(0.68, 0.26), P.call(0.92, 0.86), P.call(0.82, 0.88)]), Color("f2b33d"))
+			draw_rect(Rect2(P.call(0.6, 0.26), Vector2(0.04, 0.62) * s), Color(0.4, 0.4, 0.45))
+		"pond":
+			_circle(P.call(0.5, 0.6), 0.36 * s, Color("8fc56a"))
+			_circle(P.call(0.5, 0.6), 0.28 * s, Color("6fc3e8"))
+			_circle(P.call(0.4, 0.56), 0.07 * s, Color("5ea552"))
+			_circle(P.call(0.6, 0.66), 0.05 * s, Color("5ea552"))
+			_circle(P.call(0.62, 0.5), 0.06 * s, Color.WHITE)
+			_circle(P.call(0.67, 0.46), 0.035 * s, Color.WHITE)
+			draw_rect(Rect2(P.call(0.69, 0.455), Vector2(0.04, 0.02) * s), Color("f2b33d"))
+			for k in 3:
+				draw_line(P.call(0.16 + k * 0.05, 0.6), P.call(0.14 + k * 0.06, 0.3), Color("5e8f3e"), 0.03 * s, true)
+		"plaza":
+			_rr(Rect2(P.call(0.08, 0.3), Vector2(0.84, 0.6) * s), 0.06 * s, Color("e8dcc6"))
+			for yy in 3:
+				for xx in 4:
+					if (xx + yy) % 2 == 0:
+						_rr(Rect2(P.call(0.12 + xx * 0.2, 0.34 + yy * 0.18), Vector2(0.16, 0.14) * s), 0.02 * s, Color("d2c3a8"))
+			_rr(Rect2(P.call(0.4, 0.5), Vector2(0.2, 0.14) * s), 0.03 * s, Color("b8ab9c"))
+			_circle(P.call(0.5, 0.34), 0.16 * s, Color("5ea552"))
+			draw_rect(Rect2(P.call(0.48, 0.4), Vector2(0.04, 0.12) * s), Color("8b5a44"))
+		"pitch":
+			_rr(Rect2(P.call(0.06, 0.2), Vector2(0.88, 0.6) * s), 0.04 * s, Color("5fae4e"))
+			for xx in 4:
+				if xx % 2 == 0:
+					draw_rect(Rect2(P.call(0.06 + xx * 0.22, 0.2), Vector2(0.22, 0.6) * s), Color("6fbf5a"))
+			var wl := Color(1, 1, 1, 0.95)
+			draw_rect(Rect2(P.call(0.1, 0.24), Vector2(0.8, 0.52) * s), wl, false, 0.025 * s)
+			draw_line(P.call(0.5, 0.24), P.call(0.5, 0.76), wl, 0.025 * s)
+			draw_arc(P.call(0.5, 0.5), 0.1 * s, 0, TAU, 16, wl, 0.025 * s, true)
+			draw_rect(Rect2(P.call(0.1, 0.4), Vector2(0.08, 0.2) * s), wl, false, 0.02 * s)
+			draw_rect(Rect2(P.call(0.82, 0.4), Vector2(0.08, 0.2) * s), wl, false, 0.02 * s)
+		"oak":
+			draw_rect(Rect2(P.call(0.45, 0.58), Vector2(0.1, 0.32) * s), Color("8b5a44"))
+			_circle(P.call(0.5, 0.4), 0.28 * s, Color("5ea552"))
+			_circle(P.call(0.32, 0.52), 0.17 * s, Color("6fb35a"))
+			_circle(P.call(0.68, 0.52), 0.17 * s, Color("4e9a54"))
+			_circle(P.call(0.42, 0.32), 0.1 * s, Color("82c063"))
+		"pine":
+			draw_rect(Rect2(P.call(0.46, 0.78), Vector2(0.08, 0.14) * s), Color("8b5a44"))
+			for k in 3:
+				var y0 := 0.06 + k * 0.22
+				draw_colored_polygon(PackedVector2Array([P.call(0.5, y0), P.call(0.74 + k * 0.05, y0 + 0.32), P.call(0.26 - k * 0.05, y0 + 0.32)]), Color("3f7f4f").lightened(k * 0.06))
+		"palm":
+			draw_line(P.call(0.46, 0.92), P.call(0.56, 0.32), Color("a88a5c"), 0.07 * s, true)
+			for k in 5:
+				var ang := PI + 0.25 + k * 0.62
+				var d := Vector2(cos(ang), sin(ang) * 0.6 + 0.25)
+				draw_line(P.call(0.56, 0.32), P.call(0.56, 0.32) + d * 0.34 * s, Color("5fae4e"), 0.08 * s, true)
+			_circle(P.call(0.56, 0.34), 0.05 * s, Color("8b5a44"))
+		"blossom":
+			draw_rect(Rect2(P.call(0.45, 0.58), Vector2(0.1, 0.32) * s), Color("7a5a4a"))
+			_circle(P.call(0.5, 0.4), 0.28 * s, Color("f4a7c0"))
+			_circle(P.call(0.32, 0.52), 0.16 * s, Color("f7c2d4"))
+			_circle(P.call(0.68, 0.5), 0.17 * s, Color("ee8fb0"))
+			for k in 4:
+				_circle(P.call(0.24 + k * 0.17, 0.9 - (k % 2) * 0.04), 0.03 * s, Color("f7c2d4"))
+		"flowers":
+			for k in 7:
+				var xx := 0.12 + k * 0.125
+				draw_line(P.call(xx, 0.9), P.call(xx + 0.02, 0.5 + (k % 3) * 0.08), Color("5e8f3e"), 0.03 * s, true)
+			var fl := [Color("ef5b5b"), Color("f2c14e"), Color.WHITE, Color("8a6fd6"), Color("ef7fa8"), Color("f2c14e"), Color("4b86d6")]
+			for k in 7:
+				_circle(P.call(0.14 + k * 0.125, 0.48 + (k % 3) * 0.08), 0.06 * s, fl[k])
+			_rr(Rect2(P.call(0.06, 0.86), Vector2(0.88, 0.06) * s), 0.03 * s, Color("8fc56a"))
+		"bandstand":
+			_rr(Rect2(P.call(0.12, 0.78), Vector2(0.76, 0.1) * s), 0.04 * s, Color("e8e2d6"))
+			for k in 4:
+				draw_rect(Rect2(P.call(0.18 + k * 0.2, 0.4), Vector2(0.04, 0.38) * s), Color.WHITE)
+			draw_colored_polygon(PackedVector2Array([P.call(0.08, 0.42), P.call(0.5, 0.12), P.call(0.92, 0.42)]), Color("3fae8c"))
+			for k in 5:
+				_circle(P.call(0.16 + k * 0.17, 0.46), 0.035 * s, [Color("e85d5d"), Color("f2b33d"), Color("4b86d6")][k % 3])
+			_circle(P.call(0.5, 0.1), 0.04 * s, Color("f2c14e"))
+		"pier":
+			_rr(Rect2(P.call(0.04, 0.62), Vector2(0.92, 0.3) * s), 0.06 * s, Color("6fc3e8"))
+			_rr(Rect2(P.call(0.06, 0.5), Vector2(0.88, 0.08) * s), 0.02 * s, Color("c9a06a"))
+			for k in 5:
+				draw_rect(Rect2(P.call(0.1 + k * 0.19, 0.58), Vector2(0.04, 0.24) * s), Color("8b5a44"))
+			_rr(Rect2(P.call(0.66, 0.3), Vector2(0.24, 0.2) * s), 0.03 * s, Color("fbefd9"))
+			draw_colored_polygon(PackedVector2Array([P.call(0.62, 0.32), P.call(0.78, 0.18), P.call(0.94, 0.32)]), Color("e85d5d"))
+		"observatory":
+			_rr(Rect2(P.call(0.2, 0.52), Vector2(0.6, 0.36) * s), 0.04 * s, Color("e8e2d6"))
+			_circle(P.call(0.5, 0.52), 0.3 * s, Color("dfe6ec"))
+			draw_rect(Rect2(P.call(0.2, 0.52), Vector2(0.6, 0.06) * s), Color("c9bfb2"))
+			draw_line(P.call(0.5, 0.42), P.call(0.74, 0.18), Color("4b5a70"), 0.08 * s, true)
+			draw_rect(Rect2(P.call(0.46, 0.24), Vector2(0.08, 0.3) * s), Color("8a96a3"))
+			_rr(Rect2(P.call(0.42, 0.68), Vector2(0.16, 0.2) * s), 0.02 * s, Color("5b4a42"))
+			_circle(P.call(0.18, 0.18), 0.04 * s, Color("ffd36e"))
+			_circle(P.call(0.3, 0.1), 0.025 * s, Color("ffd36e"))
 		"raise":
 			_rr(Rect2(P.call(0.14, 0.6), Vector2(0.72, 0.28) * s), 0.06 * s, Color("8fc56a"))
 			draw_colored_polygon(PackedVector2Array([P.call(0.5, 0.1), P.call(0.74, 0.4), P.call(0.26, 0.4)]), a)
