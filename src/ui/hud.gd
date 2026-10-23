@@ -84,6 +84,10 @@ func _ready() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.theme = _make_theme()
 	add_child(_root)
+	# keep every panel and button 3% in from the left and right edges in
+	# landscape (rounded corners, cut-outs); the 3D view still fills the screen
+	get_viewport().size_changed.connect(_apply_side_margins)
+	_apply_side_margins()
 	_build_top()
 	_build_fps()
 	_build_toolbar()
@@ -866,6 +870,15 @@ func _page_box(id: String) -> VBoxContainer:
 	return v
 
 
+func _apply_side_margins() -> void:
+	var size := get_viewport().get_visible_rect().size
+	var m := 0.03 if size.x > size.y else 0.0
+	_root.anchor_left = m
+	_root.anchor_right = 1.0 - m
+	_root.offset_left = 0
+	_root.offset_right = 0
+
+
 func _build_menu() -> void:
 	_menu = Control.new()
 	_menu.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -874,6 +887,9 @@ func _build_menu() -> void:
 	var dim := ColorRect.new()
 	dim.color = Color(0.06, 0.09, 0.14, 0.35)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# the dimmer still covers the whole screen, past the side margins
+	dim.offset_left = -400
+	dim.offset_right = 400
 	dim.gui_input.connect(func(e):
 		if (e is InputEventMouseButton and e.pressed) or (e is InputEventScreenTouch and e.pressed):
 			_toggle_menu())

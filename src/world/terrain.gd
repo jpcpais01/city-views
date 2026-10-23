@@ -67,14 +67,30 @@ func build_all() -> void:
 
 
 func tile_changed(x: int, z: int) -> void:
-	# every tile's ground depends on its eight neighbours; only those are remade
-	_prep()
+	if _ys.size() != Game.N * Game.N:
+		_prep()
+	# refresh just this tile's lookups (a full _prep is ~15 ms)
+	var i := Game.idx(x, z)
+	var old_y := _ys[i]
+	var old_built := _builts[i]
+	_ys[i] = Game.tile_y(x, z)
+	_tops[i] = _make_top(x, z, Game.lvl(x, z))
+	var k := Game.knd(x, z)
+	_builts[i] = 1 if k != Game.K.EMPTY and k != Game.K.TREE else 0
+	# neighbours' ground only changes when the height changes, or when the
+	# built flag changes and it squeezes a slope next door
+	var wide := absf(old_y - _ys[i]) > 0.0001
+	if not wide and old_built != _builts[i]:
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				if Game.inside(x + dx, z + dz) and not _lows(x + dx, z + dz).is_empty():
+					wide = true
 	var touched := {}
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
 			var tx: int = x + dx
 			var tz: int = z + dz
-			if Game.inside(tx, tz):
+			if Game.inside(tx, tz) and (wide or (dx == 0 and dz == 0)):
 				_cache.erase(Vector2i(tx, tz))
 				touched[Vector2i(tx / CHUNK, tz / CHUNK)] = true
 	for c in touched:
@@ -88,7 +104,8 @@ func _top_color(x: int, z: int, l: int) -> Color:
 
 
 func _make_top(x: int, z: int, l: int) -> Color:
-	var j := Game.hashf(x, z, 1) * 0.06 - 0.03
+	# a little per-tile variety; the ground shader adds broad patches across tiles
+	var j := Game.hashf(x, z, 1) * 0.024 - 0.012
 	var c: Color
 	match l:
 		0: c = Color(0.78, 0.74, 0.58)
@@ -240,6 +257,81 @@ func _field(hd: Hood, px: float, pz: float) -> Vector2:
 	return Vector2(h, win)
 
 
+## Distance (metres) from the real waterline, RES texels per tile, capped at
+## `cap`: the sea foam and calm shallows follow the shore's curves with it.
+func shore_field(res: int, cap: float) -> PackedFloat32Array:
+	if _ys.size() != Game.N * Game.N:
+		_prep()
+	var n := Game.N * res
+	var px_m := Game.TILE / res
+	var land := PackedByteArray()
+	land.resize(n * n)
+	for tz in Game.N:
+		for tx in Game.N:
+			var sea := 0
+			for dz in range(-1, 2):
+				for dx in range(-1, 2):
+					if Game.lvl(tx + dx, tz + dz) == 0:
+						sea += 1
+			var c := Game.tile_center(tx, tz)
+			var hd: Hood = _hood(tx, tz) if sea > 0 and sea < 9 else null
+			for j in res:
+				for i in res:
+					var v := 0
+					if hd:
+						var x := c.x - Game.TILE * 0.5 + (i + 0.5) * px_m
+						var z := c.z - Game.TILE * 0.5 + (j + 0.5) * px_m
+						v = 1 if _field(hd, x, z).x > 0.0 else 0
+					else:
+						v = 0 if Game.lvl(tx, tz) == 0 else 1
+					land[(tz * res + j) * n + tx * res + i] = v
+	# two-pass chamfer distance with offsets, so it's near Euclidean (round contours)
+	var big := 1e6
+	var ox := PackedFloat32Array()
+	var oz := PackedFloat32Array()
+	ox.resize(n * n)
+	oz.resize(n * n)
+	for k in n * n:
+		ox[k] = 0.0 if land[k] == 1 else big
+		oz[k] = 0.0 if land[k] == 1 else big
+	for pass_i in 2:
+		var step := 1 if pass_i == 0 else -1
+		var z0 := 0 if pass_i == 0 else n - 1
+		var x0 := 0 if pass_i == 0 else n - 1
+		for zz in n:
+			var z := z0 + zz * step
+			for xx in n:
+				var x := x0 + xx * step
+				var k := z * n + x
+				var bx := ox[k]
+				var bz := oz[k]
+				var best := bx * bx + bz * bz
+				if best == 0.0:
+					continue
+				for nb in [Vector2i(-step, 0), Vector2i(0, -step), Vector2i(-step, -step), Vector2i(step, -step)]:
+					var qx: int = x + nb.x
+					var qz: int = z + nb.y
+					if qx < 0 or qz < 0 or qx >= n or qz >= n:
+						continue
+					var q := qz * n + qx
+					if ox[q] >= big:
+						continue
+					var cx := ox[q] + absf(nb.x)
+					var cz := oz[q] + absf(nb.y)
+					var d := cx * cx + cz * cz
+					if d < best:
+						best = d
+						bx = cx
+						bz = cz
+				ox[k] = bx
+				oz[k] = bz
+	var out := PackedFloat32Array()
+	out.resize(n * n)
+	for k in n * n:
+		out[k] = 0.0 if land[k] == 1 else minf(sqrt(ox[k] * ox[k] + oz[k] * oz[k]) * px_m, cap)
+	return out
+
+
 # ------------------------------------------------------------------ meshing
 
 func _build_chunk(cx: int, cz: int) -> void:
@@ -329,25 +421,38 @@ func _merge_deep(mk: MeshKit, cx: int, cz: int, deep: PackedByteArray) -> void:
 
 func _tile(mk: MeshKit, x: int, z: int) -> void:
 	var l := Game.lvl(x, z)
+	var lo := _lows(x, z)
+	if lo.is_empty() or l == 0:
+		_flat_tile(mk, x, z, l, lo.is_empty())
+	else:
+		_slope_tile(mk, x, z, l, lo)
+	_dress(mk, x, z, l)
+
+
+## Which sides (diagonals count) have lower ground: [+x, -x, +z, -z], or empty when none.
+func _lows(x: int, z: int) -> Array:
 	var y := _ty(x, z)
-	# which sides (including diagonals) have lower ground
-	var lo_px := false
-	var lo_nx := false
-	var lo_pz := false
-	var lo_nz := false
+	var lo := [false, false, false, false]
+	var any := false
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
 			if _ty(x + dx, z + dz) < y - 0.001:
-				if dx > 0: lo_px = true
-				if dx < 0: lo_nx = true
-				if dz > 0: lo_pz = true
-				if dz < 0: lo_nz = true
-	var flat := not (lo_px or lo_nx or lo_pz or lo_nz)
-	if flat or l == 0:
-		_flat_tile(mk, x, z, l, flat)
-	else:
-		_slope_tile(mk, x, z, l, [lo_px, lo_nx, lo_pz, lo_nz])
-	_dress(mk, x, z, l)
+				any = true
+				if dx > 0: lo[0] = true
+				if dx < 0: lo[1] = true
+				if dz > 0: lo[2] = true
+				if dz < 0: lo[3] = true
+	return lo if any else []
+
+
+## Grid lines of a subdivided tile, [xs, zs], or empty for a single-quad tile.
+func _axes(x: int, z: int) -> Array:
+	if not Game.inside(x, z) or Game.lvl(x, z) == 0:
+		return []
+	var lo := _lows(x, z)
+	if lo.is_empty():
+		return []
+	return [_axis(lo[1], lo[0], lo[2] or lo[3]), _axis(lo[3], lo[2], lo[0] or lo[1])]
 
 
 ## One quad: flat terrace top, or (under the sea) a smooth seabed ramp.
@@ -388,8 +493,9 @@ func _slope_tile(mk: MeshKit, x: int, z: int, l: int, lo: Array) -> void:
 	var c := Game.tile_center(x, z)
 	var hd := _hood(x, z)
 	# rows across a drop, plus rows along it so the slope can wander
-	var xs := _axis(lo[1], lo[0], lo[2] or lo[3])
-	var zs := _axis(lo[3], lo[2], lo[0] or lo[1])
+	var ax := _axes(x, z)
+	var xs: PackedFloat32Array = ax[0]
+	var zs: PackedFloat32Array = ax[1]
 	var nx := xs.size()
 	var nz := zs.size()
 	var corners := [_corner(x, z, l, x, z), _corner(x, z, l, x + 1, z), _corner(x, z, l, x, z + 1), _corner(x, z, l, x + 1, z + 1)]
@@ -398,21 +504,53 @@ func _slope_tile(mk: MeshKit, x: int, z: int, l: int, lo: Array) -> void:
 	var col := PackedColorArray()
 	for j in nz:
 		for i in nx:
-			var px := c.x + xs[i]
-			var pz := c.z + zs[j]
-			var f := _field(hd, px, pz)
-			var e := 0.05
-			var gx := (_field(hd, px + e, pz).x - f.x) / e
-			var gz := (_field(hd, px, pz + e).x - f.x) / e
-			var n := Vector3(-gx, 1.0, -gz).normalized()
-			var steep := clampf((Vector2(gx, gz).length() - 0.3) / 0.9, 0.0, 1.0)
-			if steep > 0.0:
-				# rough rock: break up the normal a little
-				var r := Vector3(_noise(px, pz, 310, 3.1) - 0.5, 0.0, _noise(px, pz, 311, 3.1) - 0.5)
-				n = (n + r * 0.6 * steep).normalized()
-			pos.append(Vector3(px, f.x, pz))
-			nrm.append(n)
-			col.append(_ground_color(x, z, l, f, px, pz, steep, corners))
+			_grid_vert(hd, x, z, l, c.x + xs[i], c.z + zs[j], corners, pos, nrm, col)
+	# a neighbour may put grid lines on our shared edge that we don't have:
+	# add those points too, so both sides of the edge are the same polyline
+	# (e: 0 = -x, 1 = +x, 2 = -z, 3 = +z; each entry is [along, vertex index])
+	var extras := [[], [], [], []]
+	for e in 4:
+		var nb := _axes(x + [-1, 1, 0, 0][e], z + [0, 0, -1, 1][e])
+		if nb.is_empty():
+			continue
+		var mine: PackedFloat32Array = zs if e < 2 else xs
+		var theirs: PackedFloat32Array = nb[1] if e < 2 else nb[0]
+		for v in theirs:
+			var have := false
+			for m in mine:
+				if absf(m - v) < 1e-4:
+					have = true
+					break
+			if have:
+				continue
+			var ex := (xs[0] if e == 0 else xs[nx - 1]) if e < 2 else v
+			var ez := v if e < 2 else (zs[0] if e == 2 else zs[nz - 1])
+			_grid_vert(hd, x, z, l, c.x + ex, c.z + ez, corners, pos, nrm, col)
+			extras[e].append([v, pos.size() - 1])
+	# a seabed tile is a single quad with straight edges: keep the shared
+	# underwater edge straight too, or a sliver of the sea floor shows through
+	var sea_edge := [Game.lvl(x - 1, z) == 0, Game.lvl(x + 1, z) == 0, Game.lvl(x, z - 1) == 0, Game.lvl(x, z + 1) == 0]
+	for e in 4:
+		if not sea_edge[e] or not Game.inside(x + [-1, 1, 0, 0][e], z + [0, 0, -1, 1][e]):
+			continue
+		var cnt := nz if e < 2 else nx
+		for k in cnt:
+			var vi: int
+			var a: int
+			var b: int
+			if e < 2:
+				var i := 0 if e == 0 else nx - 1
+				vi = k * nx + i
+				a = i
+				b = (nz - 1) * nx + i
+			else:
+				var j := 0 if e == 2 else nz - 1
+				vi = j * nx + k
+				a = j * nx
+				b = j * nx + nx - 1
+			var f := float(k) / float(cnt - 1)
+			f = ((zs[k] if e < 2 else xs[k]) - (zs[0] if e < 2 else xs[0])) / ((zs[cnt - 1] if e < 2 else xs[cnt - 1]) - (zs[0] if e < 2 else xs[0]))
+			pos[vi].y = lerpf(pos[a].y, pos[b].y, f)
 	# cells lying flat on the terrace top are merged into larger rectangles
 	# (collinear edges, so no cracks); only the slope itself keeps the fine grid
 	var cw := nx - 1
@@ -423,6 +561,8 @@ func _slope_tile(mk: MeshKit, x: int, z: int, l: int, lo: Array) -> void:
 			var a := j * nx + i
 			level[j * cw + i] = 1 if _flat_v(pos, nrm, a, pos[a].y) and _flat_v(pos, nrm, a + 1, pos[a].y) \
 				and _flat_v(pos, nrm, a + nx, pos[a].y) and _flat_v(pos, nrm, a + nx + 1, pos[a].y) else 0
+			if level[j * cw + i] == 1 and not _cell_extras(extras, xs, zs, i, j).is_empty():
+				level[j * cw + i] = 0
 	for j in nz - 1:
 		for i in cw:
 			var a := j * nx + i
@@ -454,6 +594,10 @@ func _slope_tile(mk: MeshKit, x: int, z: int, l: int, lo: Array) -> void:
 			var b := a + 1
 			var cc := a + nx + 1
 			var d := a + nx
+			var ce := _cell_extras(extras, xs, zs, i, j)
+			if not ce.is_empty():
+				_stitch(mk, pos, nrm, col, [a, b, cc, d], ce)
+				continue
 			# split along the diagonal that follows the slope best
 			if absf(pos[a].y - pos[cc].y) <= absf(pos[b].y - pos[d].y):
 				_tri(mk, pos, nrm, col, a, b, cc)
@@ -461,6 +605,92 @@ func _slope_tile(mk: MeshKit, x: int, z: int, l: int, lo: Array) -> void:
 			else:
 				_tri(mk, pos, nrm, col, a, b, d)
 				_tri(mk, pos, nrm, col, b, cc, d)
+
+
+func _grid_vert(hd: Hood, x: int, z: int, l: int, px: float, pz: float, corners: Array,
+		pos: PackedVector3Array, nrm: PackedVector3Array, col: PackedColorArray) -> void:
+	var f := _field(hd, px, pz)
+	var e := 0.05
+	var gx := (_field(hd, px + e, pz).x - f.x) / e
+	var gz := (_field(hd, px, pz + e).x - f.x) / e
+	var n := Vector3(-gx, 1.0, -gz).normalized()
+	var steep := clampf((Vector2(gx, gz).length() - 0.3) / 0.9, 0.0, 1.0)
+	if steep > 0.0:
+		# rough rock: break up the normal a little
+		var r := Vector3(_noise(px, pz, 310, 3.1) - 0.5, 0.0, _noise(px, pz, 311, 3.1) - 0.5)
+		n = (n + r * 0.6 * steep).normalized()
+	pos.append(Vector3(px, f.x, pz))
+	nrm.append(n)
+	col.append(_ground_color(x, z, l, f, px, pz, steep, corners))
+
+
+## Extra edge points inside cell (i, j), per side in walking order around the
+## cell (bottom -z, right +x, top +z, left -x); empty when there are none.
+func _cell_extras(extras: Array, xs: PackedFloat32Array, zs: PackedFloat32Array, i: int, j: int) -> Array:
+	var nx := xs.size()
+	var nz := zs.size()
+	var sides := [[], [], [], []]
+	var any := false
+	if j == 0:
+		sides[0] = _between(extras[2], xs[i], xs[i + 1], false)
+	if i == nx - 2:
+		sides[1] = _between(extras[1], zs[j], zs[j + 1], false)
+	if j == nz - 2:
+		sides[2] = _between(extras[3], xs[i], xs[i + 1], true)
+	if i == 0:
+		sides[3] = _between(extras[0], zs[j], zs[j + 1], true)
+	for sd in sides:
+		if not sd.is_empty():
+			any = true
+	return sides if any else []
+
+
+func _between(list: Array, a: float, b: float, descending: bool) -> Array:
+	var out := []
+	for p in list:
+		if p[0] > a + 1e-4 and p[0] < b - 1e-4:
+			out.append(p)
+	out.sort_custom(func(p, q): return p[0] > q[0] if descending else p[0] < q[0])
+	var idx := []
+	for p in out:
+		idx.append(p[1])
+	return idx
+
+
+## Fans a cell whose sides carry extra edge points, from a corner whose own two
+## sides have none (or from the cell centre when every corner touches one).
+func _stitch(mk: MeshKit, pos: PackedVector3Array, nrm: PackedVector3Array, col: PackedColorArray, quad: Array, sides: Array) -> void:
+	# perimeter: corner k, then the extra points on side k (corners a, b, cc, d)
+	var ring := []
+	var starts := []
+	for k in 4:
+		starts.append(ring.size())
+		ring.append(quad[k])
+		ring.append_array(sides[k])
+	var pick := -1
+	for k in 4:
+		# corner k sits between side k-1 and side k
+		if (sides[k] as Array).is_empty() and (sides[(k + 3) % 4] as Array).is_empty():
+			pick = k
+			break
+	if pick >= 0:
+		var r0: int = starts[pick]
+		for t in range(1, ring.size() - 1):
+			_tri(mk, pos, nrm, col, ring[r0], ring[(r0 + t) % ring.size()], ring[(r0 + t + 1) % ring.size()])
+		return
+	var cpos := Vector3.ZERO
+	var cn := Vector3.ZERO
+	var cr := Color(0, 0, 0, 0)
+	for k in 4:
+		cpos += pos[quad[k]] * 0.25
+		cn += nrm[quad[k]]
+		cr += col[quad[k]] * 0.25
+	pos.append(cpos)
+	nrm.append(cn.normalized())
+	col.append(cr)
+	var ci := pos.size() - 1
+	for t in ring.size():
+		_tri(mk, pos, nrm, col, ci, ring[t], ring[(t + 1) % ring.size()])
 
 
 func _flat_v(pos: PackedVector3Array, nrm: PackedVector3Array, i: int, y: float) -> bool:

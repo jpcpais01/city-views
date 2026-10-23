@@ -194,6 +194,9 @@ func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bo
 	_depth -= 1
 
 
+# emission code the city shader paints as rows of roof tiles
+const ROOF_TILES := 0.25
+
 const TOP := 1
 const FRONT := 2  # +Z
 const BACK := 4  # -Z
@@ -423,7 +426,8 @@ func blob(center: Vector3, radius: Vector3, col: Color, jitter := 0.0, e := 0.0)
 			bverts.append(c)
 			bcols.append(col)
 			buvs.append(k)
-			bradius.append(Vector2(r, 0))
+			# a jittered blob is foliage: the shader gives it a leafy outline (y = -1)
+			bradius.append(Vector2(r, -1.0 if jitter > 0.0 else 0.0))
 		return
 	if _casts() and not _small(radius * 2.0):
 		_socta(center, radius)
@@ -529,8 +533,8 @@ func _gable_roof_impl(c: Vector3, w: float, d: float, h: float, over: float, col
 	var nf := Vector3(0, d * 0.5, h).normalized()
 	var nb := Vector3(0, d * 0.5, -h).normalized()
 	# top slopes
-	quad(Vector3(x0, y0, zf), Vector3(x1, y0, zf), ridge1, ridge0, nf, col)
-	quad(Vector3(x0, y0, zb), Vector3(x1, y0, zb), ridge1, ridge0, nb, col)
+	quad(Vector3(x0, y0, zf), Vector3(x1, y0, zf), ridge1, ridge0, nf, col, ROOF_TILES)
+	quad(Vector3(x0, y0, zb), Vector3(x1, y0, zb), ridge1, ridge0, nb, col, ROOF_TILES)
 	# slab thickness at the eaves and rakes
 	var dt := Vector3(0, -thick, 0)
 	var under := col.darkened(0.25)
@@ -578,10 +582,10 @@ func _hip_roof_impl(c: Vector3, w: float, d: float, h: float, over: float, col: 
 	var b := Vector3(c.x + hw, y0, c.z + hd)
 	var cc := Vector3(c.x + hw, y0, c.z - hd)
 	var dd := Vector3(c.x - hw, y0, c.z - hd)
-	quad(a, b, r1, r0, Vector3(0, hd, h).normalized(), col)
-	quad(dd, cc, r1, r0, Vector3(0, hd, -h).normalized(), col)
-	tri(b, cc, r1, col, 0, 0, Vector3(1, 0.5, 0))
-	tri(a, dd, r0, col, 0, 0, Vector3(-1, 0.5, 0))
+	quad(a, b, r1, r0, Vector3(0, hd, h).normalized(), col, ROOF_TILES)
+	quad(dd, cc, r1, r0, Vector3(0, hd, -h).normalized(), col, ROOF_TILES)
+	tri(b, cc, r1, col, ROOF_TILES, 0, Vector3(1, 0.5, 0))
+	tri(a, dd, r0, col, ROOF_TILES, 0, Vector3(-1, 0.5, 0))
 	var under := col.darkened(0.3)
 	var dt := Vector3(0, -0.07, 0)
 	quad(a, b, b + dt, a + dt, Vector3.BACK, under)
