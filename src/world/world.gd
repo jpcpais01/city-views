@@ -669,7 +669,7 @@ func _update_beams(beams: PackedVector4Array) -> void:
 	var n := beams.size() if on > 0.01 else 0
 	while beams.size() < 4:
 		beams.append(Vector4.ZERO)
-	for m in [city_mat, detail_mat, ground_mat, water_mat, life.gull_mat]:
+	for m in [city_mat, detail_mat, ground_mat, water_mat] + ([life.gull_mat] if life else []):
 		m.set_shader_parameter("beam_count", n)
 		if n > 0:
 			m.set_shader_parameter("beams", beams)

@@ -1,5 +1,7 @@
 class_name Hud
 extends CanvasLayer
+
+signal open_island
 ## The whole interface, built in code: stats, title progress, tool palette, toasts,
 ## tutorial hints, co-op player chips, tile info and the main menu.
 
@@ -1289,6 +1291,11 @@ func _build_menu() -> void:
 
 	# ---- island
 	var island := _page_box("island")
+	var preview := _section(island, "Coming soon: a living island")
+	preview.add_child(_wrap_label("A new way to build with no grid: real hills and coves, and towns that grow themselves where you paint. Try the first piece, shaping the land. Your town here stays as it is."))
+	preview.add_child(_button("Open the new island", func():
+		_set_menu(false)
+		open_island.emit(), true))
 	var prof := _section(island, "Your name")
 	_name_edit = LineEdit.new()
 	_name_edit.placeholder_text = "Mayor"

@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-23 20:00 UTC
+- First look at the new City Views: an island with no grid. Open it from Menu, then Island, then "Open the new island". Your current town stays exactly as it is.
+- The new island is one continuous landscape of rolling hills, ridges, coves, wide beaches and rocky cliffs, with a different shape for every seed. Hills now cast shadows across the valleys.
+- Shape it with four soft brushes: Raise, Lower, Smooth and Flatten. Tap the size key to pick small, medium or large, and the sea, foam and beaches follow your changes.
+- "New landscape" rolls a fresh island, and "Classic town" takes you back. Coming next: draw main streets and paint where the town should grow, and it will build itself.
+
 ## 2026-10-23 19:30 UTC
 - Windows look real now: they reflect the sky, catch a soft sheen of light, and many have roller blinds or colourful curtains behind the glass. At night, lit rooms glow brightest under the ceiling lamp and take on the colour of their curtains.
 - Every building, tree, lamp post, car and person now has a soft shadow where it meets the ground, and tall walls show faint rain streaks.
