@@ -40,6 +40,7 @@ var _cloud_checked := false
 var sync: IslandSync
 var progress: IslandProgress
 var landmarks: Landmarks
+var bunting: Bunting
 var _broke := false
 # the line being drawn with the street brush, and the box a shaping stroke touched
 var _path := PackedVector2Array()
@@ -109,6 +110,9 @@ func _ready() -> void:
 	landmarks.world = self
 	landmarks.beam_mat = beam_mat
 	add_child(landmarks)
+	bunting = Bunting.new()
+	bunting.world = self
+	add_child(bunting)
 	progress.coins_changed.connect(func():
 		if _save_timer <= 0.0:
 			_save_timer = 15.0)
