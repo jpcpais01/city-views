@@ -7,10 +7,16 @@ uniform vec3 warm_light : source_color = vec3(1.0, 0.74, 0.42);
 uniform vec3 frame_col : source_color = vec3(0.97, 0.97, 0.95);
 
 #include "res://shaders/beam.gdshaderinc"
+#ifndef GROUND
+// ground height of every tile, so walls, trunks and kerbs darken where they meet the ground
+uniform sampler2D height_tex : filter_nearest, repeat_disable;
+uniform float grid_size = 128.0;
+#endif
 
 varying float v_emit;
 varying float v_rand;
 varying vec3 v_world;
+varying vec3 v_wnorm;
 
 float g_hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -30,6 +36,35 @@ void vertex() {
 	v_emit = UV.x;
 	v_rand = UV.y;
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_wnorm = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+}
+
+// Daylight look of a window pane at (u, v): sky reflected brighter at the top,
+// a soft diagonal sheen, and on some windows blinds or curtains behind the glass.
+// cover returns how much of the pane they hide, cover_col their colour.
+vec3 pane(vec3 col, float u, float v, float r, out float cover, out vec3 cover_col) {
+	vec3 g = col * mix(0.72, 1.18, smoothstep(0.0, 1.0, v)) + vec3(0.04, 0.05, 0.06) * smoothstep(0.55, 1.0, v);
+	float sheen = fract(u * 0.55 + v * 0.35 + r * 5.0);
+	g += vec3(0.1) * smoothstep(0.0, 0.08, sheen) * (1.0 - smoothstep(0.14, 0.3, sheen));
+	cover = 0.0;
+	cover_col = vec3(0.9, 0.86, 0.78);
+	float pick = fract(r * 7.31);
+	if (pick < 0.3) {
+		// roller blind pulled part way down, with faint slats
+		float drop = 0.2 + 0.6 * fract(r * 3.7);
+		float aa = fwidth(v);
+		cover = smoothstep(1.0 - drop - aa, 1.0 - drop + aa, v);
+		cover_col *= 0.92 + 0.08 * step(0.5, fract(v * 14.0));
+	} else if (pick < 0.55) {
+		// curtains drawn to the sides
+		vec3 cols[4] = vec3[](vec3(0.86, 0.42, 0.38), vec3(0.93, 0.88, 0.76), vec3(0.55, 0.7, 0.58), vec3(0.45, 0.58, 0.82));
+		cover_col = cols[int(fract(r * 13.1) * 4.0)];
+		float w = 0.14 + 0.12 * fract(r * 5.3);
+		float aa = fwidth(u);
+		cover = 1.0 - smoothstep(w - aa, w + aa, u) * smoothstep(w - aa, w + aa, 1.0 - u);
+		cover_col *= 0.9 + 0.1 * sin(u * 60.0);
+	}
+	return mix(g, cover_col * 0.8, cover);
 }
 
 void fragment() {
@@ -47,7 +82,29 @@ void fragment() {
 		// fine grain: blades, sand grains and grit, fading out before it can shimmer
 		float fw = length(fwidth(p));
 		float grain = g_noise(p * 5.3) * 0.6 + g_noise(p * 13.0) * 0.4;
-		base *= 1.0 + (grain - 0.5) * 0.12 * (1.0 - smoothstep(0.05, 0.25, fw));
+		float close = 1.0 - smoothstep(0.05, 0.25, fw);
+		base *= 1.0 + (grain - 0.5) * 0.12 * close;
+		// tufts: darker and lighter clumps through the meadow
+		if (grass > 0.0) {
+			base *= 1.0 + (g_noise(p * 2.3 + 3.0) - 0.5) * 0.2 * grass;
+		}
+		// wind ripples in the dry sand
+		float sand = smoothstep(0.06, 0.14, base.r - base.b) * (1.0 - grass);
+		if (sand > 0.0) {
+			float rip = sin(dot(p, vec2(0.8, 0.6)) * 9.0 + g_noise(p * 0.7) * 7.0);
+			base *= 1.0 + rip * 0.035 * sand * close;
+		}
+		// tiny wildflowers and clover dotted through the grass
+		vec2 fq = p * 5.0;
+		vec2 fc = floor(fq);
+		float fh = g_hash(fc + 41.0);
+		if (fh > 0.93 && grass > 0.5) {
+			vec2 off = vec2(g_hash(fc + 7.0), g_hash(fc + 13.0)) * 0.5 + 0.25;
+			float dot_m = 1.0 - smoothstep(0.07, 0.11, length(fract(fq) - off));
+			vec3 petals[4] = vec3[](vec3(1.0, 0.97, 0.9), vec3(1.0, 0.86, 0.3), vec3(0.95, 0.6, 0.75), vec3(0.7, 0.72, 1.0));
+			vec3 pc = fh > 0.965 ? petals[int(fract(fh * 91.0) * 4.0)] : base * vec3(0.8, 1.08, 0.75);
+			base = mix(base, pc, dot_m * close);
+		}
 	}
 #endif
 #ifndef GROUND
@@ -103,11 +160,63 @@ void fragment() {
 			float mortar = max(1.0 - smoothstep(0.0, 0.12 + aa, fract(rows)), 1.0 - smoothstep(0.0, 0.07 + aa, fract(along)));
 			float tone = 0.9 + 0.18 * g_hash(vec2(row, floor(along)));
 			base = mix(base, mix(base * tone, vec3(0.86, 0.82, 0.76), mortar), 1.0 - smoothstep(0.35, 0.8, aa));
+		} else if (v_emit > 0.07 && v_emit < 0.13) {
+			// asphalt: patched repairs, hairline cracks and fine aggregate
+			vec2 p = v_world.xz;
+			float aa = length(fwidth(p));
+			float fade = 1.0 - smoothstep(0.08, 0.3, aa);
+			vec2 cell = floor(p * 0.9);
+			vec2 f = fract(p * 0.9);
+			float patched = step(0.86, g_hash(cell + 3.7)) * step(0.15, f.x) * step(f.x, 0.8) * step(0.2, f.y) * step(f.y, 0.7);
+			float crack = 1.0 - smoothstep(0.0, 0.006 + aa * 0.5, abs(g_noise(p * 3.6) - 0.5));
+			crack *= smoothstep(0.62, 0.75, g_noise(p * 0.45 + 9.0));
+			base *= mix(1.0, (1.0 - patched * 0.1) * (1.0 - crack * 0.25), fade);
+			base *= 0.95 + 0.1 * g_noise(p * 0.35);
+		} else if (v_emit > 0.13 && v_emit < 0.19) {
+			// pavement: small square slabs with fine joints and the odd odd-toned one
+			vec2 q = v_world.xz * 3.0;
+			vec2 f = abs(fract(q) - 0.5);
+			float aa = length(fwidth(q));
+			float joint = smoothstep(0.46 - aa, 0.5, max(f.x, f.y));
+			float tone = 0.96 + 0.08 * g_hash(floor(q));
+			base *= mix(tone, 0.84, joint * (1.0 - smoothstep(0.25, 0.6, aa)));
 		} else if (v_emit > 0.47 && v_emit < 0.495) {
 			// mown grass: wide light and dark stripes (along x below 0.485, along z above)
 			float a = v_emit < 0.485 ? v_world.x : v_world.z;
 			float st = smoothstep(0.42, 0.58, abs(fract(a * 1.25) - 0.5) * 2.0);
 			base *= mix(0.93, 1.06, st);
+		}
+	}
+#endif
+#ifndef GROUND
+	{
+		// sides darken towards the ground they stand on (soft contact shadow), and
+		// tall walls pick up faint rain streaks
+		float h = texture(height_tex, v_world.xz / grid_size + 0.5).r * 2.5 - 0.5;
+		float above = v_world.y - h;
+		float side = 1.0 - smoothstep(0.45, 0.85, abs(v_wnorm.y));
+		base *= mix(1.0, mix(0.68, 1.0, smoothstep(0.0, 0.3, above)) * mix(0.92, 1.0, smoothstep(0.2, 2.2, above)), side);
+		float fw = length(fwidth(v_world));
+		float along = dot(v_world.xz, vec2(0.7071));
+		if (side > 0.0 && above > 0.6) {
+			float streak = g_noise(vec2(along * 5.0, v_world.y * 0.45));
+			base *= 1.0 - side * (streak - 0.5) * 0.08 * (1.0 - smoothstep(0.05, 0.25, fw)) * smoothstep(0.6, 1.5, above);
+		}
+		// foliage: leafy clumps catching the light, darker underneath
+		float leafy = smoothstep(0.04, 0.1, base.g - max(base.r, base.b)) * step(v_emit, 0.01);
+		if (leafy > 0.0) {
+			// (the fine layer is filtered out once it is smaller than a pixel, like a mipmap)
+			float fine = mix(0.5, g_noise(v_world.xz * 11.0 - v_world.yy * 7.0), 1.0 - smoothstep(0.08, 0.3, fw));
+			float clump = g_noise(v_world.xz * 4.5 + v_world.yy * vec2(3.1, -2.3)) * 0.65 + fine * 0.35;
+			base *= mix(1.0, (0.84 + 0.32 * clump) * mix(0.82, 1.06, v_wnorm.y * 0.5 + 0.5), leafy);
+		}
+		// flat roofs: big membrane sheets with seams
+		if (v_emit < 0.01 && v_wnorm.y > 0.95 && above > 0.9 && max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b)) < 0.25) {
+			vec2 q = v_world.xz * vec2(1.4, 0.8);
+			vec2 f = abs(fract(q) - 0.5);
+			float aa = length(fwidth(q));
+			float seam = smoothstep(0.47 - aa, 0.5, max(f.x, f.y)) * (1.0 - smoothstep(0.3, 0.7, aa));
+			base *= (1.0 - seam * 0.1) * (0.96 + 0.08 * g_noise(v_world.xz * 0.8));
 		}
 	}
 #endif
@@ -119,6 +228,12 @@ void fragment() {
 	SPECULAR = 0.35;
 	float emit = v_emit;
 	float rnd = v_rand;
+	// pane coordinates of a window (u < 0: none) and what hangs behind its glass
+	float wu = -1.0;
+	float wv = 0.0;
+	float pv = -1.0;
+	float cover = 0.0;
+	vec3 cover_col = vec3(1.0);
 #ifdef WINDOW_ROWS
 	if (emit > 299.5) {
 		// trim lines round a block: y counts lines from the first, COLOR.a = half thickness
@@ -145,6 +260,9 @@ void fragment() {
 		rnd = fract(sin(seed * 12.9898 + idx * 78.233) * 43758.5453);
 		if (plain > 0.5) {
 			emit = 1.0;
+			wu = lu;
+			wv = v;
+			pv = v;
 		} else {
 			emit = 4.0 + lu * 0.98;
 			rnd = floor(rnd * 100.0) + v * 0.98;
@@ -164,7 +282,8 @@ void fragment() {
 		float sill = 1.0 - smoothstep(0.11 - aa, 0.11, v);
 		vec3 fr = frame_col * mix(1.0, 1.08, sill) * mix(0.55, 1.0, smoothstep(0.0, 0.035 + aa, v));
 		// the frame shades the top of the pane, like a recessed window
-		vec3 gl = base * mix(1.0, 0.72, smoothstep(0.65, 0.9, v));
+		pv = clamp((v - 0.21) / 0.69, 0.0, 1.0);
+		vec3 gl = pane(base, (u - 0.14) / 0.72, pv, rnd, cover, cover_col) * mix(1.0, 0.72, smoothstep(0.65, 0.9, v));
 		base = mix(fr, gl, glass_m);
 		ALBEDO = base;
 		emit = glass_m > 0.5 ? 1.0 : 0.0;
@@ -176,8 +295,17 @@ void fragment() {
 		vec3 glow = warm_light;
 		if (emit < 1.5) {
 			// window: randomly lit, slightly varied tint, with a slow flicker of TV light in a few
+			if (wu >= 0.0) {
+				base = pane(base, wu, wv, rnd, cover, cover_col);
+			}
 			lit = step(rnd, lit_ratio) * night;
 			glow = mix(warm_light, vec3(1.0, 0.9, 0.7), fract(rnd * 13.7));
+			// light through a blind or curtain takes on its colour
+			glow = mix(glow, glow * cover_col * 1.15, cover * 0.7);
+			// a lit room: brightest under the ceiling lamp, dimmer behind blinds
+			if (pv >= 0.0) {
+				glow *= mix(0.78, 1.12, pv) * (1.0 - cover * 0.25);
+			}
 			if (fract(rnd * 31.0) > 0.93) {
 				glow = mix(glow, vec3(0.55, 0.75, 1.0), 0.5 + 0.5 * sin(TIME * 3.0 + rnd * 40.0));
 			}

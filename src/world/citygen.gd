@@ -113,7 +113,7 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 	var rs := Game.sub(x, z)
 	# cobbled lanes swap the asphalt for setts; avenues are a touch darker
 	var top := ASPHALT
-	var te := 0.0
+	var te := MeshKit.ASPHALT
 	if rs == Game.ROAD_SUB.LANE:
 		top = Color(0.64, 0.6, 0.55)
 		te = MeshKit.COBBLE
@@ -155,7 +155,7 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 			open_side.append(Game.knd(x + d.x, z + d.y) != Game.K.ROAD)
 		for cx in [-1, 1]:
 			for cz in [-1, 1]:
-				_flat(mk, minf(cx * w, cx * H), minf(cz * w, cz * H), maxf(cx * w, cx * H), maxf(cz * w, cz * H), 0.1, SIDEWALK)
+				_flat(mk, minf(cx * w, cx * H), minf(cz * w, cz * H), maxf(cx * w, cx * H), maxf(cz * w, cz * H), 0.1, SIDEWALK, MeshKit.SLABS)
 				var ix := 0 if cx > 0 else 2
 				var iz := 1 if cz > 0 else 3
 				if links[iz]:
@@ -172,7 +172,7 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 				var a := Vector3(d.x, 0, d.y) * w
 				var b := Vector3(d.x, 0, d.y) * H
 				var t := Vector3(absf(d.y), 0, absf(d.x)) * w
-				_flat(mk, minf(a.x, b.x) - t.x, minf(a.z, b.z) - t.z, maxf(a.x, b.x) + t.x, maxf(a.z, b.z) + t.z, 0.1, SIDEWALK)
+				_flat(mk, minf(a.x, b.x) - t.x, minf(a.z, b.z) - t.z, maxf(a.x, b.x) + t.x, maxf(a.z, b.z) + t.z, 0.1, SIDEWALK, MeshKit.SLABS)
 				_curb(mk, a - t, a + t, -Vector3(d.x, 0, d.y), 0.04)
 				if open_side[i]:
 					_curb(mk, b - t, b + t, Vector3(d.x, 0, d.y), 0.0)
@@ -259,13 +259,13 @@ static func _ramp(mk: MeshKit, x: int, z: int, rd: int, _links: Array) -> void:
 	var c := Vector3(0.62, 0.06 + rise, H)
 	var e := Vector3(-0.62, 0.06 + rise, H)
 	var n := Vector3(0, 2.0, -rise).normalized()
-	mk.quad(a, b, c, e, n, ASPHALT)
+	mk.quad(a, b, c, e, n, ASPHALT, MeshKit.ASPHALT)
 	for s in [-1.0, 1.0]:
 		var x0: float = s * 0.62
 		var x1: float = s * H
 		var top0 := 0.1
 		var top1 := 0.1 + rise
-		mk.quad(Vector3(x0, top0, -H), Vector3(x1, top0, -H), Vector3(x1, top1, H), Vector3(x0, top1, H), n, SIDEWALK)
+		mk.quad(Vector3(x0, top0, -H), Vector3(x1, top0, -H), Vector3(x1, top1, H), Vector3(x0, top1, H), n, SIDEWALK, MeshKit.SLABS)
 		# outer face down to the ground
 		var out := Vector3(s, 0, 0)
 		mk.quad(Vector3(x1, top0, -H), Vector3(x1, top1, H), Vector3(x1, 0, H), Vector3(x1, 0, -H), out, Color(0.74, 0.64, 0.5))

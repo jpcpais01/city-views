@@ -24,6 +24,8 @@ var rig: CameraRig
 var terrain: Terrain
 var traffic: Traffic
 var life: Life
+var _height_img: Image
+var _height_tex: ImageTexture
 var people: People
 var _tiles := {}
 # settled tiles are merged into one mesh per BATCH x BATCH block (a handful of
@@ -89,7 +91,8 @@ func _ready() -> void:
 	Game.income_tick.connect(_on_income)
 	Game.seabed_changed.connect(func():
 		terrain.build_all()
-		_update_shore_tex())
+		_update_shore_tex()
+		_update_height_tex())
 	Net.players_changed.connect(_update_remote_cursors)
 	_on_world_reset()
 
@@ -301,6 +304,24 @@ func _update_shore_tex() -> void:
 	water_mat.set_shader_parameter("grid_size", Game.N * Game.TILE)
 
 
+## Ground height of every tile for the city shader's contact shading.
+func _update_height_tex() -> void:
+	var n := Game.N
+	_height_img = Image.create(n, n, false, Image.FORMAT_L8)
+	for z in n:
+		for x in n:
+			_set_height_px(x, z)
+	_height_tex = ImageTexture.create_from_image(_height_img)
+	for m in [city_mat, detail_mat]:
+		m.set_shader_parameter("height_tex", _height_tex)
+		m.set_shader_parameter("grid_size", Game.N * Game.TILE)
+
+
+func _set_height_px(x: int, z: int) -> void:
+	var y := clampf((Game.tile_y(x, z) + 0.5) / 2.5, 0.0, 1.0)
+	_height_img.set_pixel(x, z, Color(y, y, y))
+
+
 func _on_world_reset() -> void:
 	for b in _bubbles.values():
 		b.node.queue_free()
@@ -321,6 +342,7 @@ func _on_world_reset() -> void:
 	_queued.clear()
 	terrain.build_all()
 	_update_shore_tex()
+	_update_height_tex()
 	traffic.clear()
 	people.clear()
 	life.reset()
@@ -513,6 +535,8 @@ func _remove_spinners(node: Node) -> void:
 func _on_tile_changed(x: int, z: int) -> void:
 	var t := Vector2i(x, z)
 	terrain.tile_changed(x, z)
+	_set_height_px(x, z)
+	_height_tex.update(_height_img)
 	traffic.mark_dirty()
 	people.mark_dirty()
 	_rebuild(t, "pop")

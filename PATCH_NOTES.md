@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 19:30 UTC
+- Windows look real now: they reflect the sky, catch a soft sheen of light, and many have roller blinds or colourful curtains behind the glass. At night, lit rooms glow brightest under the ceiling lamp and take on the colour of their curtains.
+- Every building, tree, lamp post, car and person now has a soft shadow where it meets the ground, and tall walls show faint rain streaks.
+- Roads have patched repairs and hairline cracks in the asphalt, and pavements are laid in small square slabs. Flat roofs show their membrane sheets and seams.
+- Tree canopies have leafy clumps that catch the light and are darker underneath.
+- Meadows have darker and lighter tufts with tiny wildflowers and clover, and beaches have wind ripples in the sand. None of this adds a single triangle.
+
 ## 2026-10-23 19:00 UTC
 - The lighthouse beam now shows out over the sea, not only where it crosses land. It is a softer, brighter double cone that leans down towards the water.
 - As the beam sweeps, it lights up whatever it passes over: a glittering path across the waves, the grass, the sand and the buildings.
