@@ -1,10 +1,12 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_never, cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode blend_mix, depth_draw_never, cull_back, diffuse_burley, specular_schlick_ggx, world_vertex_coords;
 // Sea: Gerstner swell, refraction of the real seabed through the surface,
 // depth-based light absorption (clear turquoise shallows, deep blue offshore),
 // animated caustics on the sand, crest glow and breaking foam at the shore.
 
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
+// one small tiling noise texture replaces all procedural noise (much cheaper on phones)
+uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform vec3 scatter_col : source_color = vec3(0.02, 0.2, 0.42);
 uniform vec3 shallow_tint : source_color = vec3(0.55, 1.0, 0.92);
@@ -34,7 +36,7 @@ const vec4 WAVES[4] = vec4[](
 );
 
 void vertex() {
-	vec3 p = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vec3 p = VERTEX;
 	// calmer far from the island so the horizon stays clean
 	float sd = shore_dist(p.xz);
 	float fade = (1.0 - smoothstep(120.0, 260.0, length(p.xz))) * wave_scale * (0.25 + 0.75 * smoothstep(0.0, 5.0, sd));
@@ -56,44 +58,31 @@ void vertex() {
 	p += off;
 	crest = off.y;
 	w_pos = p;
-	VERTEX = (inverse(MODEL_MATRIX) * vec4(p, 1.0)).xyz;
-	vec3 n = normalize(cross(tz, tx));
-	NORMAL = normalize((inverse(transpose(MODEL_MATRIX)) * vec4(n, 0.0)).xyz);
+	VERTEX = p;
+	NORMAL = normalize(cross(tz, tx));
 }
 
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float vnoise(vec2 p) {
-	vec2 i = floor(p);
-	vec2 f = fract(p);
-	f = f * f * (3.0 - 2.0 * f);
-	return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+float nz2(vec2 p) {
+	return texture(noise_tex, p).r;
 }
 
-// slope of a small two-octave ripple field (for fine surface detail)
+// slope of a two-octave ripple field from the noise texture's gradient
 vec2 ripple_slope(vec2 p, float t) {
-	vec2 a = p * 0.9 + vec2(t * 0.21, t * 0.13);
-	vec2 b = p * 2.3 - vec2(t * 0.17, -t * 0.26);
-	float e = 0.08;
-	float h0 = vnoise(a) + vnoise(b) * 0.45;
-	float hx = vnoise(a + vec2(e, 0.0)) + vnoise(b + vec2(e, 0.0)) * 0.45;
-	float hz = vnoise(a + vec2(0.0, e)) + vnoise(b + vec2(0.0, e)) * 0.45;
-	return vec2(hx - h0, hz - h0) / e;
+	vec2 a = p * 0.11 + vec2(t * 0.025, t * 0.016);
+	vec2 b = p * 0.26 - vec2(t * 0.02, -t * 0.03);
+	float e = 0.004;
+	float h0 = nz2(a) + nz2(b) * 0.45;
+	float hx = nz2(a + vec2(e, 0.0)) + nz2(b + vec2(e, 0.0)) * 0.45;
+	float hz = nz2(a + vec2(0.0, e)) + nz2(b + vec2(0.0, e)) * 0.45;
+	return vec2(hx - h0, hz - h0) / e * 0.11;
 }
 
-// tileable caustic web (after the classic iterative "water turbulence" pattern)
-float caustic(vec2 uv, float t) {
-	vec2 p = mod(uv * 6.28318, 6.28318) - 250.0;
-	vec2 i = p;
-	float c = 1.0;
-	float inten = 0.005;
-	for (int n = 0; n < 4; n++) {
-		float tt = t * (1.0 - (3.5 / float(n + 1)));
-		i = p + vec2(cos(tt - i.x) + sin(tt + i.y), sin(tt - i.y) + cos(tt + i.x));
-		c += 1.0 / length(vec2(p.x / (sin(i.x + tt) / inten), p.y / (cos(i.y + tt) / inten)));
-	}
-	c /= 4.0;
-	c = 1.17 - pow(c, 1.4);
-	return clamp(pow(abs(c), 8.0), 0.0, 2.0);
+// caustic web: where two drifting noise layers cross their mid level
+float caustic(vec2 p, float t) {
+	float a = nz2(p * 0.04 + vec2(t * 0.006, t * 0.004));
+	float b = nz2(p * 0.052 - vec2(t * 0.005, -t * 0.006) + 0.37);
+	float c = 1.0 - abs(a - b) * 5.0;
+	return clamp(c, 0.0, 1.0) * clamp(c, 0.0, 1.0) * clamp(c, 0.0, 1.0) * 1.6;
 }
 
 vec3 scene_world(vec2 uv, mat4 inv_proj, mat4 inv_view, out float view_z) {
@@ -131,7 +120,7 @@ void fragment() {
 
 	vec3 below = textureLod(screen_tex, ruv, 0.0).rgb;
 	// sunlight dancing on the sand, strongest in the shallows
-	float cz = caustic(rp.xz * 0.11, t * 0.55) + caustic(rp.xz * 0.07 + 0.37, t * 0.4) * 0.6;
+	float cz = caustic(rp.xz, t);
 	float c_amt = (1.0 - night) * smoothstep(0.02, 0.25, depth) * exp(-depth * 0.55);
 	below *= 1.0 + cz * c_amt * 1.4;
 	below *= mix(vec3(1.0), shallow_tint, smoothstep(0.0, 0.6, depth));
@@ -145,7 +134,7 @@ void fragment() {
 	col += crest_col * cr * 0.12 * (1.0 - night);
 
 	// foam: a soft lace at the waterline plus bands rolling towards the beach
-	float nz = vnoise(w_pos.xz * 1.7 + vec2(t * 0.3, -t * 0.2)) * 0.6 + vnoise(w_pos.xz * 4.1 - t * 0.4) * 0.4;
+	float nz = nz2(w_pos.xz * 0.2 + vec2(t * 0.04, -t * 0.027)) * 0.6 + nz2(w_pos.xz * 0.5 - t * 0.05) * 0.4;
 	float sd = shore_dist(w_pos.xz);
 	float edge = max(1.0 - smoothstep(0.0, 0.1 + nz * 0.1, depth0), 1.0 - smoothstep(0.05, 0.3 + nz * 0.45, sd));
 	float roll = sin(sd * 3.4 + t * 1.7 + nz * 2.2) * 0.5 + 0.5;

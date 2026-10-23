@@ -22,6 +22,13 @@ var rig: CameraRig
 var terrain: Terrain
 var traffic: Traffic
 var _tiles := {}
+# settled tiles are merged into one mesh per BATCH x BATCH block (a handful of
+# draw calls instead of one per tile, which matters a lot for shadows on phones)
+const BATCH := 8
+var _baked := {}
+var _batches := {}
+var _batch_dirty := {}
+var _batch_urgent := {}
 var _spinners: Array = []
 var _build_queue: Array[Vector2i] = []
 var _queued := {}
@@ -75,6 +82,16 @@ func _make_materials() -> void:
 	city_mat.shader = load("res://shaders/city.gdshader")
 	water_mat = ShaderMaterial.new()
 	water_mat.shader = load("res://shaders/water.gdshader")
+	var noise := FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.frequency = 1.0 / 32.0
+	var ntex := NoiseTexture2D.new()
+	ntex.width = 256
+	ntex.height = 256
+	ntex.seamless = true
+	ntex.generate_mipmaps = true
+	ntex.noise = noise
+	water_mat.set_shader_parameter("noise_tex", ntex)
 	water_mat.render_priority = 1
 	beam_mat = StandardMaterial3D.new()
 	beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -127,10 +144,9 @@ func _make_environment() -> void:
 	add_child(we)
 	sun = DirectionalLight3D.new()
 	sun.shadow_enabled = Game.settings.get("shadows", true)
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	# one orthogonal map: every caster is drawn into the shadow map once, not once per split
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 60.0
-	sun.directional_shadow_blend_splits = true
-	sun.directional_shadow_split_1 = 0.25
 	sun.shadow_blur = 2.4
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
@@ -254,6 +270,12 @@ func _on_world_reset() -> void:
 	for n in _tiles.values():
 		n.queue_free()
 	_tiles.clear()
+	for b in _batches.values():
+		b.queue_free()
+	_batches.clear()
+	_baked.clear()
+	_batch_dirty.clear()
+	_batch_urgent.clear()
 	_spinners.clear()
 	_build_queue.clear()
 	_queued.clear()
@@ -296,26 +318,103 @@ func _rebuild(t: Vector2i, anim := "") -> void:
 		_remove_spinners(old)
 		old.queue_free()
 		_tiles.erase(t)
+	if _baked.erase(t):
+		# re-merge this frame so the old version never shows next to the new one
+		_batch_urgent[_batch_of(t)] = true
 	var node := CityGen.build(t.x, t.y, city_mat, beam_mat)
 	if node == null:
 		return
 	add_child(node)
 	_tiles[t] = node
 	_collect_spinners(node)
+	if anim == "":
+		_bake(t, node)
+		return
+	var tw: Tween
 	match anim:
 		"pop":
 			node.scale = Vector3(0.7, 0.05, 0.7)
-			var tw := create_tween()
+			tw = create_tween()
 			tw.tween_property(node, "scale", Vector3.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		"grow":
 			node.scale = Vector3(1.0, 0.3, 1.0)
-			var tw := create_tween()
+			tw = create_tween()
 			tw.tween_property(node, "scale", Vector3(1.04, 1.08, 1.04), 0.35).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 			tw.tween_property(node, "scale", Vector3.ONE, 0.25).set_trans(Tween.TRANS_SINE)
 		"fade":
 			node.scale = Vector3.ONE * 0.6
-			var tw := create_tween()
+			tw = create_tween()
 			tw.tween_property(node, "scale", Vector3.ONE, 0.5).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	if tw:
+		tw.finished.connect(func(): _bake(t, node))
+	else:
+		_bake(t, node)
+
+
+func _batch_of(t: Vector2i) -> Vector2i:
+	return Vector2i(t.x / BATCH, t.y / BATCH)
+
+
+## Hands a settled tile's static mesh to its block; the block re-merges soon.
+func _bake(t: Vector2i, node: Node3D) -> void:
+	if not is_instance_valid(node) or _tiles.get(t) != node:
+		return
+	node.scale = Vector3.ONE
+	var body := node.get_node_or_null("Body") as MeshInstance3D
+	if body == null or not body.has_meta("arrays"):
+		return
+	var arr: Array = body.get_meta("arrays")
+	if (arr[0] as PackedVector3Array).is_empty():
+		return
+	_baked[t] = arr
+	_batch_dirty[_batch_of(t)] = true
+
+
+func _rebuild_batch(b: Vector2i) -> void:
+	_batch_dirty.erase(b)
+	_batch_urgent.erase(b)
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var cols := PackedColorArray()
+	var uvs := PackedVector2Array()
+	var merged: Array[Vector2i] = []
+	for z in range(b.y * BATCH, (b.y + 1) * BATCH):
+		for x in range(b.x * BATCH, (b.x + 1) * BATCH):
+			var t := Vector2i(x, z)
+			if not _baked.has(t):
+				continue
+			var arr: Array = _baked[t]
+			var xf := Transform3D(Basis.IDENTITY, (_tiles[t] as Node3D).position)
+			verts.append_array(xf * (arr[0] as PackedVector3Array))
+			norms.append_array(arr[1])
+			cols.append_array(arr[2])
+			uvs.append_array(arr[3])
+			merged.append(t)
+	var mi: MeshInstance3D = _batches.get(b)
+	if verts.is_empty():
+		if mi:
+			mi.queue_free()
+			_batches.erase(b)
+		return
+	if mi == null:
+		mi = MeshInstance3D.new()
+		add_child(mi)
+		_batches[b] = mi
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_COLOR] = cols
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.surface_set_material(0, city_mat)
+	mi.mesh = mesh
+	# the merged copy is drawn now, so the per-tile bodies can go
+	for t in merged:
+		var body := (_tiles[t] as Node3D).get_node_or_null("Body")
+		if body:
+			body.queue_free()
 
 
 func _collect_spinners(node: Node) -> void:
@@ -477,6 +576,14 @@ func _process(delta: float) -> void:
 		var t: Vector2i = _build_queue.pop_front()
 		_queued.erase(t)
 		_rebuild(t, "fade" if _build_queue.size() < 400 else "")
+	for b in _batch_urgent.keys():
+		_rebuild_batch(b)
+	var n := 0
+	for b in _batch_dirty.keys():
+		_rebuild_batch(b)
+		n += 1
+		if n >= 2:
+			break
 	time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
 	_update_sky()
 	for s in _spinners:
@@ -560,6 +667,8 @@ func _update_sky() -> void:
 	var late := clampf(nt / 0.3, 0.0, 1.0) if nt < 0.4 else 0.0
 	city_mat.set_shader_parameter("lit_ratio", lerpf(0.8, 0.35, late))
 	water_mat.set_shader_parameter("night", night)
+	# bloom only matters for lit windows and lamps, so skip its passes by day
+	env.glow_enabled = night > 0.12 and OS.get_environment("CV_NOGLOW") == ""
 	Sfx.night = night
 
 

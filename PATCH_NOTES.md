@@ -5,6 +5,7 @@
 - A new app icon: a sunset waterfront of pastel towers and gabled homes, with a little sailboat on the bay. It also adapts to round, squircle and teardrop launcher shapes.
 - The menu is reorganised into tabs (Island, Co-op, Account, Settings, What's new) and only shows the buttons that make sense right now, like Leave only when you're in a room.
 - A tiny FPS counter sits under your city name. You can hide it in Settings.
+- Big speed boost: the town is now drawn in a few large pieces instead of one per tile, the sea and glass menus are much cheaper to draw, shadows are rendered once instead of twice, and phones render the 3D at a slightly lower resolution while the interface stays sharp.
 
 ## 2026-10-23 12:00 UTC
 - A brand new sea: clear turquoise shallows you can see the sand through, deep blue water further out, rolling swell, dancing caustics and foam that laps at the beach.

@@ -877,5 +877,8 @@ static func build(x: int, z: int, mat: Material, beam_mat: Material) -> Node3D:
 		Game.K.PARK: _park(mk, x, z)
 		Game.K.TREE: _trees(mk, x, z)
 		Game.K.LANDMARK: _landmark(mk, x, z, root, mat, beam_mat)
+	body.name = "Body"
 	body.mesh = mk.commit(mat)
+	# raw arrays let the world merge settled tiles into big batched meshes
+	body.set_meta("arrays", [mk.verts, mk.norms, mk.cols, mk.uvs])
 	return root
