@@ -7,13 +7,14 @@ signal back_to_town
 
 const BRUSH_INFO := {
 	"street": ["Street", "Draw a line: the street lays itself over the land"],
-	"clear": ["Clear", "Drag over streets to take them away"],
+	"grow": ["Grow", "Paint where the town should grow: it lays out its own streets"],
+	"clear": ["Clear", "Drag to take streets away and stop the town growing there"],
 	"raise": ["Raise", "Drag to lift hills out of the land"],
 	"lower": ["Lower", "Drag to carve valleys, coves and bays"],
 	"smooth": ["Smooth", "Drag to soften bumps and rough slopes"],
 	"flatten": ["Flatten", "Drag to level the ground to where you started"],
 }
-const ICONS := {"street": "road", "clear": "bulldoze"}
+const ICONS := {"street": "road", "grow": "house", "clear": "bulldoze"}
 const SIZES := [["S", 3.0], ["M", 5.0], ["L", 8.5]]
 
 var island: IslandWorld

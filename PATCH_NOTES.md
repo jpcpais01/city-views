@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 21:00 UTC
+- New Grow brush on the island: paint where the town should spread, and it lays out its own side streets one by one, growing outwards from your brush.
+- Side streets branch off at block-sized gaps, line up across main streets into crossroads, join up with each other into blocks, and wind across hillsides instead of climbing straight up.
+- Every street corner now has a rounded kerb, with the pavement curving round it.
+- The island's land is gentler, with broad slopes a town can spread across and fewer bumps, and hills no longer cast stray shadows into street cuttings.
+- Clear also wipes the painted growing area.
+
 ## 2026-10-23 20:30 UTC
 - Streets on the new island: pick Street and draw a line with your finger. It smooths into a gentle curve and lays itself across the land in under a second.
 - Streets follow the hills but never get too steep, and the ground is cut and filled around them so they sit naturally in the landscape.
