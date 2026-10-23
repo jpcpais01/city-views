@@ -212,4 +212,23 @@ func _tri_budget() -> void:
 	var hud := 8000
 	print("frame triangles, town of today + full traffic: %d (+%d HUD allowance)" % [total, hud])
 	check(total + hud < TriBudget.BUDGET, "frame stays under %d triangles (%d)" % [TriBudget.BUDGET, total + hud])
+	_gulls(world.life)
 	world.queue_free()
+
+
+## Three simulated minutes of gulls: they should land, perch, take off and dive, and never leave the sky.
+func _gulls(life: Life) -> void:
+	life.set_process(false)
+	var seen := {}
+	var sane := true
+	for step in 3600:
+		life._process(0.05)
+		for g in life._gulls:
+			seen[g.st] = true
+			var p: Vector3 = g.p
+			if not p.is_finite() or p.y < -0.2 or p.y > 20.0:
+				sane = false
+	print("  gull states seen: ", seen.keys())
+	check(sane, "gulls stay between the sea and the sky")
+	check(seen.has(Life.PERCH) and seen.has(Life.TAKEOFF), "gulls come down to perch and take off again")
+	check(seen.has(Life.DIVE), "gulls dive for fish")

@@ -48,6 +48,8 @@ func _ready() -> void:
 			for z2 in range(33, 38):
 				Game.set_tile(x2, z2, Game.K.EMPTY, 0, 0)
 		Game.set_tile(40, 33, Game.K.LANDMARK, 0, Game.LM.PIER)
+		# a second lighthouse on the bay, so its beam sweeps the water
+		Game.set_tile(36, 32, Game.K.LANDMARK, Game.lvl(36, 32), Game.LM.LIGHTHOUSE)
 		n = 0
 	Game.population = 2000
 	var world := World.new()

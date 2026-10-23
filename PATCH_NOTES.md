@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 19:00 UTC
+- The lighthouse beam now shows out over the sea, not only where it crosses land. It is a softer, brighter double cone that leans down towards the water.
+- As the beam sweeps, it lights up whatever it passes over: a glittering path across the waves, the grass, the sand and the buildings.
+- Seagulls are rebuilt: grey wings with black tips, white undersides, a hooked yellow beak and pink feet. Their wings bend at the shoulder and the elbow, so they glide in the classic gull "M" shape and beat their wings properly.
+- Gulls now soar in circles, fly off somewhere new, dive into the sea for fish, and come down to stand on the beach or bob on the water before flapping off again. They rest more at night.
+- Gulls call out as they fly near you, sometimes in a laughing run of cries.
+
 ## 2026-10-23 18:30 UTC
 - Every new version now comes with a Windows download too: grab CityViews-Windows.zip from the release, unzip it and run CityViews.exe.
 - On PC the interface is now sized for a monitor instead of a phone. Panels and buttons are about a third smaller at 1080p and scale with your screen's DPI. Phones look exactly the same.

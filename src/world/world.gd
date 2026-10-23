@@ -16,7 +16,7 @@ var city_mat: ShaderMaterial
 var ground_mat: ShaderMaterial
 var detail_mat: ShaderMaterial
 var water_mat: ShaderMaterial
-var beam_mat: StandardMaterial3D
+var beam_mat: ShaderMaterial
 var sky_mat: ShaderMaterial
 var env: Environment
 var sun: DirectionalLight3D
@@ -117,14 +117,11 @@ func _make_materials() -> void:
 	ntex.noise = noise
 	water_mat.set_shader_parameter("noise_tex", ntex)
 	water_mat.render_priority = 1
-	beam_mat = StandardMaterial3D.new()
-	beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	beam_mat.vertex_color_use_as_albedo = true
-	beam_mat.vertex_color_is_srgb = true
-	beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	beam_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	beam_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	beam_mat.no_depth_test = false
+	beam_mat = ShaderMaterial.new()
+	beam_mat.shader = load("res://shaders/beam.gdshader")
+	beam_mat.set_shader_parameter("sea_y", 0.0)
+	# after the sea, which reads the screen behind it and would hide the beam
+	beam_mat.render_priority = 2
 
 
 func _make_environment() -> void:
@@ -640,6 +637,20 @@ func _on_income(amount: float) -> void:
 			return
 
 
+## Tells every lit surface where the lighthouse beams point, so the sweep shows
+## on the ground, the buildings and the sea, not just in the air.
+func _update_beams(beams: PackedVector4Array) -> void:
+	var on := smoothstep(0.15, 0.55, night)
+	beam_mat.set_shader_parameter("strength", on)
+	var n := beams.size() if on > 0.01 else 0
+	while beams.size() < 4:
+		beams.append(Vector4.ZERO)
+	for m in [city_mat, detail_mat, ground_mat, water_mat, life.gull_mat]:
+		m.set_shader_parameter("beam_count", n)
+		if n > 0:
+			m.set_shader_parameter("beams", beams)
+
+
 # ------------------------------------------------------------------ tip bubbles
 
 ## A round badge drawn once in code: a gold coin, or a pink heart for homes.
@@ -821,13 +832,19 @@ func _process(delta: float) -> void:
 			break
 	time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
 	_update_sky()
+	var beams := PackedVector4Array()
 	for s in _spinners:
 		if not is_instance_valid(s):
 			continue
 		var mi: MeshInstance3D = s
 		mi.rotate_object_local(mi.get_meta("spin_axis"), mi.get_meta("spin_speed") * delta)
 		if mi.has_meta("night_only"):
-			mi.visible = night > 0.3
+			mi.visible = night > 0.15
+		if mi.has_meta("beam") and mi.visible and beams.size() < 4:
+			var bx := mi.global_transform.basis.x
+			var o := mi.global_position
+			beams.append(Vector4(o.x, o.y, o.z, atan2(bx.z, bx.x)))
+	_update_beams(beams)
 	for c in _clouds:
 		c.position.x += c.get_meta("speed") * delta
 		if c.position.x > 160.0:
