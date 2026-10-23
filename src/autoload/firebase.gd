@@ -36,7 +36,7 @@ func _ready() -> void:
 
 
 func _load_config() -> void:
-	for path in ["user://firebase.json", "res://config/firebase.json"]:
+	for path in ["user://firebase.json", "res://config/firebase.json", "res://config/firebase.public.json"]:
 		if FileAccess.file_exists(path):
 			var cfg = JSON.parse_string(FileAccess.get_file_as_string(path))
 			if cfg is Dictionary and str(cfg.get("api_key", "")) != "" and str(cfg.get("database_url", "")) != "":
