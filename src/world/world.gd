@@ -13,6 +13,7 @@ var time_of_day := 0.3
 var night := 0.0
 
 var city_mat: ShaderMaterial
+var ground_mat: ShaderMaterial
 var detail_mat: ShaderMaterial
 var water_mat: ShaderMaterial
 var beam_mat: StandardMaterial3D
@@ -32,6 +33,8 @@ var _baked := {}
 var _batches := {}
 var _batch_dirty := {}
 var _batch_urgent := {}
+# queued tiles that are only being refreshed (a neighbour changed): no pop-in
+var _quiet := {}
 var _spinners: Array = []
 var _build_queue: Array[Vector2i] = []
 var _queued := {}
@@ -57,7 +60,7 @@ func _ready() -> void:
 	_make_materials()
 	_make_environment()
 	terrain = Terrain.new()
-	terrain.material = city_mat
+	terrain.material = ground_mat
 	add_child(terrain)
 	_make_sea()
 	traffic = Traffic.new()
@@ -92,6 +95,8 @@ func _make_materials() -> void:
 	city_mat.shader = load("res://shaders/city.gdshader")
 	detail_mat = ShaderMaterial.new()
 	detail_mat.shader = load("res://shaders/city_detail.gdshader")
+	ground_mat = ShaderMaterial.new()
+	ground_mat.shader = load("res://shaders/ground.gdshader")
 	MeshKit.detail_material = detail_mat
 	water_mat = ShaderMaterial.new()
 	water_mat.shader = load("res://shaders/water.gdshader")
@@ -269,21 +274,25 @@ func _make_clouds() -> void:
 
 # ------------------------------------------------------------------ tiles
 
-## Distance-to-land map the water shader uses for shore foam and calmer shallows.
+## Distance-to-shore map the water shader uses for foam and calmer shallows,
+## measured from the actual curving waterline rather than whole tiles.
 func _update_shore_tex() -> void:
 	if Game.shore.size() != Game.N * Game.N:
 		return
-	var img := Image.create_empty(Game.N, Game.N, false, Image.FORMAT_L8)
-	for z in Game.N:
-		for x in Game.N:
-			var v := Game.shore[Game.idx(x, z)] / 8.0
-			img.set_pixel(x, z, Color(v, v, v))
+	const RES := 4
+	const CAP := 16.0
+	var d := terrain.shore_field(RES, CAP)
+	var n := Game.N * RES
+	var bytes := PackedByteArray()
+	bytes.resize(n * n)
+	for k in n * n:
+		bytes[k] = int(d[k] / CAP * 255.0)
+	var img := Image.create_from_data(n, n, false, Image.FORMAT_L8, bytes)
 	water_mat.set_shader_parameter("shore_tex", ImageTexture.create_from_image(img))
 	water_mat.set_shader_parameter("grid_size", Game.N * Game.TILE)
 
 
 func _on_world_reset() -> void:
-	_update_shore_tex()
 	for n in _tiles.values():
 		n.queue_free()
 	_tiles.clear()
@@ -294,10 +303,12 @@ func _on_world_reset() -> void:
 	_baked.clear()
 	_batch_dirty.clear()
 	_batch_urgent.clear()
+	_quiet.clear()
 	_spinners.clear()
 	_build_queue.clear()
 	_queued.clear()
 	terrain.build_all()
+	_update_shore_tex()
 	traffic.clear()
 	people.clear()
 	life.reset()
@@ -492,7 +503,12 @@ func _on_tile_changed(x: int, z: int) -> void:
 				continue
 			var n := Vector2i(x + dx, z + dz)
 			if Game.inside(n.x, n.y) and Game.knd(n.x, n.y) != Game.K.EMPTY:
-				_rebuild(n)
+				# neighbours (road joins, shared walls) follow over the next frames
+				# within the build budget, so a placement never stalls one frame
+				_quiet[n] = true
+				if not _queued.has(n):
+					_queued[n] = true
+					_build_queue.push_front(n)
 
 
 func _on_growth_changed(x: int, z: int, grew: bool) -> void:
@@ -624,7 +640,10 @@ func _process(delta: float) -> void:
 	while not _build_queue.is_empty() and Time.get_ticks_usec() - start < 5000:
 		var t: Vector2i = _build_queue.pop_front()
 		_queued.erase(t)
-		_rebuild(t, "fade" if _build_queue.size() < 400 else "")
+		var anim := "fade" if _build_queue.size() < 400 else ""
+		if _quiet.erase(t):
+			anim = ""
+		_rebuild(t, anim)
 	for b in _batch_urgent.keys():
 		_rebuild_batch(b)
 	var n := 0

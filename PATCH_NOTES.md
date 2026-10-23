@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 15:00 UTC
+- Sea foam now follows the real, curving shoreline instead of tile squares, and the little gaps where water showed through the beach are gone.
+- Trees have leafy, lobed outlines, clumps of light and shade, and bark that darkens towards the ground. Hedges and roof gardens get the same leafy look.
+- More detail everywhere at no extra cost: meadows drift between lush and dry patches across tiles, the ground has fine grain up close, roofs show rows of tiles, and walls and roads have a subtle texture.
+- Placing things is smooth again: each placement does about a seventh of the work it did, and neighbouring tiles catch up over the next few frames.
+- In landscape, the HUD and menus stay 3% in from the left and right edges, while the island still fills the whole screen.
+
 ## 2026-10-23 14:00 UTC
 - The whole island now draws in under 100k triangles (it was over 400k) and looks the same: trees, trunks, posts and clouds are perfectly round sprites, shadows use simple stand-in shapes, and each row of windows is a single piece.
 - Hills and coasts are reshaped as one smooth landscape: eroded slopes, rocky faces and soft grass lips between terraces, scree at the foot of big drops, and beaches that run down into the water. There are no more hard steps.

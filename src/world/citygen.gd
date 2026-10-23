@@ -465,7 +465,7 @@ static func _house(mk: MeshKit, x: int, z: int) -> void:
 		elif r == 1:
 			# roof garden
 			for k in 3:
-				mk.blob(Vector3(-w * 0.3 + k * w * 0.3, top + 0.2, -d * 0.15), Vector3(0.16, 0.13, 0.16), LEAF[(k + x) % LEAF.size()])
+				mk.blob(Vector3(-w * 0.3 + k * w * 0.3, top + 0.2, -d * 0.15), Vector3(0.16, 0.13, 0.16), LEAF[(k + x) % LEAF.size()], 0.04)
 		else:
 			mk.rbox(Vector3(-w * 0.2, top + 0.2, 0), Vector3(0.3, 0.2, 0.25), 0.04, Color(0.8, 0.82, 0.85))
 			mk.rbox(Vector3(w * 0.15, top + 0.18, -d * 0.2), Vector3(0.2, 0.16, 0.2), 0.04, Color(0.8, 0.82, 0.85))
@@ -733,7 +733,7 @@ static func _trees(mk: MeshKit, x: int, z: int) -> void:
 				col = pick(AUTUMN, x, z, 130 + k)
 			_round_tree(mk, p, s, col)
 	if l >= 2 and Game.hashf(x, z, 140) > 0.6:
-		mk.blob(Vector3(Game.hashf(x, z, 141) - 0.5, 0.06, Game.hashf(x, z, 142) - 0.5), Vector3(0.18, 0.12, 0.16), Color("5c9e4e"))
+		mk.blob(Vector3(Game.hashf(x, z, 141) - 0.5, 0.06, Game.hashf(x, z, 142) - 0.5), Vector3(0.18, 0.12, 0.16), Color("5c9e4e"), 0.04)
 
 
 # ------------------------------------------------------------------ landmarks

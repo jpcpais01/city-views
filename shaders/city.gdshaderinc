@@ -10,6 +10,17 @@ varying float v_emit;
 varying float v_rand;
 varying vec3 v_world;
 
+float g_hash(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float g_noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(g_hash(i), g_hash(i + vec2(1.0, 0.0)), f.x), mix(g_hash(i + vec2(0.0, 1.0)), g_hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
 void vertex() {
 	// vertex colours are authored in sRGB
 	vec3 c = COLOR.rgb;
@@ -21,6 +32,44 @@ void vertex() {
 
 void fragment() {
 	vec3 base = COLOR.rgb;
+#ifdef GROUND
+	{
+		vec2 p = v_world.xz;
+		// broad patches that wander across tiles: lusher and drier grass, damp and dry sand
+		float broad = g_noise(p * 0.13) * 0.55 + g_noise(p * 0.37 + 17.0) * 0.3 + g_noise(p * 0.9 + 5.0) * 0.15;
+		float grass = smoothstep(0.02, 0.12, base.g - max(base.r, base.b));
+		vec3 lush = base * vec3(0.8, 0.98, 0.78);
+		vec3 dry = base * vec3(1.14, 1.07, 0.8);
+		base = mix(base, mix(lush, dry, smoothstep(0.36, 0.64, broad)), grass);
+		base *= 0.94 + 0.12 * broad * (1.0 - grass);
+		// fine grain: blades, sand grains and grit, fading out before it can shimmer
+		float fw = length(fwidth(p));
+		float grain = g_noise(p * 5.3) * 0.6 + g_noise(p * 13.0) * 0.4;
+		base *= 1.0 + (grain - 0.5) * 0.12 * (1.0 - smoothstep(0.05, 0.25, fw));
+	}
+#endif
+#ifndef GROUND
+	{
+		// fine surface grain (plaster, asphalt, paving), gone before it could shimmer
+		vec2 gp = v_world.xz + v_world.yy * vec2(0.7, -1.3);
+		float fw = length(fwidth(v_world));
+		float gr = g_noise(gp * 9.0) * 0.6 + g_noise(gp * 23.0) * 0.4;
+		base *= 1.0 + (gr - 0.5) * 0.07 * (1.0 - smoothstep(0.04, 0.18, fw));
+		if (v_emit > 0.2 && v_emit < 0.3) {
+			// roof tiles: rows down the slope with staggered joints
+			float rows = v_world.y * 15.0;
+			float row = floor(rows);
+			float aa = fwidth(rows) * 1.5;
+			float lip = smoothstep(0.0, 0.18 + aa, fract(rows));
+			float along = (v_world.x + v_world.z) * 7.0 + mod(row, 2.0) * 0.5;
+			float aj = fwidth(along) * 1.5;
+			float joint = smoothstep(0.0, 0.06 + aj, fract(along)) * smoothstep(0.0, 0.06 + aj, 1.0 - fract(along));
+			float fade = 1.0 - smoothstep(0.25, 0.6, aa);
+			float tile_var = 0.94 + 0.12 * g_hash(vec2(row, floor(along)));
+			base *= mix(1.0, mix(0.78, 1.0, lip) * mix(0.9, 1.0, joint) * tile_var, fade);
+		}
+	}
+#endif
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
 	// soft toy-like rim and a gentle bottom-darkening ambient term
 	base += rim * 0.05;

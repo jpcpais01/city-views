@@ -20,10 +20,9 @@ uniform float grid_size = 128.0;
 
 varying vec3 w_pos;
 
-// metres from the nearest coastline (smoothed from the tile distance map)
+// metres from the waterline (distance field traced from the terrain's real shore)
 float shore_dist(vec2 xz) {
-	float v = texture(shore_tex, xz / grid_size + 0.5).r * 8.0;
-	return (v - 0.5) * 2.0;
+	return texture(shore_tex, xz / grid_size + 0.5).r * 16.0;
 }
 
 // direction (xy), wavelength, steepness
@@ -117,6 +116,7 @@ void fragment() {
 	float sz;
 	vec3 sp = scene_world(SCREEN_UV, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, sz);
 	float depth0 = clamp(w_pos.y - sp.y, 0.0, 40.0);
+	depth0 = min(depth0, 0.75 + 0.22 * shore_dist(w_pos.xz));
 
 	// bend the view through the surface; refuse samples of things above the water
 	vec2 ruv = SCREEN_UV + n_view.xz * 0.045 * clamp(depth0 * 0.8, 0.0, 1.0);
@@ -127,8 +127,11 @@ void fragment() {
 		rp = sp;
 		rz = sz;
 	}
-	float depth = clamp(w_pos.y - rp.y, 0.0, 40.0);
-	float path = clamp(VERTEX.z - rz, 0.0, 60.0);
+	// the seabed can't be deeper than its slope from the shore allows; anything
+	// further down is a hairline seam between ground tiles, so read it as seabed
+	float max_depth = 0.75 + 0.22 * shore_dist(w_pos.xz);
+	float depth = clamp(w_pos.y - rp.y, 0.0, max_depth);
+	float path = clamp(VERTEX.z - rz, 0.0, max_depth * 3.0 + 0.5);
 
 	vec3 below = textureLod(screen_tex, ruv, 0.0).rgb;
 	// sunlight dancing on the sand, strongest in the shallows
@@ -149,6 +152,8 @@ void fragment() {
 	float nz = nz2(w_pos.xz * 0.2 + vec2(t * 0.04, -t * 0.027)) * 0.6 + nz2(w_pos.xz * 0.5 - t * 0.05) * 0.4;
 	float sd = shore_dist(w_pos.xz);
 	float edge = 1.0 - smoothstep(0.0, 0.05 + nz * 0.07, depth0);
+	// only where the real shore is: a shallow seabed further out stays clear
+	edge *= 1.0 - smoothstep(0.8, 2.2, sd);
 	float roll = sin(sd * 3.4 + t * 1.7 + nz * 2.2) * 0.5 + 0.5;
 	float bands = smoothstep(0.8, 0.95, roll) * (1.0 - smoothstep(0.3, 2.6, sd)) * smoothstep(0.3, 0.55, nz);
 	float caps = smoothstep(0.075, 0.095, crest) * smoothstep(0.62, 0.8, nz) * 0.5;
