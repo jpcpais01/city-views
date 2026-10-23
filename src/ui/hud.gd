@@ -287,6 +287,14 @@ func _build_top() -> void:
 
 
 ## Tiny frame-rate readout under the city card; refreshed twice a second so it costs nothing.
+func _short_count(n: float) -> String:
+	if n >= 1e6:
+		return "%.2fM" % (n / 1e6)
+	if n >= 1e3:
+		return "%dk" % int(n / 1e3)
+	return str(int(n))
+
+
 func _build_fps() -> void:
 	_fps_label = _label("", 13, true, Color(1, 1, 1, 0.9))
 	_fps_label.add_theme_color_override("font_outline_color", Color(0.1, 0.14, 0.2, 0.55))
@@ -343,7 +351,8 @@ func _process(delta: float) -> void:
 		_fps_time += delta
 		if _fps_time >= 0.5:
 			_fps_time = 0.0
-			_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+			var tris := Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+			_fps_label.text = "%d FPS\n%s tris" % [Engine.get_frames_per_second(), _short_count(tris)]
 
 
 # ------------------------------------------------------------------ tools
@@ -1023,7 +1032,7 @@ func _build_menu() -> void:
 
 	# ---- settings
 	var st := _section(_page_box("settings"), "Settings")
-	for key in [["music", "Music"], ["sfx", "Sound effects"], ["shadows", "Shadows"], ["fps", "Show FPS counter"]]:
+	for key in [["music", "Music"], ["sfx", "Sound effects"], ["shadows", "Shadows"], ["fps", "Show FPS & triangles"]]:
 		var cb := CheckButton.new()
 		cb.text = key[1]
 		cb.add_theme_font_size_override("font_size", 18)

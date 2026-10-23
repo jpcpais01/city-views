@@ -28,6 +28,17 @@ func _ready() -> void:
 			Game.set_tile(x, z, k, Game.lvl(x, z), Game.hash2(x, z, 7) % 250)
 	Game.set_tile(cx + 2, cz + 2, Game.K.LANDMARK, Game.lvl(cx + 2, cz + 2), Game.LM.FOUNTAIN)
 	Game.set_tile(cx - 6, cz + 6, Game.K.LANDMARK, Game.lvl(cx - 6, cz + 6), Game.LM.FERRIS)
+	# CV_HILL=x,z raises a stepped, ragged mound there (terrace edge check)
+	var hp := OS.get_environment("CV_HILL")
+	if hp != "":
+		var hx := int(hp.split(",")[0])
+		var hz := int(hp.split(",")[1])
+		for z in range(hz - 7, hz + 8):
+			for x in range(hx - 7, hx + 8):
+				var d := Vector2(x - hx, z - hz).length() + Game.hashf(x, z, 9) * 1.5
+				var l := clampi(int(5.0 - d * 0.6), 0, 4)
+				if Game.lvl(x, z) >= 1 and l > 0:
+					Game.set_tile(x, z, Game.K.TREE if Game.hashf(x, z, 3) < 0.15 else Game.K.EMPTY, 1 + l, 0)
 	Game.population = 2000
 	for i in Game.kind.size():
 		if Game.is_building(Game.kind[i]):
