@@ -65,6 +65,14 @@ func _ready() -> void:
 	else:
 		world.rig.focus(Game.tile_center(cx, cz))
 	world.rig._t_dist = float(OS.get_environment("CV_DIST")) if OS.get_environment("CV_DIST") != "" else 34.0
+	# CV_BOAT=n parks boat n (and a gull) in front of the camera for a close look
+	if OS.get_environment("CV_BOAT") != "":
+		var b: Dictionary = world.life._boats[int(OS.get_environment("CV_BOAT"))]
+		world.rig.focus(b.p)
+		world.life._gulls[0].c = b.p
+		world.life._gulls[0].cur = b.p
+		world.life._gulls[0].r = 2.5
+		world.life._gulls[0].y = 2.5
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 10.0).timeout
 	if OS.get_environment("CV_MENU") != "":
 		hud._page = OS.get_environment("CV_MENU")

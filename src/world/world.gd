@@ -21,6 +21,7 @@ var sun: DirectionalLight3D
 var rig: CameraRig
 var terrain: Terrain
 var traffic: Traffic
+var life: Life
 var _tiles := {}
 # settled tiles are merged into one mesh per BATCH x BATCH block (a handful of
 # draw calls instead of one per tile, which matters a lot for shadows on phones)
@@ -62,6 +63,10 @@ func _ready() -> void:
 	add_child(traffic)
 	rig = CameraRig.new()
 	add_child(rig)
+	life = Life.new()
+	life.material = city_mat
+	life.rig = rig
+	add_child(life)
 	_make_cursor()
 	_make_clouds()
 	Game.world_reset.connect(_on_world_reset)
@@ -282,6 +287,7 @@ func _on_world_reset() -> void:
 	_queued.clear()
 	terrain.build_all()
 	traffic.clear()
+	life.reset()
 	# populate from the centre outwards so the island "blooms" into view
 	var order: Array[Vector2i] = []
 	for z in Game.N:
