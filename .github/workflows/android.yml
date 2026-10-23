@@ -1,0 +1,141 @@
+name: Android build & release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.5.1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot + export templates
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-dl
+          key: godot-${{ env.GODOT_VERSION }}-v1
+
+      - name: Install Godot
+        run: |
+          set -e
+          V=$GODOT_VERSION
+          mkdir -p ~/godot-dl && cd ~/godot-dl
+          if [ ! -f godot ]; then
+            curl -sSL -o g.zip "https://github.com/godotengine/godot/releases/download/${V}-stable/Godot_v${V}-stable_linux.x86_64.zip"
+            unzip -q g.zip && mv "Godot_v${V}-stable_linux.x86_64" godot && rm g.zip
+          fi
+          if [ ! -f templates.tpz ]; then
+            curl -sSL -o templates.tpz "https://github.com/godotengine/godot/releases/download/${V}-stable/Godot_v${V}-stable_export_templates.tpz"
+          fi
+          mkdir -p ~/.local/share/godot/export_templates/${V}.stable
+          rm -rf /tmp/tpl && unzip -q -o templates.tpz 'templates/android_*' 'templates/version.txt' -d /tmp/tpl
+          cp /tmp/tpl/templates/* ~/.local/share/godot/export_templates/${V}.stable/
+          sudo ln -sf ~/godot-dl/godot /usr/local/bin/godot
+
+      - name: Configure Android SDK for Godot
+        run: |
+          mkdir -p ~/.config/godot
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/android_sdk_path = "%s"\nexport/android/java_sdk_path = "%s"\n' "$SDK" "$JAVA_HOME" > ~/.config/godot/editor_settings-4.5.tres
+          cat ~/.config/godot/editor_settings-4.5.tres
+
+      - name: Signing keystore
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_USER: ${{ secrets.ANDROID_KEYSTORE_USER }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "KS_PATH=$RUNNER_TEMP/release.keystore" >> $GITHUB_ENV
+            echo "KS_USER=$KS_USER" >> $GITHUB_ENV
+            echo "KS_PASS=$KS_PASS" >> $GITHUB_ENV
+          else
+            echo "Using the project keystore in android/release.keystore"
+            echo "KS_PATH=$GITHUB_WORKSPACE/android/release.keystore" >> $GITHUB_ENV
+            echo "KS_USER=cityviews" >> $GITHUB_ENV
+            echo "KS_PASS=cityviews-2026" >> $GITHUB_ENV
+          fi
+
+      - name: Firebase config
+        env:
+          FB_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FB_DB: ${{ secrets.FIREBASE_DATABASE_URL }}
+        run: |
+          if [ -n "$FB_KEY" ] && [ -n "$FB_DB" ]; then
+            mkdir -p config
+            printf '{"api_key": "%s", "database_url": "%s"}\n' "$FB_KEY" "$FB_DB" > config/firebase.json
+            echo "Firebase configured from secrets"
+          elif [ -f config/firebase.public.json ]; then
+            cp config/firebase.public.json config/firebase.json
+            echo "Firebase configured from config/firebase.public.json"
+          else
+            echo "::warning::No Firebase config: online play and cloud saves are disabled in this build"
+          fi
+
+      - name: Version
+        run: |
+          CODE=$((100 + GITHUB_RUN_NUMBER))
+          NAME="0.1.${GITHUB_RUN_NUMBER}"
+          sed -i "s/^version\/code=.*/version\/code=${CODE}/; s/^version\/name=.*/version\/name=\"${NAME}\"/" export_presets.cfg
+          sed -i "s/^config\/version=.*/config\/version=\"${NAME}\"/" project.godot
+          echo "APP_VERSION=${NAME}" >> $GITHUB_ENV
+
+      - name: Import project
+        run: godot --headless --path . --import
+
+      - name: Logic tests
+        run: godot --headless --path . tests/logic_test.tscn
+
+      - name: Export signed APK
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ env.KS_PATH }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: ${{ env.KS_USER }}
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: ${{ env.KS_PASS }}
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ env.KS_PATH }}
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: ${{ env.KS_USER }}
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: ${{ env.KS_PASS }}
+        run: |
+          mkdir -p build
+          godot --headless --path . --export-release "Android" build/CityViews.apk 2>&1 | tee export.log
+          test -f build/CityViews.apk
+          ls -la build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CityViews-${{ env.APP_VERSION }}
+          path: build/CityViews.apk
+
+      - name: Release notes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          awk '/^## /{n++} n>=1 && n<=3' PATCH_NOTES.md > release_notes.md
+          printf '\n\nInstall: download **CityViews.apk** on your Android phone and open it (allow installing from your browser if asked).\n' >> release_notes.md
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: City Views ${{ env.APP_VERSION }}
+          body_path: release_notes.md
+          files: build/CityViews.apk
+          make_latest: true
