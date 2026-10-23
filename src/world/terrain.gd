@@ -4,6 +4,13 @@ extends Node3D
 
 const CHUNK := 16
 const LIP := 0.1
+# how far a terrace edge may wander out over the lower ground, and how finely
+const WAVE := 0.42
+const WAVE_SEG := 5
+const OUT := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
+const ALONG := [Vector3(0, 0, 1), Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(1, 0, 0)]
+# rounded-corner index (see `rc`) at the start / end of each edge
+const EDGE_ENDS := [[1, 0], [3, 2], [3, 1], [2, 0]]
 
 var material: Material
 var _chunks := {}
@@ -87,34 +94,12 @@ func _build_chunk(cx: int, cz: int) -> void:
 			mk.quad_c(Vector3(x0 + bx0, y, z0 + bz0), Vector3(x1 - bx1, y, z0 + bz0), Vector3(x1 - bx1, y, z1 - bz1), Vector3(x0 + bx0, y, z1 - bz1),
 				_corner(x, z, l, x, z), _corner(x, z, l, x + 1, z), _corner(x, z, l, x + 1, z + 1), _corner(x, z, l, x, z + 1))
 			var lip := top.lightened(0.06)
-			var yl := y - LIP
-			var up := Vector3.UP
 			# convex corners (both sides drop) get a rounded fillet instead of a square notch
 			var rc := [drops[0] and drops[2], drops[0] and drops[3], drops[1] and drops[2], drops[1] and drops[3]]
-			var ez1x := LIP if rc[0] else 0.0  # +x edge, z1 end
-			var ez0x := LIP if rc[1] else 0.0
-			var ez1nx := LIP if rc[2] else 0.0
-			var ez0nx := LIP if rc[3] else 0.0
-			if drops[0]:
-				var o := Vector3.RIGHT
-				mk.quad_n(Vector3(x1 - LIP, y, z0 + bz0), Vector3(x1 - LIP, y, z1 - bz1), Vector3(x1, yl, z1 - ez1x), Vector3(x1, yl, z0 + ez0x),
-					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x1, yl, z0 + ez0x), Vector3(x1, yl, z1 - ez1x), low[0], o, l)
-			if drops[1]:
-				var o := Vector3.LEFT
-				mk.quad_n(Vector3(x0 + LIP, y, z0 + bz0), Vector3(x0 + LIP, y, z1 - bz1), Vector3(x0, yl, z1 - ez1nx), Vector3(x0, yl, z0 + ez0nx),
-					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x0, yl, z0 + ez0nx), Vector3(x0, yl, z1 - ez1nx), low[1], o, l)
-			if drops[2]:
-				var o := Vector3.BACK
-				mk.quad_n(Vector3(x0 + bx0, y, z1 - LIP), Vector3(x1 - bx1, y, z1 - LIP), Vector3(x1 - (LIP if rc[0] else 0.0), yl, z1), Vector3(x0 + (LIP if rc[2] else 0.0), yl, z1),
-					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x0 + (LIP if rc[2] else 0.0), yl, z1), Vector3(x1 - (LIP if rc[0] else 0.0), yl, z1), low[2], o, l)
-			if drops[3]:
-				var o := Vector3.FORWARD
-				mk.quad_n(Vector3(x0 + bx0, y, z0 + LIP), Vector3(x1 - bx1, y, z0 + LIP), Vector3(x1 - (LIP if rc[1] else 0.0), yl, z0), Vector3(x0 + (LIP if rc[3] else 0.0), yl, z0),
-					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x0 + (LIP if rc[3] else 0.0), yl, z0), Vector3(x1 - (LIP if rc[1] else 0.0), yl, z0), low[3], o, l)
+			var ins := [bz0, bz1, bz0, bz1, bx0, bx1, bx0, bx1]
+			for i in 4:
+				if drops[i]:
+					_edge(mk, x, z, i, c, y, ins[i * 2], ins[i * 2 + 1], rc[EDGE_ENDS[i][0]], rc[EDGE_ENDS[i][1]], low[i], top, lip, l)
 			var corners := [[1.0, 1.0, 0, 2], [1.0, -1.0, 0, 3], [-1.0, 1.0, 1, 2], [-1.0, -1.0, 1, 3]]
 			for k in 4:
 				if rc[k]:
@@ -141,6 +126,105 @@ func _build_chunk(cx: int, cz: int) -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 	_chunks[key] = mi
+
+
+## Smooth 2D value noise in world space (same value for both tiles sharing an edge point).
+func _noise(px: float, pz: float) -> float:
+	var v := 0.0
+	var amp := 0.65
+	var f := 0.7
+	for o in 2:
+		var gx := px * f
+		var gz := pz * f
+		var ix := floori(gx)
+		var iz := floori(gz)
+		var fx := gx - ix
+		var fz := gz - iz
+		fx = fx * fx * (3.0 - 2.0 * fx)
+		fz = fz * fz * (3.0 - 2.0 * fz)
+		var a := Game.hashf(ix, iz, 300 + o)
+		var b := Game.hashf(ix + 1, iz, 300 + o)
+		var c := Game.hashf(ix, iz + 1, 300 + o)
+		var d := Game.hashf(ix + 1, iz + 1, 300 + o)
+		v += lerpf(lerpf(a, b, fx), lerpf(c, d, fx), fz) * amp
+		amp = 0.35
+		f *= 2.3
+	return v
+
+
+## Whether the edge on side `i` of a tile may wander: only natural ground drops
+## (not under roads, ramps or buildings below) and never under water.
+func _wavy(x: int, z: int, i: int) -> bool:
+	if not Game.inside(x, z):
+		return false
+	var l := Game.lvl(x, z)
+	if l < 1 or Game.knd(x, z) == Game.K.ROAD:
+		return false
+	var d := Vector2i(int(OUT[i].x), int(OUT[i].z))
+	var nx := x + d.x
+	var nz := z + d.y
+	if not Game.inside(nx, nz):
+		return true
+	if Game.lvl(nx, nz) >= l:
+		return false
+	var nk := Game.knd(nx, nz)
+	return nk == Game.K.EMPTY or nk == Game.K.TREE
+
+
+## One dropping edge: rounded lip and cliff, with an irregular outline that bulges
+## out over the lower ground so terraces and beaches read as natural terrain.
+func _edge(mk: MeshKit, x: int, z: int, i: int, c: Vector3, y: float, b0: float, b1: float, round0: bool, round1: bool, low: float, top: Color, lip: Color, l: int) -> void:
+	var h := Game.TILE * 0.5
+	var o: Vector3 = OUT[i]
+	var t: Vector3 = ALONG[i]
+	var e0 := LIP if round0 else 0.0
+	var e1 := LIP if round1 else 0.0
+	var yl := y - LIP
+	var up := Vector3.UP
+	var n_top := (up + o * 0.4).normalized()
+	var n_bot := (o + up * 0.3).normalized()
+	var wavy := _wavy(x, z, i)
+	var seg := WAVE_SEG if wavy else 1
+	# keep the outline continuous with the neighbour along the edge, else ease to zero
+	var step := Vector2i(int(t.x), int(t.z))
+	var keep0 := wavy and not round0 and Game.lvl(x - step.x, z - step.y) == Game.lvl(x, z) and _wavy(x - step.x, z - step.y, i)
+	var keep1 := wavy and not round1 and Game.lvl(x + step.x, z + step.y) == Game.lvl(x, z) and _wavy(x + step.x, z + step.y, i)
+	var pt := []
+	for k in seg + 1:
+		var u := float(k) / seg
+		var tt := lerpf(-h + b0, h - b1, u)
+		var tb := lerpf(-h + e0, h - e1, u)
+		var off := 0.0
+		if wavy:
+			var edge_p := c + o * h + t * tb
+			var taper := (1.0 if keep0 else smoothstep(0.0, 0.45, u)) * (1.0 if keep1 else smoothstep(0.0, 0.45, 1.0 - u))
+			off = WAVE * _noise(edge_p.x, edge_p.z) * taper
+		var base_top := Vector3(c.x, y, c.z) + t * tt + o * (h - LIP)
+		pt.append([base_top, base_top + o * off, Vector3(c.x, yl, c.z) + t * tb + o * (h + off)])
+	# inner (concave) corners: close the small wedge between this lip and the tile line
+	for end in 2:
+		if (b0 if end == 0 else b1) > 0.0 or (round0 if end == 0 else round1):
+			continue
+		var sgn := -1.0 if end == 0 else 1.0
+		var ax := x + step.x * int(sgn)
+		var az := z + step.y * int(sgn)
+		if not Game.inside(ax, az) or Game.lvl(ax, az) != Game.lvl(x, z):
+			continue
+		var bx := ax + int(o.x)
+		var bz := az + int(o.z)
+		if Game.inside(bx, bz) and Game.lvl(bx, bz) < Game.lvl(ax, az):
+			continue
+		var p: Array = pt[0 if end == 0 else seg]
+		var line := Vector3(c.x, y, c.z) + t * (h * sgn) + o * h
+		mk.tri_n(p[1], line, p[2], n_top, up, n_bot, -t * sgn, lip)
+	for k in seg:
+		var a: Array = pt[k]
+		var b: Array = pt[k + 1]
+		if wavy:
+			# ground that spills past the straight line
+			mk.quad(a[0], b[0], b[1], a[1], up, top)
+		mk.quad_n(a[1], b[1], b[2], a[2], n_top, n_top, n_bot, n_bot, lip)
+		_wall(mk, a[2], b[2], low, o, l)
 
 
 ## Average of the top colours of the (up to four) same-level tiles around a grid corner.

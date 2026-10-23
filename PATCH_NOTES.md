@@ -3,6 +3,8 @@
 ## 2026-10-23 13:00 UTC
 - Another big speed boost: rounded shapes use a third of the triangles with the same soft look, windows and road paint skip the shadow pass, and all the cars are drawn together.
 - The ground now flows: grass and sand blend smoothly from tile to tile instead of a checkerboard, and terrace corners are rounded off.
+- Cliffs and coastlines now wander naturally: open ground spills over terrace edges in soft, irregular curves like real terrain, and tiny gaps at inner corners are sealed.
+- The FPS counter now also shows how many triangles are drawn each frame.
 
 ## 2026-10-23 12:15 UTC
 - A new loading screen: a soft sunset in the icon's colours with drifting clouds and a slim glowing progress bar, which melts away to show your island blooming into view.
