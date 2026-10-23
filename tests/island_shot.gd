@@ -1,6 +1,6 @@
 extends Node
 ## Screenshot of the new tile-free island.
-## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_BRUSH=raise|lower|smooth|flatten
+## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one), CV_GROW=radius (paints and grows the town), CV_OUT.
 
 
@@ -57,6 +57,14 @@ func _ready() -> void:
 		t0 = Time.get_ticks_msec()
 		island.town.fill_all()
 		print("built %d houses in %d ms" % [island.town.house_count(), Time.get_ticks_msec() - t0])
+		var kits := {}
+		for l: Town.Lot in island.town.lots.values():
+			kits[HouseGen.KIT_NAMES[l.kit]] = kits.get(HouseGen.KIT_NAMES[l.kit], 0) + 1
+		print("kits: ", kits)
+	if OS.get_environment("CV_LOOK") != "":
+		# look somewhere else than where the town was grown from
+		var parts := OS.get_environment("CV_LOOK").split(",")
+		island.rig.focus(Vector3(float(parts[0]), 0, float(parts[1])))
 	if OS.get_environment("CV_LIVE") != "":
 		# paint and let the town grow in real time, watching the slowest frame
 		var r := float(OS.get_environment("CV_LIVE"))

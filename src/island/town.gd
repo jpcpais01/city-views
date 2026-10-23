@@ -52,6 +52,8 @@ class Lot:
 	var width := 0.0
 	var depth := 0.0
 	var dense := 0.0
+	## the style kit of its quarter (HouseGen.KITS)
+	var kit := 0
 	var patch := Vector2i.ZERO
 	var arrays: Array = []
 	var cells := PackedInt32Array()
@@ -370,7 +372,9 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 			var level := clampf(land.height_at(mid.x, mid.y), street_y - 0.02, street_y + 0.45)
 			var front := minf(depth * 0.72, 4.2)
 			land.pad(PackedVector2Array([a, b, b + nb * front, a + na * front]), level, 1.4, _near_street)
-			l.arrays = HouseGen.build(l, land, street_y, l.id * 7919 + s.id)
+			l.kit = HouseGen.kit_at(land, l.origin)
+			# seeded by place, so the same lot always grows the same house
+			l.arrays = HouseGen.build(l, land, street_y, int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663, s.kind == "main")
 			reshaped.emit()
 			_dirty_patches[l.patch] = true
 			return l
