@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-23 16:00 UTC
+- City Views now runs on Windows PCs. Builds are made on request and posted next to the Android download.
+- Keyboard and mouse controls on PC: WASD or arrow keys move around (hold Shift to go faster), Q and E rotate, R/F or +/- zoom, the mouse wheel zooms, right-drag rotates and middle-drag pans. F11 or Alt+Enter toggles fullscreen.
+
 ## 2026-10-23 15:00 UTC
 - Sea foam now follows the real, curving shoreline instead of tile squares, and the little gaps where water showed through the beach are gone.
 - Trees have leafy, lobed outlines, clumps of light and shade, and bark that darkens towards the ground. Hedges and roof gardens get the same leafy look.

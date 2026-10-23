@@ -53,6 +53,7 @@ func focus(p: Vector3) -> void:
 
 
 func _process(delta: float) -> void:
+	_keyboard(delta)
 	if idle_spin:
 		_t_yaw += delta * 0.05
 	var k := 1.0 - exp(-delta * 10.0)
@@ -65,6 +66,30 @@ func _process(delta: float) -> void:
 	var off := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * dist
 	cam.global_position = focus_p + off
 	cam.look_at(focus_p, Vector3.UP)
+
+
+## Desktop: WASD/arrows pan, Q/E rotate, R/F or +/- zoom. Ignored while typing.
+func _keyboard(delta: float) -> void:
+	if get_viewport().gui_get_focus_owner() is LineEdit or Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
+		return
+	var mv := Vector2.ZERO
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): mv.x += 1.0
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): mv.x -= 1.0
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): mv.y += 1.0
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): mv.y -= 1.0
+	var fast := 2.0 if Input.is_key_pressed(KEY_SHIFT) else 1.0
+	if mv != Vector2.ZERO:
+		pan_screen(mv.normalized() * 900.0 * delta * fast)
+	var rot := 0.0
+	if Input.is_key_pressed(KEY_Q): rot -= 1.0
+	if Input.is_key_pressed(KEY_E): rot += 1.0
+	if rot != 0.0:
+		rotate_by(rot * 1.6 * delta * fast)
+	var z := 0.0
+	if Input.is_key_pressed(KEY_R) or Input.is_key_pressed(KEY_EQUAL) or Input.is_key_pressed(KEY_KP_ADD): z -= 1.0
+	if Input.is_key_pressed(KEY_F) or Input.is_key_pressed(KEY_MINUS) or Input.is_key_pressed(KEY_KP_SUBTRACT): z += 1.0
+	if z != 0.0:
+		zoom(exp(z * 1.4 * delta * fast))
 
 
 func _ground_height(p: Vector3) -> float:

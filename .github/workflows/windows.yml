@@ -1,0 +1,94 @@
+name: Windows build (on demand)
+
+# Manual only: run from the Actions tab ("Run workflow") when a Windows build is wanted.
+on:
+  workflow_dispatch:
+    inputs:
+      attach_to:
+        description: "Release tag to attach the zip to (blank = latest release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.5.1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot + export templates
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-dl
+          key: godot-${{ env.GODOT_VERSION }}-v1
+
+      - name: Install Godot
+        run: |
+          set -e
+          V=$GODOT_VERSION
+          mkdir -p ~/godot-dl && cd ~/godot-dl
+          if [ ! -f godot ]; then
+            curl -sSL -o g.zip "https://github.com/godotengine/godot/releases/download/${V}-stable/Godot_v${V}-stable_linux.x86_64.zip"
+            unzip -q g.zip && mv "Godot_v${V}-stable_linux.x86_64" godot && rm g.zip
+          fi
+          if [ ! -f templates.tpz ]; then
+            curl -sSL -o templates.tpz "https://github.com/godotengine/godot/releases/download/${V}-stable/Godot_v${V}-stable_export_templates.tpz"
+          fi
+          mkdir -p ~/.local/share/godot/export_templates/${V}.stable
+          rm -rf /tmp/tpl && unzip -q -o templates.tpz 'templates/windows_release_x86_64.exe' 'templates/windows_debug_x86_64.exe' 'templates/version.txt' -d /tmp/tpl
+          cp /tmp/tpl/templates/* ~/.local/share/godot/export_templates/${V}.stable/
+          sudo ln -sf ~/godot-dl/godot /usr/local/bin/godot
+
+      - name: Firebase config
+        env:
+          FB_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FB_DB: ${{ secrets.FIREBASE_DATABASE_URL }}
+        run: |
+          if [ -n "$FB_KEY" ] && [ -n "$FB_DB" ]; then
+            mkdir -p config
+            printf '{"api_key": "%s", "database_url": "%s"}\n' "$FB_KEY" "$FB_DB" > config/firebase.json
+          elif [ -f config/firebase.public.json ]; then
+            cp config/firebase.public.json config/firebase.json
+          else
+            echo "::warning::No Firebase config: online play and cloud saves are disabled in this build"
+          fi
+
+      - name: Pick release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ inputs.attach_to }}
+        run: |
+          set -e
+          if [ -n "$WANT" ]; then TAG="$WANT"; else TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName); fi
+          NAME="${TAG#v}"
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "APP_VERSION=$NAME" >> $GITHUB_ENV
+          sed -i "s/^config\/version=.*/config\/version=\"${NAME}\"/" project.godot
+          echo "Building $NAME for release $TAG"
+
+      - name: Import project
+        run: godot --headless --path . --import
+
+      - name: Export Windows build
+        run: |
+          set -e
+          mkdir -p build/windows
+          godot --headless --path . --export-release "Windows Desktop" build/windows/CityViews.exe 2>&1 | tee export.log
+          test -f build/windows/CityViews.exe
+          cd build/windows && zip -q -r ../CityViews-Windows.zip . && cd ../..
+          ls -la build build/windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CityViews-Windows-${{ env.APP_VERSION }}
+          path: build/CityViews-Windows.zip
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" build/CityViews-Windows.zip --clobber --repo "$GITHUB_REPOSITORY"
