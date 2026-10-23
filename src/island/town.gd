@@ -56,6 +56,9 @@ class Lot:
 	var kit := 0
 	## house, park, square or church
 	var type := "house"
+	## floors and a shop on the ground floor, for houses
+	var floors := 0
+	var shop := false
 	var patch := Vector2i.ZERO
 	var arrays: Array = []
 	var cells := PackedInt32Array()

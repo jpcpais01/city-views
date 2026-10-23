@@ -6,6 +6,8 @@ extends World
 
 signal brush_changed
 signal history_changed
+## something the player should hear about, such as a brush they can't use yet
+signal note(text: String)
 
 const SAVE_PATH := "user://island.json"
 const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
@@ -36,6 +38,8 @@ var _sculpt_sound := 0.0
 var _cloud_timer := 60.0
 var _cloud_checked := false
 var sync: IslandSync
+var progress: IslandProgress
+var _broke := false
 # the line being drawn with the street brush, and the box a shaping stroke touched
 var _path := PackedVector2Array()
 var _stroke_lo := Vector2.ZERO
@@ -91,6 +95,12 @@ func _ready() -> void:
 	sync = IslandSync.new()
 	sync.world = self
 	add_child(sync)
+	progress = IslandProgress.new()
+	progress.world = self
+	add_child(progress)
+	progress.coins_changed.connect(func():
+		if _save_timer <= 0.0:
+			_save_timer = 15.0)
 	_load()
 	rig.focus(Vector3.ZERO)
 	rig._t_dist = 70.0
@@ -138,7 +148,8 @@ func load_own() -> void:
 
 func to_dict() -> Dictionary:
 	return {"v": 1, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
-		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits()}
+		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(),
+		"progress": progress.to_dict()}
 
 
 func _apply_save(data: Dictionary) -> void:
@@ -157,6 +168,10 @@ func _apply_save(data: Dictionary) -> void:
 	land.apply_zone(zn if zn is Dictionary else {})
 	var gn: Variant = data.get("green", {})
 	land.apply_green(gn if gn is Dictionary else {})
+	var pr: Variant = data.get("progress")
+	if pr is Dictionary:
+		progress.from_dict(pr)
+	progress.hush()
 	_update_maps()
 	cars.clear()
 	folk.clear()
@@ -189,10 +204,15 @@ func load_room(seed_value: int, state: Variant) -> void:
 
 
 func _save() -> void:
-	# a shared island lives in its room; your own stays as you left it
-	if Net.in_room():
-		return
+	# a shared island lives in its room; your own stays as you left it, with
+	# the coins and goals you earned while away
 	var data := to_dict()
+	if Net.in_room():
+		var own: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH)) if FileAccess.file_exists(SAVE_PATH) else null
+		if not own is Dictionary:
+			return
+		own["progress"] = progress.to_dict()
+		data = own
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -244,6 +264,10 @@ func _update_maps(coast := true) -> void:
 
 
 func set_brush(id: String) -> void:
+	if id != brush and not progress.can_use(id):
+		note.emit(progress.unlock_text(id))
+		Sfx.play("error", 1.0, -6.0)
+		return
 	brush = id if id != brush else ""
 	land.show_zone = brush == "grow" or brush == "green"
 	brush_changed.emit()
@@ -289,6 +313,12 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 	_stroke_did = true
 	_stroke_lo = _stroke_lo.min(c - Vector2(r, r))
 	_stroke_hi = _stroke_hi.max(c + Vector2(r, r))
+	if brush in SHAPE and not progress.spend(IslandProgress.SHAPE_COST * delta):
+		if not _broke:
+			_broke = true
+			note.emit("Not enough coins to reshape the land: the town pays as it grows")
+			Sfx.play("error", 1.0, -6.0)
+		return
 	match brush:
 		"raise":
 			land.sculpt(at, r, 2.2 * delta)
@@ -400,6 +430,7 @@ func _begin_stroke(screen: Vector2) -> void:
 		return
 	_stroke = true
 	_stroke_did = false
+	_broke = false
 	_undo.append(snapshot())
 	_stroke_level = land.height_at(_ring_at.x, _ring_at.z)
 	_stroke_lo = Vector2(INF, INF)
@@ -414,7 +445,12 @@ func _end_stroke() -> void:
 		return
 	_stroke = false
 	if brush == "street":
-		if streets.add_stroke(_path) != null:
+		var cost := _path_length(_path) * IslandProgress.STREET_COST
+		if progress.coins < cost:
+			note.emit("Not enough coins for that street (%d)" % ceili(cost))
+			Sfx.play("error", 1.0, -6.0)
+		elif streets.add_stroke(_path) != null:
+			progress.spend(cost)
 			Sfx.play("road", 1.0, -4.0)
 			_stroke_did = true
 		_path = PackedVector2Array()
@@ -428,6 +464,13 @@ func _end_stroke() -> void:
 			_undo.pop_front()
 		_redo.clear()
 		history_changed.emit()
+
+
+static func _path_length(p: PackedVector2Array) -> float:
+	var m := 0.0
+	for i in range(1, p.size()):
+		m += p[i].distance_to(p[i - 1])
+	return m
 
 
 # ------------------------------------------------------------------ undo

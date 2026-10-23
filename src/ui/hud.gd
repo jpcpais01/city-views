@@ -841,6 +841,8 @@ func _build_tutorial() -> void:
 
 func _update_tutorial() -> void:
 	if _tutorial == null:
+		if _goals:
+			_goals.visible = not _goal_list().is_empty()
 		return
 	var texts := [
 		"Tap Roads and drag a street across the grass.",
@@ -854,7 +856,7 @@ func _update_tutorial() -> void:
 		_tutorial.visible = false
 	if _goals:
 		# goals take over the tutorial's spot once the first steps are done
-		_goals.visible = not _tutorial.visible and not Game.goals.is_empty()
+		_goals.visible = not _tutorial.visible and not _goal_list().is_empty()
 
 
 # ------------------------------------------------------------------ goals
@@ -903,12 +905,13 @@ func _refresh_goals() -> void:
 	for c in _goal_rows.get_children():
 		c.queue_free()
 	var ready := 0
-	for i in Game.goals.size():
-		var g: Dictionary = Game.goals[i]
+	var list := _goal_list()
+	for i in list.size():
+		var g: Dictionary = list[i]
 		if g.get("ready", false):
 			ready += 1
 		_goal_rows.add_child(_goal_row(i, g))
-	_goal_count.text = ("%d to collect" % ready) if ready > 0 else ("%d done" % Game.goals_done)
+	_goal_count.text = ("%d to collect" % ready) if ready > 0 else ("%d done" % _goals_done())
 	_goal_count.add_theme_color_override("font_color", ACCENT if ready > 0 else SOFT)
 	_update_tutorial()
 
@@ -956,7 +959,7 @@ func _goal_row(i: int, g: Dictionary) -> Control:
 		pb.show_percentage = false
 		pb.max_value = 1.0
 		pb.step = 0.0
-		pb.value = Game.goal_progress(g)
+		pb.value = _goal_frac(g)
 		pb.set_meta("goal", i)
 		h.add_child(pb)
 		var r := HBoxContainer.new()
@@ -967,18 +970,35 @@ func _goal_row(i: int, g: Dictionary) -> Control:
 	return row
 
 
+## Where the goals come from; the island keeps its own.
+func _goal_list() -> Array:
+	return Game.goals
+
+
+func _goal_frac(g: Dictionary) -> float:
+	return Game.goal_progress(g)
+
+
+func _goals_done() -> int:
+	return Game.goals_done
+
+
+func _claim(i: int) -> float:
+	return Game.claim_goal(i)
+
+
 ## Keeps the goal bars moving as the town changes, without rebuilding the rows.
 func _tick_goals() -> void:
 	for row in _goal_rows.get_children():
 		for pb in row.find_children("*", "ProgressBar", true, false):
 			var i: int = pb.get_meta("goal", -1)
-			if i >= 0 and i < Game.goals.size():
-				pb.value = lerpf(pb.value, Game.goal_progress(Game.goals[i]), 0.25)
+			if i >= 0 and i < _goal_list().size():
+				pb.value = lerpf(pb.value, _goal_frac(_goal_list()[i]), 0.25)
 
 
 func _on_goal_ready(i: int) -> void:
-	if i < Game.goals.size():
-		show_toast("Goal complete: %s" % Game.goals[i].text, "unlock")
+	if i < _goal_list().size():
+		show_toast("Goal complete: %s" % _goal_list()[i].text, "unlock")
 	Sfx.play("bell", 1.2)
 	if not _goals_open:
 		_goals_open = true
@@ -988,7 +1008,7 @@ func _on_goal_ready(i: int) -> void:
 
 func _claim_goal(i: int, from: Control) -> void:
 	var start := from.get_global_rect().get_center()
-	var paid := Game.claim_goal(i)
+	var paid := _claim(i)
 	if paid <= 0.0:
 		return
 	Sfx.play("unlock", 1.25)

@@ -23,6 +23,8 @@ var _brush_keys := {}
 var _size_btn: Button
 var _size_i := 1
 var _help: Label
+var _title_chip: Label
+var _locks := {}
 
 
 func _ready() -> void:
@@ -50,8 +52,20 @@ func _ready() -> void:
 	_build_island_top()
 	_build_brushes()
 	_build_fps()
+	_build_toasts()
+	_build_goals()
 	_build_menu()
 	island.brush_changed.connect(_refresh_brushes)
+	island.note.connect(func(t): show_toast(t, "warn"))
+	var pr := island.progress
+	pr.stats_changed.connect(_refresh_stats)
+	pr.goals_changed.connect(_refresh_goals)
+	pr.goal_ready.connect(_on_goal_ready)
+	pr.unlocked.connect(_on_brush_unlocked)
+	pr.title_changed.connect(_on_title)
+	_coins_shown = pr.coins
+	_refresh_stats()
+	_refresh_goals()
 	Net.room_changed.connect(_refresh_players)
 	Net.players_changed.connect(_refresh_players)
 	Net.message.connect(func(t): _help.text = t)
@@ -83,6 +97,20 @@ func _build_island_top() -> void:
 	name_row.add_theme_constant_override("separation", 10)
 	v.add_child(name_row)
 	name_row.add_child(_label("Your island", 26, true))
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel", _box(Color("ffe9c7"), 12, 8, false))
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_title_chip = _label("Hamlet", 16, true, Color("b46a1f"))
+	chip.add_child(_title_chip)
+	name_row.add_child(chip)
+	_progress = ProgressBar.new()
+	_progress.custom_minimum_size = Vector2(230, 7)
+	_progress.show_percentage = false
+	_progress.max_value = 1.0
+	_progress.step = 0.0
+	_progress.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(_progress)
 	_help = _label("Draw streets, or shape the land: pick a brush", 14, false, SOFT)
 	v.add_child(_help)
 	var spacer := Control.new()
@@ -93,13 +121,20 @@ func _build_island_top() -> void:
 	_players_row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_players_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(_players_row)
+	var stats := HBoxContainer.new()
+	stats.add_theme_constant_override("separation", 10)
+	stats.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(stats)
+	_pop_label = _pill(stats, "people")
+	_coin_label = _pill(stats, "coin")
 	var menu_btn := _glass_button(58)
 	var mi := _icon("menu", 30)
 	mi.set_anchors_preset(Control.PRESET_FULL_RECT)
 	menu_btn.add_child(mi)
 	menu_btn.pressed.connect(_toggle_menu)
 	menu_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	row.add_child(menu_btn)
+	stats.add_child(menu_btn)
 
 
 ## The menu's first page on the island: your name, this island, starting over, the classic town.
@@ -128,14 +163,59 @@ func _build_world_page(page: VBoxContainer) -> void:
 
 
 func _world_summary() -> String:
-	var houses := 0
-	var parks := 0
-	for l: Town.Lot in island.town.lots.values():
-		if l.type == "park":
-			parks += 1
-		else:
-			houses += 1
-	return "%d streets  ·  %d buildings  ·  %d parks" % [island.streets.streets.size(), houses, parks]
+	var pr := island.progress
+	return "%d residents in %d homes  ·  %d shops  ·  %d parks  ·  %d m of streets\nThe town pays %s coins every few seconds" % [
+		pr.residents, pr.homes, pr.shops, pr.parks, int(pr.street_m), str(pr.income())]
+
+
+func _refresh_stats() -> void:
+	var pr := island.progress
+	_pop_label.text = _short(pr.residents)
+	_title_chip.text = pr.title
+	_progress.value = pr.next_title()[1]
+	_refresh_locks()
+
+
+func _on_title(title: String) -> void:
+	show_toast("Your island is now a %s!" % title, "title")
+	Sfx.play("unlock", 0.8)
+	_confetti()
+
+
+func _on_brush_unlocked(id: String) -> void:
+	show_toast("New brush: %s" % BRUSH_INFO[id][0], "unlock")
+	Sfx.play("unlock")
+	_confetti()
+	_refresh_locks()
+	var b: Button = _brush_keys[id]
+	b.pivot_offset = b.size * 0.5
+	var tw := create_tween()
+	tw.tween_property(b, "scale", Vector2(1.2, 1.2), 0.15).set_trans(Tween.TRANS_BACK)
+	tw.tween_property(b, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK)
+
+
+## Brushes the town hasn't grown into yet are dimmed, with a little lock.
+func _refresh_locks() -> void:
+	for id in _locks:
+		var open := island.progress.can_use(id)
+		_locks[id].visible = not open
+		_brush_keys[id].modulate.a = 1.0 if open else 0.55
+
+
+func _goal_list() -> Array:
+	return island.progress.goals
+
+
+func _goal_frac(g: Dictionary) -> float:
+	return island.progress.goal_progress(g)
+
+
+func _goals_done() -> int:
+	return island.progress.goals_done
+
+
+func _claim(i: int) -> float:
+	return island.progress.claim_goal(i)
 
 
 func _save_cloud() -> void:
@@ -209,6 +289,13 @@ func _build_brushes() -> void:
 			island.set_brush(id))
 		row.add_child(b)
 		_brush_keys[id] = b
+		if IslandProgress.UNLOCK.has(id):
+			var lock := _icon("lock", 22)
+			lock.position = Vector2(54, 4)
+			lock.size = Vector2(22, 22)
+			lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			b.add_child(lock)
+			_locks[id] = lock
 		if id == "clear":
 			var gap := Control.new()
 			gap.custom_minimum_size = Vector2(10, 0)
@@ -278,6 +365,13 @@ func _refresh_brushes() -> void:
 
 
 func _process(delta: float) -> void:
+	var coins := island.progress.coins
+	_coins_shown = lerpf(_coins_shown, coins, 1.0 - exp(-delta * 6.0))
+	if absf(_coins_shown - coins) < 0.5:
+		_coins_shown = coins
+	_coin_label.text = _short(_coins_shown)
+	if _goals.visible and _goals_open:
+		_tick_goals()
 	if _fps_label.visible:
 		_fps_time += delta
 		if _fps_time >= 0.5:
