@@ -13,8 +13,6 @@ const INK := Color("8a4a3c")
 const ICON_PX := 156.0
 const MIN_TIME := 1.8
 const MAX_TIME := 12.0
-## tiles still waiting when we reveal; the rest fade in on screen as a bloom
-const REVEAL_LEFT := 320
 
 const LINES := [
 	"Shaping the coastline",
@@ -24,7 +22,7 @@ const LINES := [
 	"Waking the harbour",
 ]
 
-var world: World
+var world: IslandWorld
 
 var _root: Control
 var _float: Control
@@ -37,7 +35,6 @@ var _target := 0.05
 var _elapsed := 0.0
 var _line_i := 0
 var _line_t := 0.0
-var _total := 0
 var _leaving := false
 
 
@@ -224,9 +221,8 @@ func set_progress(p: float, caption := "") -> void:
 
 
 ## Follow the world's build queue and dissolve once most of the city exists.
-func track(w: World) -> void:
+func track(w: IslandWorld) -> void:
 	world = w
-	_total = maxi(w._build_queue.size(), 1)
 
 
 func _process(delta: float) -> void:
@@ -242,10 +238,10 @@ func _process(delta: float) -> void:
 		_float.position.y = sin(t * 2.0) * 5.0
 
 	if world and not _leaving:
-		var left := world._build_queue.size()
-		var built := 1.0 - float(maxi(left - REVEAL_LEFT, 0)) / float(maxi(_total - REVEAL_LEFT, 1))
-		set_progress(0.3 + 0.7 * built)
-		if (left <= REVEAL_LEFT and _elapsed >= MIN_TIME) or _elapsed >= MAX_TIME:
+		# the town fills in on screen once the ground is ready
+		var ready := world.land.is_settled()
+		set_progress(1.0 if ready else minf(0.3 + _elapsed * 0.25, 0.9))
+		if (ready and _elapsed >= MIN_TIME) or _elapsed >= MAX_TIME:
 			_target = 1.0
 
 	# the bar eases toward its target but never quite stalls
@@ -273,7 +269,7 @@ func _swap_line(text: String) -> void:
 func _leave() -> void:
 	_leaving = true
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_swap_line("Welcome to " + Game.city_name)
+	_swap_line("Welcome to your island")
 	var tw := create_tween()
 	tw.tween_interval(0.35)
 	tw.set_parallel()

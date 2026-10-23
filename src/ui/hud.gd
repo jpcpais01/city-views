@@ -1,39 +1,42 @@
 class_name Hud
 extends CanvasLayer
 
-signal open_island
-## The whole interface, built in code: stats, title progress, tool palette, toasts,
-## tutorial hints, co-op player chips, tile info and the main menu.
+## The whole interface, built in code: the island card with its title and
+## stats, the brushes, goals, toasts, co-op player chips and the main menu,
+## all in the same frosted glass.
 
-var world: World
+
+const BRUSH_INFO := {
+	"street": ["Street", "Draw a line: the street lays itself over the land"],
+	"grow": ["Grow", "Paint where the town should grow: it lays out its own streets"],
+	"green": ["Green", "Paint parks and gardens: the town keeps them green instead of building"],
+	"clear": ["Clear", "Drag to take streets away and stop the town growing there"],
+	"raise": ["Raise", "Drag to lift hills out of the land"],
+	"lower": ["Lower", "Drag to carve valleys, coves and bays"],
+	"smooth": ["Smooth", "Drag to soften bumps and rough slopes"],
+	"flatten": ["Flatten", "Drag to level the ground to where you started"],
+}
+const ICONS := {"street": "road", "grow": "house", "green": "park", "clear": "bulldoze"}
+const SIZES := [["S", 3.0], ["M", 5.0], ["L", 8.5]]
+
+var island: IslandWorld
+var _brush_keys := {}
+var _size_btn: Button
+var _size_i := 1
+var _help: Label
+var _title_chip: Label
+var _locks := {}
 
 var font_bold: FontVariation
 var font_reg: FontVariation
 var _root: Control
 var _pop_label: Label
 var _coin_label: Label
-var _happy_label: Label
-var _name_label: Label
-var _title_label: Label
 var _progress: ProgressBar
-var _next_label: Label
-var _tool_buttons := {}
-var _cat_buttons := {}
-var _sub_wrap: Control
-var _sub_row: HBoxContainer
-var _open_cat := ""
-var _last_tool := {}
-var _hint: Label
-var _hint_card: PanelContainer
 var _toasts: VBoxContainer
-var _tutorial: PanelContainer
-var _tutorial_label: Label
 var _players_row: HBoxContainer
 var _menu: Control
-var _info: PanelContainer
-var _info_label: Label
 var _coins_shown := 0.0
-var _selected := ""
 var _fps_label: Label
 var _fps_time := 0.0
 var _page := "island"
@@ -76,64 +79,6 @@ const MINT := Color("3fae8c")
 const MENU_TABS := [["island", "Island"], ["coop", "Co-op"], ["account", "Account"], ["settings", "Settings"], ["notes", "What's new"]]
 const GLASS := Color(0.9, 0.93, 0.98)
 const GLASS_DARK := Color(0.1, 0.13, 0.18)
-
-
-func _ready() -> void:
-	layer = 5
-	var base: Font = load("res://assets/fonts/Nunito.ttf")
-	font_bold = FontVariation.new()
-	font_bold.base_font = base
-	font_bold.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 850}
-	font_reg = FontVariation.new()
-	font_reg.base_font = base
-	font_reg.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 650}
-	_glass_light = _glass_mat(0.5)
-	_glass_dark = _glass_mat(0.62)
-	_glass_accent = _glass_mat(0.72)
-	if not OS.has_feature("mobile"):
-		get_window().size_changed.connect(_fit_desktop_scale)
-		_fit_desktop_scale()
-	_root = Control.new()
-	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.theme = _make_theme()
-	add_child(_root)
-	# keep every panel and button 3% in from the left and right edges in
-	# landscape (rounded corners, cut-outs); the 3D view still fills the screen
-	get_viewport().size_changed.connect(_apply_side_margins)
-	_apply_side_margins()
-	_build_top()
-	_build_fps()
-	_build_toolbar()
-	_build_toasts()
-	_build_tutorial()
-	_build_goals()
-	_build_info()
-	_build_menu()
-	Game.stats_changed.connect(_refresh_stats)
-	Game.coins_changed.connect(func(_d): pass)
-	Game.tool_unlocked.connect(_on_unlocked)
-	Game.title_changed.connect(_on_title)
-	Game.toast.connect(func(t, k): show_toast(t, k))
-	Game.world_reset.connect(_on_reset)
-	Game.history_changed.connect(_refresh_history)
-	Game.goals_changed.connect(_refresh_goals)
-	Game.goal_ready.connect(_on_goal_ready)
-	Net.room_changed.connect(_refresh_players)
-	Net.players_changed.connect(_refresh_players)
-	Net.message.connect(func(t): show_toast(t, "info"))
-	Firebase.auth_changed.connect(_refresh_account)
-	world.hover_changed.connect(_on_hover)
-	world.tool_failed.connect(func(r): _flash_hint(r, true))
-	world.tile_tapped.connect(_on_tile_tapped)
-	_coins_shown = Game.coins
-	_refresh_stats()
-	_refresh_tools()
-	_refresh_account()
-	_refresh_players()
-	_update_tutorial()
-	_refresh_history()
-	_refresh_goals()
 
 
 # ------------------------------------------------------------------ theme
@@ -241,9 +186,57 @@ func _icon(kind: String, px := 30) -> UiIcon:
 	return i
 
 
-# ------------------------------------------------------------------ top bar
+# ------------------------------------------------------------------ island
 
-func _build_top() -> void:
+func _ready() -> void:
+	layer = 5
+	var base: Font = load("res://assets/fonts/Nunito.ttf")
+	font_bold = FontVariation.new()
+	font_bold.base_font = base
+	font_bold.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 850}
+	font_reg = FontVariation.new()
+	font_reg.base_font = base
+	font_reg.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 650}
+	_glass_light = _glass_mat(0.5)
+	_glass_dark = _glass_mat(0.62)
+	_glass_accent = _glass_mat(0.72)
+	if not OS.has_feature("mobile"):
+		get_window().size_changed.connect(_fit_desktop_scale)
+		_fit_desktop_scale()
+	_root = Control.new()
+	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.theme = _make_theme()
+	add_child(_root)
+	get_viewport().size_changed.connect(_apply_side_margins)
+	_apply_side_margins()
+	_build_island_top()
+	_build_brushes()
+	_build_fps()
+	_build_toasts()
+	_build_goals()
+	_build_menu()
+	island.brush_changed.connect(_refresh_brushes)
+	island.note.connect(func(t, k): show_toast(t, k))
+	var pr := island.progress
+	pr.stats_changed.connect(_refresh_stats)
+	pr.goals_changed.connect(_refresh_goals)
+	pr.goal_ready.connect(_on_goal_ready)
+	pr.unlocked.connect(_on_brush_unlocked)
+	pr.title_changed.connect(_on_title)
+	_coins_shown = pr.coins
+	_refresh_stats()
+	_refresh_goals()
+	Net.room_changed.connect(_refresh_players)
+	Net.players_changed.connect(_refresh_players)
+	Net.message.connect(func(t): _help.text = t)
+	Firebase.auth_changed.connect(_refresh_account)
+	_refresh_brushes()
+	_refresh_account()
+	_refresh_players()
+
+
+func _build_island_top() -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -252,8 +245,8 @@ func _build_top() -> void:
 	_root.add_child(margin)
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 10)
 	margin.add_child(row)
-	# city card
 	var card := PanelContainer.new()
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_glassify(card)
@@ -264,51 +257,299 @@ func _build_top() -> void:
 	var name_row := HBoxContainer.new()
 	name_row.add_theme_constant_override("separation", 10)
 	v.add_child(name_row)
-	_name_label = _label(Game.city_name, 26, true)
-	name_row.add_child(_name_label)
+	name_row.add_child(_label("Your island", 26, true))
 	var chip := PanelContainer.new()
 	chip.add_theme_stylebox_override("panel", _box(Color("ffe9c7"), 12, 8, false))
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_title_label = _label("Hamlet", 16, true, Color("b46a1f"))
-	chip.add_child(_title_label)
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_title_chip = _label("Hamlet", 16, true, Color("b46a1f"))
+	chip.add_child(_title_chip)
 	name_row.add_child(chip)
 	_progress = ProgressBar.new()
-	_progress.custom_minimum_size = Vector2(230, 9)
+	_progress.custom_minimum_size = Vector2(230, 7)
 	_progress.show_percentage = false
 	_progress.max_value = 1.0
 	_progress.step = 0.0
+	_progress.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(_progress)
-	_next_label = _label("", 14, false, SOFT)
-	v.add_child(_next_label)
+	_help = _label("Draw streets, or shape the land: pick a brush", 14, false, SOFT)
+	v.add_child(_help)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(spacer)
-	# co-op players
 	_players_row = HBoxContainer.new()
-	_players_row.add_theme_constant_override("separation", 6)
 	_players_row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_players_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(_players_row)
-	var spacer2 := Control.new()
-	spacer2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	spacer2.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(spacer2)
-	# stats pills
 	var stats := HBoxContainer.new()
 	stats.add_theme_constant_override("separation", 10)
 	stats.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(stats)
 	_pop_label = _pill(stats, "people")
 	_coin_label = _pill(stats, "coin")
-	_happy_label = _pill(stats, "smile")
 	var menu_btn := _glass_button(58)
 	var mi := _icon("menu", 30)
 	mi.set_anchors_preset(Control.PRESET_FULL_RECT)
 	menu_btn.add_child(mi)
 	menu_btn.pressed.connect(_toggle_menu)
+	menu_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	stats.add_child(menu_btn)
 
+
+## The menu's first page: your name, this island and starting over.
+func _build_world_page(page: VBoxContainer) -> void:
+	var prof := _section(page, "Your name")
+	_name_edit = LineEdit.new()
+	_name_edit.placeholder_text = "Mayor"
+	_name_edit.max_length = 16
+	_name_edit.text_changed.connect(func(t):
+		Game.player_name = t if t.strip_edges() != "" else "Mayor")
+	prof.add_child(_name_edit)
+	prof.add_child(_wrap_label("Builders in your co-op room see this name."))
+	var about := _section(page, "This island")
+	_island_summary = _wrap_label("", 17, true, INK)
+	about.add_child(_island_summary)
+	_new_btn = _button("Start a new island", func(): pass)
+	_new_btn.pressed.connect(_on_new_island)
+	about.add_child(_new_btn)
+	about.add_child(_wrap_label("A fresh landscape replaces this island. Tap twice to confirm."))
+
+
+func _world_summary() -> String:
+	var pr := island.progress
+	return "%d residents in %d homes  ·  %d shops  ·  %d parks  ·  %d m of streets\nThe town pays %s coins every few seconds" % [
+		pr.residents, pr.homes, pr.shops, pr.parks, int(pr.street_m), str(pr.income())]
+
+
+func _refresh_stats() -> void:
+	var pr := island.progress
+	_pop_label.text = _short(pr.residents)
+	_title_chip.text = pr.title
+	_progress.value = pr.next_title()[1]
+	_refresh_locks()
+
+
+func _on_title(title: String) -> void:
+	show_toast("Your island is now a %s!" % title, "title")
+	Sfx.play("unlock", 0.8)
+	_confetti()
+
+
+func _on_brush_unlocked(id: String) -> void:
+	show_toast("New brush: %s" % BRUSH_INFO[id][0], "unlock")
+	Sfx.play("unlock")
+	_confetti()
+	_refresh_locks()
+	var b: Button = _brush_keys[id]
+	b.pivot_offset = b.size * 0.5
+	var tw := create_tween()
+	tw.tween_property(b, "scale", Vector2(1.2, 1.2), 0.15).set_trans(Tween.TRANS_BACK)
+	tw.tween_property(b, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK)
+
+
+## Brushes the town hasn't grown into yet are dimmed, with a little lock.
+func _refresh_locks() -> void:
+	for id in _locks:
+		var open := island.progress.can_use(id)
+		_locks[id].visible = not open
+		_brush_keys[id].modulate.a = 1.0 if open else 0.55
+
+
+func _goal_list() -> Array:
+	return island.progress.goals
+
+
+func _goal_frac(g: Dictionary) -> float:
+	return island.progress.goal_progress(g)
+
+
+func _goals_done() -> int:
+	return island.progress.goals_done
+
+
+func _claim(i: int) -> float:
+	return island.progress.claim_goal(i)
+
+
+func _save_cloud() -> void:
+	island.save_cloud()
+
+
+func _on_new_island() -> void:
+	if not _confirm_new:
+		_confirm_new = true
+		_new_btn.text = "Tap again to start over"
+		return
+	_confirm_new = false
+	_new_btn.text = "Start a new island"
+	if Net.in_room():
+		Net.leave_room()
+	Sfx.play("unlock", 1.0, -6.0)
+	island.new_island(randi() % 1000000)
+	_set_menu(false)
+
+
+func _refresh_players() -> void:
+	for c in _players_row.get_children():
+		c.queue_free()
+	if Net.in_room():
+		var chip := PanelContainer.new()
+		_glassify(chip)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 8)
+		chip.add_child(h)
+		h.add_child(_icon("globe", 22))
+		h.add_child(_label("Room %s" % Net.room_code, 17, true))
+		for p in Net.active_players():
+			var dot := PanelContainer.new()
+			dot.add_theme_stylebox_override("panel", _box(Color(str(p.get("color", "ffffff"))), 10, 8, false))
+			dot.add_child(_label(str(p.get("name", "?")), 14, true, Color.WHITE))
+			h.add_child(dot)
+		_players_row.add_child(chip)
+	_refresh_account()
+
+
+func _build_brushes() -> void:
+	var bottom := CenterContainer.new()
+	bottom.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	bottom.offset_top = -110
+	bottom.offset_bottom = -10
+	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(bottom)
+	var m := PanelContainer.new()
+	_glassify(m)
+	bottom.add_child(m)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m.add_child(row)
+	for id in IslandWorld.BRUSHES:
+		var b := _key(80, 84)
+		var v := VBoxContainer.new()
+		v.set_anchors_preset(Control.PRESET_FULL_RECT)
+		v.alignment = BoxContainer.ALIGNMENT_CENTER
+		v.add_theme_constant_override("separation", -2)
+		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(v)
+		var ic := _icon(ICONS.get(id, id), 44)
+		ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(ic)
+		var cl := _label(BRUSH_INFO[id][0], 13, true, INK)
+		cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(cl)
+		b.pressed.connect(func():
+			Sfx.play("click", 1.1, -4.0)
+			island.set_brush(id))
+		row.add_child(b)
+		_brush_keys[id] = b
+		if IslandProgress.UNLOCK.has(id):
+			var lock := _icon("lock", 22)
+			lock.position = Vector2(54, 4)
+			lock.size = Vector2(22, 22)
+			lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			b.add_child(lock)
+			_locks[id] = lock
+		if id == "clear":
+			var gap := Control.new()
+			gap.custom_minimum_size = Vector2(10, 0)
+			gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			row.add_child(gap)
+	_size_btn = _key(64, 84)
+	_size_btn.toggle_mode = false
+	_size_btn.add_theme_font_override("font", font_bold)
+	_size_btn.add_theme_font_size_override("font_size", 24)
+	_size_btn.add_theme_color_override("font_color", INK)
+	_size_btn.add_theme_color_override("font_hover_color", INK)
+	_size_btn.add_theme_color_override("font_pressed_color", INK)
+	_size_btn.pressed.connect(func():
+		_size_i = (_size_i + 1) % SIZES.size()
+		Sfx.play("click", 0.9 + _size_i * 0.15, -4.0)
+		_refresh_brushes())
+	row.add_child(_size_btn)
+	# undo / redo float on the left above the brushes
+	var over := HBoxContainer.new()
+	over.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	over.offset_top = -184
+	over.offset_bottom = -124
+	over.offset_left = 18
+	over.add_theme_constant_override("separation", 10)
+	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(over)
+	_undo_btn = _glass_button(56, "undo")
+	_undo_btn.pressed.connect(_on_undo)
+	over.add_child(_undo_btn)
+	_redo_btn = _glass_button(56, "redo")
+	_redo_btn.pressed.connect(_on_redo)
+	over.add_child(_redo_btn)
+	island.history_changed.connect(_refresh_history)
+	_refresh_history()
+
+
+func _refresh_history() -> void:
+	if _undo_btn == null:
+		return
+	_undo_btn.disabled = not island.can_undo()
+	_redo_btn.disabled = not island.can_redo()
+	_undo_btn.modulate.a = 1.0 if island.can_undo() else 0.45
+	_redo_btn.modulate.a = 1.0 if island.can_redo() else 0.45
+
+
+func _on_undo() -> void:
+	if island.undo():
+		Sfx.play("pop", 0.8, -3.0)
+	_refresh_history()
+
+
+func _on_redo() -> void:
+	if island.redo():
+		Sfx.play("pop", 1.2, -3.0)
+	_refresh_history()
+
+
+func _refresh_brushes() -> void:
+	for id in _brush_keys:
+		_brush_keys[id].set_pressed_no_signal(id == island.brush)
+	island.brush_radius = SIZES[_size_i][1]
+	_size_btn.text = SIZES[_size_i][0]
+	if island.brush != "":
+		_help.text = BRUSH_INFO[island.brush][1]
+	else:
+		_help.text = "Draw streets, or shape the land: pick a brush"
+
+
+func _process(delta: float) -> void:
+	var coins := island.progress.coins
+	_coins_shown = lerpf(_coins_shown, coins, 1.0 - exp(-delta * 6.0))
+	if absf(_coins_shown - coins) < 0.5:
+		_coins_shown = coins
+	_coin_label.text = _short(_coins_shown)
+	if _goals.visible and _goals_open:
+		_tick_goals()
+	if _fps_label.visible:
+		_fps_time += delta
+		if _fps_time >= 0.5:
+			_fps_time = 0.0
+			var tris := Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+			_fps_label.text = "%d FPS\n%s tris" % [Engine.get_frames_per_second(), _short_count(tris)]
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_F11 or (event.alt_pressed and event.keycode == KEY_ENTER)):
+		var w := get_window()
+		w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and (event.ctrl_pressed or event.meta_pressed) and event.keycode == KEY_Z:
+		if event.shift_pressed:
+			_on_redo()
+		else:
+			_on_undo()
+		get_viewport().set_input_as_handled()
+
+
+# ------------------------------------------------------------------ top bar
 
 ## Tiny frame-rate readout under the city card; refreshed twice a second so it costs nothing.
 func _short_count(n: float) -> String:
@@ -344,131 +585,13 @@ func _pill(parent: Control, icon: String) -> Label:
 	return l
 
 
-func _refresh_stats() -> void:
-	_pop_label.text = _short(Game.population)
-	_happy_label.text = "%d%%" % int(Game.happiness * 100)
-	_name_label.text = Game.city_name
-	_title_label.text = Game.title
-	var np := Game.next_title_progress()
-	if np[0] != "":
-		_next_label.text = "%s → %s" % [Game.title, np[0]]
-		_progress.value = np[1]
-	else:
-		_next_label.text = "The finest city on the sea"
-		_progress.value = 1.0
-	_refresh_tools()
-	_update_tutorial()
-
-
 func _short(n: float) -> String:
 	if n >= 10000:
 		return "%.1fk" % (n / 1000.0)
 	return str(int(n))
 
 
-func _process(delta: float) -> void:
-	_coins_shown = lerpf(_coins_shown, Game.coins, 1.0 - exp(-delta * 6.0))
-	if absf(_coins_shown - Game.coins) < 0.5:
-		_coins_shown = Game.coins
-	_coin_label.text = _short(_coins_shown)
-	if _goals.visible and _goals_open:
-		_tick_goals()
-	if _fps_label.visible:
-		_fps_time += delta
-		if _fps_time >= 0.5:
-			_fps_time = 0.0
-			var tris := Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
-			_fps_label.text = "%d FPS\n%s tris" % [Engine.get_frames_per_second(), _short_count(tris)]
-
-
 # ------------------------------------------------------------------ tools
-
-func _build_toolbar() -> void:
-	var bottom := VBoxContainer.new()
-	bottom.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	bottom.offset_top = -330
-	bottom.offset_bottom = -10
-	bottom.offset_left = 16
-	bottom.offset_right = -16
-	bottom.alignment = BoxContainer.ALIGNMENT_END
-	bottom.add_theme_constant_override("separation", 6)
-	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(bottom)
-	# undo / redo float on the left above the tools; the hint sits centred
-	var over := HBoxContainer.new()
-	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	over.add_theme_constant_override("separation", 10)
-	bottom.add_child(over)
-	_undo_btn = _glass_button(56, "undo")
-	_undo_btn.pressed.connect(_on_undo)
-	over.add_child(_undo_btn)
-	_redo_btn = _glass_button(56, "redo")
-	_redo_btn.pressed.connect(_on_redo)
-	over.add_child(_redo_btn)
-	var hint_row := CenterContainer.new()
-	hint_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	over.add_child(hint_row)
-	var pad := Control.new()
-	pad.custom_minimum_size.x = 122
-	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	over.add_child(pad)
-	_hint_card = PanelContainer.new()
-	_hint_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hint_card.material = _glass_dark
-	_hint_card.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK, 18, 16, Color(1, 1, 1, 0.3)))
-	_hint = _label("", 17, true, Color.WHITE)
-	_hint_card.add_child(_hint)
-	_hint_card.modulate.a = 0.0
-	hint_row.add_child(_hint_card)
-	# the open category's sub-types float in their own row above the bar
-	var sub_center := CenterContainer.new()
-	sub_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bottom.add_child(sub_center)
-	_sub_wrap = sub_center
-	_sub_row = HBoxContainer.new()
-	_sub_row.add_theme_constant_override("separation", 8)
-	_sub_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sub_center.add_child(_sub_row)
-	_sub_wrap.visible = false
-	# no bar behind the categories: each one is its own floating glass key
-	var center := CenterContainer.new()
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bottom.add_child(center)
-	var m := MarginContainer.new()
-	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for side in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + side, 8)
-	center.add_child(m)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	m.add_child(row)
-	for c in Game.CATEGORIES:
-		row.add_child(_cat_button(c))
-
-
-func _tools_in(cat: String) -> Array:
-	var out := []
-	for t in Game.TOOLS:
-		if t.cat == cat:
-			out.append(t)
-	return out
-
-
-func _cat_of(id: String) -> String:
-	return Game.tool_def(id).get("cat", "")
-
-
-## The tool a category key stands for: the last one used, else its first unlocked one.
-func _cat_tool(cat: String) -> String:
-	if _last_tool.has(cat) and Game.is_unlocked(_last_tool[cat]):
-		return _last_tool[cat]
-	for t in _tools_in(cat):
-		if Game.is_unlocked(t.id):
-			return t.id
-	return _tools_in(cat)[0].id
-
 
 func _key(w: int, h: int) -> Button:
 	var b := Button.new()
@@ -483,25 +606,6 @@ func _key(w: int, h: int) -> Button:
 	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, 26, 4))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	b.button_down.connect(func(): _squish(b, 0.92))
-	return b
-
-
-func _cat_button(c: Dictionary) -> Control:
-	var b := _key(80, 84)
-	var v := VBoxContainer.new()
-	v.set_anchors_preset(Control.PRESET_FULL_RECT)
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", -2)
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	b.add_child(v)
-	var ic := _icon(_cat_tool(c.id), 44)
-	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(ic)
-	var cl := _label(c.name, 13, true, INK)
-	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(cl)
-	b.pressed.connect(_on_cat_pressed.bind(c.id))
-	_cat_buttons[c.id] = {"button": b, "icon": ic, "label": cl}
 	return b
 
 
@@ -528,190 +632,6 @@ func _glass_button(px: int, icon := "menu") -> Button:
 func _squish(c: Control, to: float) -> void:
 	var tw := create_tween()
 	tw.tween_property(c, "scale", Vector2(to, to), 0.12 if to < 1.0 else 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-
-func _tool_button(t: Dictionary) -> Control:
-	var b := _key(84, 96)
-	var v := VBoxContainer.new()
-	v.set_anchors_preset(Control.PRESET_FULL_RECT)
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", -3)
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	b.add_child(v)
-	var ic := _icon(t.id, 42)
-	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(ic)
-	var nl := _label(t.name, 11, true, INK)
-	nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nl.clip_text = true
-	nl.custom_minimum_size.x = 78
-	v.add_child(nl)
-	var cl := _label("", 13, true, SOFT)
-	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(cl)
-	b.pressed.connect(_on_tool_pressed.bind(t.id))
-	_tool_buttons[t.id] = {"button": b, "icon": ic, "cost": cl, "name": nl}
-	return b
-
-
-## Fills the floating row with the open category's sub-types.
-func _show_subs(cat: String) -> void:
-	for c in _sub_row.get_children():
-		c.queue_free()
-	_tool_buttons.clear()
-	_open_cat = cat
-	var tools := _tools_in(cat) if cat != "" and cat != "clear" else []
-	_sub_wrap.visible = tools.size() > 0
-	var k := 0
-	for t in tools:
-		var b := _tool_button(t)
-		_sub_row.add_child(b)
-		# keys rise into place one after another
-		b.modulate.a = 0.0
-		b.position.y = 20.0
-		var tw := create_tween()
-		tw.tween_interval(k * 0.025)
-		tw.tween_property(b, "modulate:a", 1.0, 0.16)
-		k += 1
-
-
-func _refresh_tools() -> void:
-	for c in Game.CATEGORIES:
-		var e: Dictionary = _cat_buttons.get(c.id, {})
-		if e.is_empty():
-			continue
-		var any := false
-		var cheapest := 1 << 30
-		for t in _tools_in(c.id):
-			if Game.is_unlocked(t.id):
-				any = true
-			cheapest = mini(cheapest, t.unlock)
-		var ic: UiIcon = e.icon
-		ic.set_kind(_cat_tool(c.id) if any else "lock")
-		ic.color = SOFT
-		e.label.text = c.name if any else "%d pop" % cheapest
-		var open: bool = _open_cat == c.id or (c.id == "clear" and _selected == "bulldoze")
-		e.button.button_pressed = open
-		e.button.modulate = Color(1, 1, 1, 1) if any else Color(1, 1, 1, 0.6)
-		e.label.add_theme_color_override("font_color", Color.WHITE if open else (INK if any else SOFT))
-		_lift(e.button, open)
-	for t in _tools_in(_open_cat):
-		var e: Dictionary = _tool_buttons.get(t.id, {})
-		if e.is_empty():
-			continue
-		var unlocked := Game.is_unlocked(t.id)
-		var ic: UiIcon = e.icon
-		ic.set_kind(t.id if unlocked else "lock")
-		ic.color = SOFT
-		e.cost.text = ("%d" % t.cost if t.cost > 0 else "free") if unlocked else "%d pop" % t.unlock
-		e.button.modulate = Color(1, 1, 1, 1) if unlocked else Color(1, 1, 1, 0.6)
-		var sel: bool = _selected == t.id
-		e.button.button_pressed = sel
-		e.cost.add_theme_color_override("font_color", Color.WHITE if sel else (INK if unlocked else SOFT))
-		e.name.add_theme_color_override("font_color", Color.WHITE if sel else (INK if unlocked else SOFT))
-		_lift(e.button, sel)
-
-
-## PS5-style focus: the chosen key lifts and grows, the rest settle.
-func _lift(b: Button, on: bool) -> void:
-	var target := Vector2(1.1, 1.1) if on else Vector2.ONE
-	if b.scale != target and b.is_inside_tree():
-		var tw := create_tween()
-		tw.tween_property(b, "scale", target, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-
-func _refresh_history() -> void:
-	if _undo_btn == null:
-		return
-	_undo_btn.disabled = not Game.can_undo()
-	_redo_btn.disabled = not Game.can_redo()
-	_undo_btn.modulate.a = 1.0 if Game.can_undo() else 0.45
-	_redo_btn.modulate.a = 1.0 if Game.can_redo() else 0.45
-
-
-func _on_undo() -> void:
-	if Game.undo():
-		Sfx.play("pop", 0.8, -3.0)
-		_flash_hint("Undone · coins refunded", false, 1.2)
-	_refresh_history()
-
-
-func _on_redo() -> void:
-	if Game.redo():
-		Sfx.play("pop", 1.2, -3.0)
-		_flash_hint("Redone", false, 1.0)
-	_refresh_history()
-
-
-func _unhandled_key_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_F11 or (event.alt_pressed and event.keycode == KEY_ENTER)):
-		var w := get_window()
-		w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
-		get_viewport().set_input_as_handled()
-		return
-	if event is InputEventKey and event.pressed and (event.ctrl_pressed or event.meta_pressed) and event.keycode == KEY_Z:
-		if event.shift_pressed:
-			_on_redo()
-		else:
-			_on_undo()
-		get_viewport().set_input_as_handled()
-
-
-func _on_cat_pressed(cat: String) -> void:
-	Sfx.play("click")
-	_info.visible = false
-	if cat == "clear":
-		_show_subs("")
-		_select("" if _selected == "bulldoze" else "bulldoze")
-		return
-	if _open_cat == cat:
-		# a second tap folds the row away and puts the tool down
-		_show_subs("")
-		_select("")
-		return
-	_show_subs(cat)
-	var id := _cat_tool(cat)
-	if Game.is_unlocked(id):
-		_select(id)
-	else:
-		_select("")
-		var def := Game.tool_def(id)
-		_flash_hint("%s unlocks at %d citizens" % [def.name, def.unlock], true)
-
-
-func _on_tool_pressed(id: String) -> void:
-	Sfx.play("click")
-	if not Game.is_unlocked(id):
-		var def := Game.tool_def(id)
-		_flash_hint("%s unlocks at %d citizens" % [def.name, def.unlock], true)
-		_tool_buttons[id].button.button_pressed = false
-		return
-	_select("" if _selected == id else id)
-	_info.visible = false
-
-
-func _select(id: String) -> void:
-	_selected = id
-	world.set_tool(_selected)
-	if id != "":
-		_last_tool[_cat_of(id)] = id
-	_refresh_tools()
-	if _selected != "":
-		var def := Game.tool_def(id)
-		_flash_hint("%s  ·  %s" % [def.name, def.desc], false, 3.5)
-
-
-func _flash_hint(text: String, warn := false, secs := 2.2) -> void:
-	_hint.text = text
-	_hint_card.add_theme_stylebox_override("panel", _glass_box(Color(0.85, 0.3, 0.27) if warn else GLASS_DARK, 18, 16, Color(1, 1, 1, 0.3)))
-	var tw := create_tween()
-	tw.tween_property(_hint_card, "modulate:a", 1.0, 0.15)
-	tw.tween_interval(secs)
-	tw.tween_property(_hint_card, "modulate:a", 0.0, 0.4)
-
-
-func _on_hover(_t: Vector2i, _reason: String) -> void:
-	pass
 
 
 # ------------------------------------------------------------------ toasts
@@ -766,30 +686,6 @@ func show_toast(text: String, kind := "info") -> void:
 	tw.chain().tween_callback(p.queue_free)
 
 
-func _on_unlocked(id: String) -> void:
-	var def := Game.tool_def(id)
-	show_toast("New: %s unlocked!" % def.name, "unlock")
-	Sfx.play("unlock")
-	_confetti()
-	_refresh_tools()
-	# the new tool's category key bounces (and the key itself, if its row is open)
-	var e: Dictionary = _tool_buttons.get(id, _cat_buttons.get(_cat_of(id), {}))
-	if e.is_empty():
-		return
-	var b: Button = e.button
-	b.pivot_offset = b.size * 0.5
-	var tw := create_tween()
-	for k in 3:
-		tw.tween_property(b, "scale", Vector2(1.15, 1.15), 0.15)
-		tw.tween_property(b, "scale", Vector2.ONE, 0.15)
-
-
-func _on_title(title: String) -> void:
-	show_toast("%s is now a %s!" % [Game.city_name, title], "title")
-	Sfx.play("unlock", 0.8)
-	_confetti()
-
-
 func _confetti() -> void:
 	var p := CPUParticles2D.new()
 	p.position = Vector2(_root.size.x * 0.5, -20)
@@ -819,46 +715,6 @@ func _confetti() -> void:
 	get_tree().create_timer(3.0).timeout.connect(p.queue_free)
 
 
-# ------------------------------------------------------------------ tutorial
-
-func _build_tutorial() -> void:
-	_tutorial = PanelContainer.new()
-	_tutorial.set_anchors_preset(Control.PRESET_CENTER_LEFT)
-	_tutorial.offset_left = 18
-	_tutorial.offset_top = -40
-	_tutorial.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_glassify(_tutorial)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 10)
-	_tutorial.add_child(h)
-	h.add_child(_icon("hand", 34))
-	_tutorial_label = _label("", 17, true)
-	_tutorial_label.custom_minimum_size.x = 260
-	_tutorial_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	h.add_child(_tutorial_label)
-	_root.add_child(_tutorial)
-
-
-func _update_tutorial() -> void:
-	if _tutorial == null:
-		if _goals:
-			_goals.visible = not _goal_list().is_empty()
-		return
-	var texts := [
-		"Tap Roads and drag a street across the grass.",
-		"Now open Homes and paint houses right beside the road.",
-		"Watch your homes grow! Add shops and parks to help them thrive.",
-	]
-	if Game.tutorial_step < texts.size() and not Net.in_room():
-		_tutorial.visible = true
-		_tutorial_label.text = texts[Game.tutorial_step]
-	else:
-		_tutorial.visible = false
-	if _goals:
-		# goals take over the tutorial's spot once the first steps are done
-		_goals.visible = not _tutorial.visible and not _goal_list().is_empty()
-
-
 # ------------------------------------------------------------------ goals
 
 func _build_goals() -> void:
@@ -883,7 +739,7 @@ func _build_goals() -> void:
 	hr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	head.add_child(hr)
 	hr.add_child(_icon("star", 28))
-	var title := _label("City goals", 18, true)
+	var title := _label("Town goals", 18, true)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hr.add_child(title)
 	_goal_count = _label("", 15, true, SOFT)
@@ -913,7 +769,7 @@ func _refresh_goals() -> void:
 		_goal_rows.add_child(_goal_row(i, g))
 	_goal_count.text = ("%d to collect" % ready) if ready > 0 else ("%d done" % _goals_done())
 	_goal_count.add_theme_color_override("font_color", ACCENT if ready > 0 else SOFT)
-	_update_tutorial()
+	_goals.visible = not list.is_empty()
 
 
 func _goal_row(i: int, g: Dictionary) -> Control:
@@ -970,23 +826,6 @@ func _goal_row(i: int, g: Dictionary) -> Control:
 	return row
 
 
-## Where the goals come from; the island keeps its own.
-func _goal_list() -> Array:
-	return Game.goals
-
-
-func _goal_frac(g: Dictionary) -> float:
-	return Game.goal_progress(g)
-
-
-func _goals_done() -> int:
-	return Game.goals_done
-
-
-func _claim(i: int) -> float:
-	return Game.claim_goal(i)
-
-
 ## Keeps the goal bars moving as the town changes, without rebuilding the rows.
 func _tick_goals() -> void:
 	for row in _goal_rows.get_children():
@@ -1038,88 +877,6 @@ func _fly_coins(start: Vector2, count: int) -> void:
 			c.queue_free())
 
 
-# ------------------------------------------------------------------ tile info
-
-func _build_info() -> void:
-	_info = PanelContainer.new()
-	_info.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_info.offset_left = -320
-	_info.offset_right = -18
-	_info.offset_top = -60
-	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_glassify(_info)
-	_info_label = _label("", 17, false)
-	_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_info_label.custom_minimum_size.x = 270
-	_info.add_child(_info_label)
-	_info.visible = false
-	_root.add_child(_info)
-
-
-func _on_tile_tapped(t: Vector2i) -> void:
-	if not Game.inside(t.x, t.y):
-		_info.visible = false
-		return
-	var k := Game.knd(t.x, t.y)
-	var g := Game.grw(t.x, t.y)
-	var names := {Game.K.HOUSE: [["Cottage", "Townhouse", "Apartments"], ["Row house", "Terrace", "Brownstones"], ["Bungalow", "Villa", "Mansion"], ["Flats", "Apartment block", "High-rise flats"]],
-		Game.K.SHOP: [["Corner shop", "High street shop", "Department store"], ["Café", "Bistro", "Rooftop restaurant"], ["Market stalls", "Covered market", "Market hall"], ["Store", "Department store", "Shopping centre"]],
-		Game.K.OFFICE: [["Studio offices", "Office tower", "Skyscraper"], ["Workshop", "Studios", "Campus"], ["Guesthouse", "Hotel", "Grand hotel"]]}
-	var text := ""
-	if Game.is_building(k):
-		if g == 0:
-			text = "Building site\nNeeds a road right next to it to start building."
-		else:
-			text = "%s  ·  level %d\n" % [names[k][Game.sub(t.x, t.y)][g - 1], g]
-			var target := Game.target_growth(t.x, t.y)
-			if g < 3:
-				if target > g:
-					text += "Growing soon!"
-				elif g == 1 and Game.population < 30:
-					text += "Grows taller once the city reaches 30 citizens."
-				elif g == 2 and Game.population < 220:
-					text += "Grows taller once the city reaches 220 citizens."
-				else:
-					text += "Add parks, shops and neighbours nearby to grow."
-			else:
-				text += "Fully grown. Lovely!"
-	elif k == Game.K.LANDMARK:
-		text = "%s\nLifts happiness and helps nearby buildings grow." % Game.tool_at(t.x, t.y).get("name", "Landmark")
-	elif k == Game.K.PARK:
-		text = "%s\nNeighbours within 3 tiles grow faster." % Game.tool_at(t.x, t.y).get("name", "Park")
-	else:
-		_info.visible = false
-		return
-	_info_label.text = text
-	_info.visible = true
-	Sfx.play("click", 1.2)
-
-
-# ------------------------------------------------------------------ players
-
-func _refresh_players() -> void:
-	for c in _players_row.get_children():
-		c.queue_free()
-	if not Net.in_room():
-		_update_tutorial()
-		_refresh_account()
-		return
-	var chip := PanelContainer.new()
-	_glassify(chip)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
-	chip.add_child(h)
-	h.add_child(_icon("globe", 22))
-	h.add_child(_label("Room %s" % Net.room_code, 17, true))
-	for p in Net.active_players():
-		var dot := PanelContainer.new()
-		dot.add_theme_stylebox_override("panel", _box(Color(str(p.get("color", "ffffff"))), 10, 8, false))
-		dot.add_child(_label(str(p.get("name", "?")), 14, true, Color.WHITE))
-		h.add_child(dot)
-	_players_row.add_child(chip)
-	_refresh_account()
-
-
 # ------------------------------------------------------------------ menu
 
 func _toggle_menu() -> void:
@@ -1145,7 +902,7 @@ func _set_menu(open: bool) -> void:
 		tw.tween_property(_menu, "modulate:a", 1.0, 0.18)
 	else:
 		_name_edit.release_focus()
-		Game.save_local()
+		Game.save_settings()
 
 
 func _notification(what: int) -> void:
@@ -1409,9 +1166,9 @@ func _build_menu() -> void:
 		cb.toggled.connect(func(on):
 			Game.settings[key[0]] = on
 			match key[0]:
-				"shadows": world.sun.shadow_enabled = on
+				"shadows": island.sun.shadow_enabled = on
 				"fps": _fps_label.visible = on
-			Game.save_local())
+			Game.save_settings())
 		st.add_child(cb)
 
 	# ---- what's new
@@ -1429,30 +1186,6 @@ func _build_menu() -> void:
 	rt.text = _patch_notes_bbcode()
 	notes.add_child(rt)
 	_show_page("island")
-
-
-## The menu's first page: this world, your name, starting over.
-func _build_world_page(island: VBoxContainer) -> void:
-	var preview := _section(island, "The new island")
-	preview.add_child(_wrap_label("Build with no grid: real hills and coves, and towns that grow themselves where you paint. Your town here stays as it is."))
-	preview.add_child(_button("Open the island", func():
-		_set_menu(false)
-		open_island.emit(), true))
-	var prof := _section(island, "Your name")
-	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "Mayor"
-	_name_edit.max_length = 16
-	_name_edit.text_changed.connect(func(s):
-		Game.player_name = s if s.strip_edges() != "" else "Mayor")
-	prof.add_child(_name_edit)
-	prof.add_child(_wrap_label("Other builders see this name next to your cursor."))
-	var about := _section(island, "This island")
-	_island_summary = _wrap_label("", 17, true, INK)
-	about.add_child(_island_summary)
-	_new_btn = _button("Start a new island", func(): pass)
-	_new_btn.pressed.connect(_on_new_island)
-	about.add_child(_new_btn)
-	about.add_child(_wrap_label("Starting over replaces this city with a fresh island. Tap twice to confirm."))
 
 
 ## iOS-style switch drawn once into a texture: green pill with the knob right when on.
@@ -1484,20 +1217,6 @@ func _show_page(id: String) -> void:
 		_tab_buttons[k].button_pressed = k == id
 	_pages[id].scroll_vertical = 0
 	_refresh_account()
-
-
-func _on_new_island() -> void:
-	if not _confirm_new:
-		_confirm_new = true
-		_new_btn.text = "Tap again to start over"
-		return
-	_confirm_new = false
-	_new_btn.text = "Start a new island"
-	if Net.in_room():
-		Net.leave_room()
-	Game.new_world(randi() % 1000000)
-	Game.save_local()
-	_set_menu(false)
 
 
 func _patch_notes_bbcode() -> String:
@@ -1581,15 +1300,3 @@ func _refresh_account() -> void:
 	if _island_summary:
 		_island_summary.text = _world_summary()
 
-
-func _world_summary() -> String:
-	return "%s  ·  %s\n%s citizens  ·  %s coins" % [Game.city_name, Game.title, _short(Game.population), _short(Game.coins)]
-
-
-func _save_cloud() -> void:
-	Firebase.save_city(Game.to_dict())
-
-
-func _on_reset() -> void:
-	_refresh_stats()
-	_info.visible = false

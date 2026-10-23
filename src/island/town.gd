@@ -543,7 +543,7 @@ func _commit_patch(c: Vector2i) -> void:
 		arr[Mesh.ARRAY_NORMAL] = sets[9]
 		var sm := ArrayMesh.new()
 		sm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		sm.surface_set_material(0, CityGen.shadow_material())
+		sm.surface_set_material(0, Palette.shadow_material())
 		var sh := MeshInstance3D.new()
 		sh.mesh = sm
 		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY

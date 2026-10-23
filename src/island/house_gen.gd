@@ -139,7 +139,7 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var r := rng.randf()
 	if r < K.brick:
 		if kit != BRICK:
-			wall = CityGen.BRICK[rng.randi() % 3]
+			wall = Palette.BRICK[rng.randi() % 3]
 		we = MeshKit.BRICKS
 		trim = Color(0.95, 0.93, 0.88)
 	elif r < K.brick + K.siding and (not dense or kit == NORDIC):
@@ -185,19 +185,19 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 			elif count > 1:
 				# the door takes one bay of the ground floor
 				var len := hw - 0.6
-				mk.window_row(Vector3(-signf(door_x) * 0.3, y, front), Vector3.BACK, len, count - 1, 0.24, 0.32, CityGen.GLASS, true)
+				mk.window_row(Vector3(-signf(door_x) * 0.3, y, front), Vector3.BACK, len, count - 1, 0.24, 0.32, Palette.GLASS, true)
 				if shutters.a > 0.0:
 					_shutters(mk, -signf(door_x) * 0.3, y, front, len, count - 1, shutters)
 		else:
-			mk.window_row(Vector3(0, y, front), Vector3.BACK, hw, count, 0.24, 0.32, CityGen.GLASS, true)
+			mk.window_row(Vector3(0, y, front), Vector3.BACK, hw, count, 0.24, 0.32, Palette.GLASS, true)
 			if shutters.a > 0.0:
 				_shutters(mk, 0.0, y, front, hw, count, shutters)
 			if boxes and fl == 1:
 				_window_boxes(mk, rng, y, front, hw, count)
-		mk.window_row(Vector3(0, y, -hd * 0.5), Vector3.FORWARD, hw, count, 0.24, 0.32, CityGen.GLASS, true)
+		mk.window_row(Vector3(0, y, -hd * 0.5), Vector3.FORWARD, hw, count, 0.24, 0.32, Palette.GLASS, true)
 		if not dense and hd > 1.0:
 			for sx: float in [-1.0, 1.0]:
-				mk.window_row(Vector3(sx * hw * 0.5, y, 0), Vector3.RIGHT * sx, hd, side_count, 0.24, 0.32, CityGen.GLASS, true)
+				mk.window_row(Vector3(sx * hw * 0.5, y, 0), Vector3.RIGHT * sx, hd, side_count, 0.24, 0.32, Palette.GLASS, true)
 	# a little iron balcony under one upper window
 	if floors >= 2 and rng.randf() < K.balcony and not boxes:
 		var fl := 1 + rng.randi() % (floors - 1)
@@ -229,14 +229,14 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 ## A shop on the ground floor: display windows either side of the door, a
 ## striped awning and a sign board, lit up at night.
 static func _shopfront(mk: MeshKit, rng: RandomNumberGenerator, hw: float, front: float, wall: Color) -> void:
-	var awn: Color = CityGen.AWNINGS[rng.randi() % CityGen.AWNINGS.size()]
+	var awn: Color = Palette.AWNINGS[rng.randi() % Palette.AWNINGS.size()]
 	var z := front + 0.012
 	# a painted frame round the whole front
 	mk.box_faces(Vector3(0, 0.29, front + 0.01), Vector3(hw - 0.1, 0.5, 0.02), awn.darkened(0.4), MeshKit.FRONT)
 	for s: float in [-1.0, 1.0]:
-		mk.window(Vector3(s * hw * 0.27, 0.32, z), Vector3.BACK, hw * 0.34, 0.36, CityGen.GLASS_LIGHT, Color(0, 0, 0, 0), false)
+		mk.window(Vector3(s * hw * 0.27, 0.32, z), Vector3.BACK, hw * 0.34, 0.36, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), false)
 	mk.box_faces(Vector3(0, 0.24, front + 0.02), Vector3(0.26, 0.44, 0.02), Color(0.95, 0.93, 0.88), MeshKit.FRONT)
-	mk.window(Vector3(0, 0.27, front + 0.032), Vector3.BACK, 0.16, 0.32, CityGen.GLASS_LIGHT, Color(0, 0, 0, 0), true)
+	mk.window(Vector3(0, 0.27, front + 0.032), Vector3.BACK, 0.16, 0.32, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), true)
 	# striped awning, tilted out over the pavement
 	var stripes := 5
 	var aw := hw - 0.14
@@ -266,7 +266,7 @@ static func _window_boxes(mk: MeshKit, rng: RandomNumberGenerator, y: float, fro
 	for k in count:
 		var x := -hw * 0.5 + (k + 0.5) * cell
 		mk.box_faces(Vector3(x, y - 0.27, front + 0.04), Vector3(0.3, 0.06, 0.08), Color(0.55, 0.38, 0.28), MeshKit.FRONT | MeshKit.TOP)
-		mk.blob(Vector3(x, y - 0.22, front + 0.05), Vector3(0.15, 0.05, 0.05), CityGen.FLOWERS[rng.randi() % CityGen.FLOWERS.size()], 0.02)
+		mk.blob(Vector3(x, y - 0.22, front + 0.05), Vector3(0.15, 0.05, 0.05), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.02)
 
 
 static func _roof(mk: MeshKit, rng: RandomNumberGenerator, K: Dictionary, hw: float, hd: float, hgt: float, roof: Color, wall: Color, dense: bool) -> void:
@@ -315,7 +315,7 @@ static func _dormer(mk: MeshKit, x: float, hd: float, hgt: float, rh: float, roo
 	# where the roof is at the dormer's front
 	var base := hgt + rh * (1.0 - zf / (hd * 0.5))
 	mk.box_faces(Vector3(x, base + 0.1, zf - 0.22), Vector3(0.4, 0.34, 0.44), wall, MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
-	mk.window(Vector3(x, base + 0.12, zf), Vector3.BACK, 0.18, 0.18, CityGen.GLASS, Color(1, 1, 1, 1))
+	mk.window(Vector3(x, base + 0.12, zf), Vector3.BACK, 0.18, 0.18, Palette.GLASS, Color(1, 1, 1, 1))
 	mk.push_at(Vector3(x, base + 0.27, zf - 0.2), PI * 0.5)
 	mk.gable_roof(Vector3.ZERO, 0.46, 0.4, 0.15, 0.04, roof, wall, 0.05)
 	mk.pop()
@@ -325,7 +325,7 @@ static func _garden(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hw: fl
 	# a low hedge or picket fence along the front, open at the path
 	if setback > 0.35:
 		var hedge := rng.randf() < 0.6
-		var col: Color = CityGen.LEAF[rng.randi() % CityGen.LEAF.size()].darkened(0.15) if hedge else Color(0.97, 0.97, 0.95)
+		var col: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()].darkened(0.15) if hedge else Color(0.97, 0.97, 0.95)
 		var hh := 0.16 if hedge else 0.12
 		var z := -0.08
 		for sx: float in [-1.0, 1.0]:
@@ -339,7 +339,7 @@ static func _garden(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hw: fl
 			mk.shadow = true
 		mk.box_faces(Vector3(door_x, 0.01, -setback * 0.5), Vector3(0.28, 0.02, setback), Color(0.84, 0.8, 0.74), MeshKit.TOP)
 		for k in 2:
-			mk.blob(Vector3(door_x + (0.5 + 0.3 * k) * (1.0 if k == 0 else -1.0), 0.1, -setback * 0.6), Vector3(0.1, 0.08, 0.1), CityGen.FLOWERS[rng.randi() % CityGen.FLOWERS.size()], 0.03)
+			mk.blob(Vector3(door_x + (0.5 + 0.3 * k) * (1.0 if k == 0 else -1.0), 0.1, -setback * 0.6), Vector3(0.1, 0.08, 0.1), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.03)
 	var back := l.depth - setback - hd
 	if back > 1.0:
 		_tree(mk, rng, Vector3(lerpf(-0.3, 0.3, rng.randf()) * l.width, 0.0, -setback - hd - back * 0.55), land, l, y0)
@@ -351,6 +351,6 @@ static func _tree(mk: MeshKit, rng: RandomNumberGenerator, at: Vector3, land: La
 	at.y = land.height_at(p.x, p.y) - y0
 	var s := lerpf(0.75, 1.15, rng.randf())
 	mk.pole(at, 0.05 * s, 0.5 * s, 5, Color(0.45, 0.33, 0.24))
-	var leaf: Color = CityGen.LEAF[rng.randi() % CityGen.LEAF.size()]
+	var leaf: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()]
 	mk.blob(at + Vector3(0, 0.75 * s, 0), Vector3(0.42, 0.4, 0.42) * s, leaf, 0.1)
 	mk.blob(at + Vector3(0.18 * s, 0.98 * s, 0.05), Vector3(0.28, 0.26, 0.28) * s, leaf.lightened(0.08), 0.1)

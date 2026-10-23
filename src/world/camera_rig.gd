@@ -10,8 +10,10 @@ var _t_yaw := deg_to_rad(35.0)
 var _t_dist := 38.0
 var cam: Camera3D
 var idle_spin := false
-## Ground height under a point, for worlds without tiles (null: use the tile map).
+## Ground height under a point.
 var ground_fn: Callable
+## How far from the middle the view can pan.
+var limit := 64.0
 
 const MIN_D := 9.0
 const MAX_D := 95.0
@@ -37,9 +39,8 @@ func pan_screen(delta: Vector2) -> void:
 	var right := Vector3(cos(yaw), 0, -sin(yaw))
 	var fwd := Vector3(sin(yaw), 0, cos(yaw))
 	_t_target -= (right * delta.x + fwd * delta.y) * k
-	var lim := Game.N * Game.TILE * 0.5
-	_t_target.x = clampf(_t_target.x, -lim, lim)
-	_t_target.z = clampf(_t_target.z, -lim, lim)
+	_t_target.x = clampf(_t_target.x, -limit, limit)
+	_t_target.z = clampf(_t_target.z, -limit, limit)
 
 
 func zoom(factor: float) -> void:
@@ -97,28 +98,5 @@ func _keyboard(delta: float) -> void:
 func _ground_height(p: Vector3) -> float:
 	if ground_fn.is_valid():
 		return maxf(0.0, ground_fn.call(p.x, p.z)) * 0.8
-	var t := Game.world_to_tile(p)
-	if not Game.inside(t.x, t.y):
-		return 0.0
-	return max(0.0, Game.tile_y(t.x, t.y)) * 0.6
+	return 0.0
 
-
-## Ray-march the terrain to find the tile under a screen point.
-func pick_tile(screen: Vector2) -> Vector2i:
-	var o := cam.project_ray_origin(screen)
-	var d := cam.project_ray_normal(screen)
-	var t := 0.0
-	var step := 0.3
-	while t < 400.0:
-		var p := o + d * t
-		var tile := Game.world_to_tile(p)
-		if Game.inside(tile.x, tile.y):
-			var top: float = max(Game.tile_y(tile.x, tile.y), 0.0)
-			if Game.knd(tile.x, tile.y) == Game.K.ROAD:
-				top = Game.LEVEL_Y[Game.road_level(tile.x, tile.y)]
-			if p.y <= top:
-				return tile
-		elif p.y < -1.0:
-			return Vector2i(-1, -1)
-		t += step
-	return Vector2i(-1, -1)

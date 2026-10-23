@@ -2,10 +2,11 @@
 
 A cozy, toy-like 3D city builder for Android, made with Godot 4 (GDScript, Mobile renderer).
 
-Paint roads, homes, shops, offices and parks on a procedurally generated island. Buildings
-read their surroundings: they face the street, join into terraced rows, take seaside or
-hillside styles and grow taller as the town thrives. Day turns to night, windows glow,
-cars potter around and up to four friends can build on the same island online.
+Draw streets and paint where the town should grow, on one continuous, reshapeable island
+with no tile grid. The town lays out its own side streets, lots and houses in the style of
+each quarter, with shops on busy streets, parks, squares and churches. Day turns to night,
+windows glow, cars and townsfolk potter around, and up to four friends can build on the
+same island online.
 
 ## Play
 Every merge to `main` builds a signed APK and publishes it on the
@@ -27,4 +28,4 @@ CI signs with `android/release.keystore` unless the secrets `ANDROID_KEYSTORE_BA
 
 ## Development
 - `godot --headless --path . tests/logic_test.tscn` runs the logic checks.
-- `tests/gallery.tscn` and `tests/shot.tscn` render screenshots of every tile type / a demo town.
+- `tests/island_shot.tscn` renders a screenshot of the island (see the `CV_*` options at the top of `tests/island_shot.gd`).
