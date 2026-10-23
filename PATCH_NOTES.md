@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-23 22:47 UTC
+- Strings of colourful bunting now hang across your main streets wherever rows of taller houses face each other.
+
 ## 2026-10-23 22:42 UTC
 - Houses with room behind them now have proper back gardens, with a hedge or fence that follows the slope of the ground.
 - Many back gardens also have a little shed, a vegetable patch or washing hung out on a line.
