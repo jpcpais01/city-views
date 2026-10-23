@@ -76,10 +76,22 @@ func _ready() -> void:
 		var b: Dictionary = world.life._boats[int(OS.get_environment("CV_BOAT"))]
 		world.rig.focus(b.p)
 		world.life._gulls[0].c = b.p
-		world.life._gulls[0].cur = b.p
+		world.life._gulls[0].p = b.p + Vector3(2.5, 2.5, 0)
 		world.life._gulls[0].r = 2.5
-		world.life._gulls[0].y = 2.5
+		world.life._gulls[0].alt = 2.5
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 10.0).timeout
+	# CV_GULLS=1: freeze a line-up of gulls in different poses in front of the camera
+	if OS.get_environment("CV_GULLS") != "":
+		world.life.set_process(false)
+		var mm: MultiMesh = world.life._gull_mm
+		var f: Vector3 = world.rig.target
+		var poses := [Color(0.17, 0, -0.34, 0), Color(0.95, 0, 0.3, 0), Color(-0.75, 0, -0.5, 0), Color(0.1, 1, 0, 1), Color(0.2, 0.45, -0.2, 0)]
+		for i in 5:
+			var bs := Basis(Vector3.UP, 0.9 + i * 0.5) * Basis(Vector3.BACK, [-0.3, 0.0, 0.0, 0.0, 0.0][i]) * Basis(Vector3.RIGHT, [0.0, 0.0, 0.0, 0.0, 1.0][i])
+			mm.set_instance_transform(i, Transform3D(bs.scaled_local(Vector3.ONE * 1.6), f + Vector3(-2.4 + i * 1.2, 0.9 if i != 3 else 0.2, 0)))
+			mm.set_instance_custom_data(i, poses[i])
+		mm.visible_instance_count = 5
+		await get_tree().create_timer(0.5).timeout
 	# CV_PERSON=n: once people are about, fly in on pedestrian n
 	if OS.get_environment("CV_PERSON") != "" and world.people._people.size() > int(OS.get_environment("CV_PERSON")):
 		var pp: Dictionary = world.people._people[int(OS.get_environment("CV_PERSON"))]

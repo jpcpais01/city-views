@@ -56,6 +56,12 @@ func _ready() -> void:
 		var f := 2600.0 + 900.0 * sin(t * 60.0)
 		var env := sin(PI * clampf(t / 0.35, 0.0, 1.0))
 		return sin(TAU * f * t) * env * 0.12 * (0.5 + 0.5 * sin(t * 90.0)))
+	# herring gull "kee-ow": a nasal, falling cry with a throaty wobble
+	_streams["gull"] = _make(0.6, func(t: float) -> float:
+		var ph := TAU * (1750.0 * t - 750.0 * t * t)
+		var env := minf(t / 0.03, 1.0) * (1.0 - smoothstep(0.32, 0.58, t))
+		var s := sin(ph) + 0.6 * sin(2.0 * ph) + 0.35 * sin(3.0 * ph) + 0.15 * sin(4.0 * ph)
+		return s * env * (0.75 + 0.25 * sin(TAU * 28.0 * t)) * 0.11)
 	_streams["ocean"] = _make_ocean()
 	for i in 10:
 		var p := AudioStreamPlayer.new()
@@ -146,6 +152,18 @@ func _process(delta: float) -> void:
 		if night > 0.5:
 			semi -= 5
 		_music("bell", pow(2.0, semi / 12.0), randf_range(-16.0, -10.0))
+
+
+## A gull's cry, sometimes a laughing run of them; `near` 0..1 sets the loudness.
+func gull(near: float) -> void:
+	if night > 0.7:
+		return
+	var vol := lerpf(-24.0, -9.0, clampf(near, 0.0, 1.0))
+	var pitch := randf_range(0.9, 1.15)
+	var times := 1 if randf() < 0.6 else randi_range(2, 4)
+	for i in times:
+		var step := pitch * (1.0 - i * 0.04)
+		get_tree().create_timer(i * 0.3).timeout.connect(func(): play("gull", step, vol - i * 1.5, 0.02))
 
 
 func _bird_logic(delta: float) -> void:

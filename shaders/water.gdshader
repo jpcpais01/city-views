@@ -18,6 +18,8 @@ uniform float wave_scale = 0.16;
 uniform sampler2D shore_tex : filter_linear, repeat_disable;
 uniform float grid_size = 128.0;
 
+#include "res://shaders/beam.gdshaderinc"
+
 varying vec3 w_pos;
 
 // metres from the waterline (distance field traced from the terrain's real shore)
@@ -167,6 +169,12 @@ void fragment() {
 	float ndv = clamp(dot(n_view, VIEW), 0.0, 1.0);
 	float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
 	EMISSION = col * (1.0 - fres) * (1.0 - foam);
+	if (beam_count > 0) {
+		// the beam's path glitters across the swell
+		float b = beam_light(w_pos);
+		float glint = 0.55 + 0.45 * texture(noise_tex, w_pos.xz * 0.11 + TIME * 0.03).r;
+		EMISSION += vec3(1.0, 0.9, 0.66) * b * glint * 0.4;
+	}
 	ALBEDO = foam_col * foam;
 	NORMAL = n_view;
 	ROUGHNESS = mix(0.035, 0.8, foam);

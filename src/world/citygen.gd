@@ -795,6 +795,8 @@ static func _landmark(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material, 
 			var beam := _beam_mesh(beam_mat)
 			var bn := _spinner(root, beam, Vector3(0, top + 0.28, 0), Vector3.UP, 0.9)
 			bn.set_meta("night_only", true)
+			bn.set_meta("beam", true)
+			bn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		Game.LM.WINDMILL:
 			mk.rbox(Vector3(0, 0.05, 0), Vector3(1.7, 0.1, 1.7), 0.05, Color(0.62, 0.8, 0.45))
 			mk.cylinder(Vector3(0, 0.1, 0), 0.62, 2.2, 14, Color(0.93, 0.9, 0.84), false, null, 0.42)
@@ -964,20 +966,33 @@ static func _landmark(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material, 
 
 
 static func _beam_mesh(mat: Material) -> ArrayMesh:
+	# two cones out both sides of the lamp, angled down so they meet the sea about
+	# 14 m out: a soft wide glow around a brighter narrow core
 	var v := PackedVector3Array()
+	var nrm := PackedVector3Array()
 	var c := PackedColorArray()
 	var sides := 10
-	for s in [-1.0, 1.0]:
-		for i in sides:
-			var a0 := TAU * i / sides
-			var a1 := TAU * (i + 1) / sides
-			var p0 := Vector3(s * 10.0, cos(a0) * 1.4 - 0.6, sin(a0) * 1.4)
-			var p1 := Vector3(s * 10.0, cos(a1) * 1.4 - 0.6, sin(a1) * 1.4)
-			v.append_array([Vector3.ZERO, p0, p1])
-			c.append_array([Color(1, 0.93, 0.65, 0.28), Color(1, 0.93, 0.65, 0.0), Color(1, 0.93, 0.65, 0.0)])
+	var warm := Color(1, 0.92, 0.66)
+	for layer in [[1.7, 0.16], [0.7, 0.32]]:
+		var rad: float = layer[0]
+		var alpha: float = layer[1]
+		for s in [-1.0, 1.0]:
+			var axis := Vector3(s * 14.0, -4.6, 0.0)
+			var fwd := axis.normalized()
+			var up := fwd.cross(Vector3.BACK).normalized()
+			var side := fwd.cross(up).normalized()
+			for i in sides:
+				var a0 := TAU * i / sides
+				var a1 := TAU * (i + 1) / sides
+				var d0 := up * cos(a0) + side * sin(a0)
+				var d1 := up * cos(a1) + side * sin(a1)
+				v.append_array([Vector3.ZERO, axis + d0 * rad, axis + d1 * rad])
+				nrm.append_array([(d0 + d1).normalized(), d0, d1])
+				c.append_array([Color(warm, alpha), Color(warm, 0.0), Color(warm, 0.0)])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = v
+	arrays[Mesh.ARRAY_NORMAL] = nrm
 	arrays[Mesh.ARRAY_COLOR] = c
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

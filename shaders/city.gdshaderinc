@@ -6,6 +6,8 @@ uniform float lit_ratio : hint_range(0.0, 1.0) = 0.7;
 uniform vec3 warm_light : source_color = vec3(1.0, 0.74, 0.42);
 uniform vec3 frame_col : source_color = vec3(0.97, 0.97, 0.95);
 
+#include "res://shaders/beam.gdshaderinc"
+
 varying float v_emit;
 varying float v_rand;
 varying vec3 v_world;
@@ -188,5 +190,9 @@ void fragment() {
 		}
 		ALBEDO = mix(base, glow * 0.35, lit);
 		EMISSION = glow * lit * 2.4;
+	}
+	if (beam_count > 0) {
+		// a passing lighthouse beam lights whatever it sweeps over
+		EMISSION += mix(ALBEDO, vec3(0.3), 0.5) * vec3(1.0, 0.9, 0.66) * beam_light(v_world) * 0.9;
 	}
 }
