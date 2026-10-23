@@ -144,8 +144,11 @@ void fragment() {
 	vec3 trans = exp(-absorb * (path * 0.55 + depth * 0.8));
 	vec3 body = scatter_col * mix(1.0, 0.25, night);
 	vec3 col = below * trans + body * (1.0 - trans);
-	// sun through the crests
-	float cr = smoothstep(0.0, 0.07, crest);
+	// sun through the crests: the four swells add up to a regular lattice, so only
+	// the true peaks glow, in drifting patches that break the repetition up
+	vec2 rq = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8)) * w_pos.xz;
+	float patch = nz2(rq * 0.017 + vec2(t * 0.004, -t * 0.003)) * nz2(w_pos.xz * 0.029 - vec2(t * 0.003, t * 0.005) + 0.61);
+	float cr = smoothstep(0.03, 0.09, crest) * smoothstep(0.12, 0.4, patch);
 	col += crest_col * cr * 0.12 * (1.0 - night);
 
 	// foam: a soft lace at the waterline plus bands rolling towards the beach

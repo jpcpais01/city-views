@@ -245,6 +245,11 @@ func _make_cursor() -> void:
 func _make_clouds() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
+	# clouds still cast shadows on the town, but never on their own puffs
+	var cloud_sh := Shader.new()
+	cloud_sh.code = (load("res://shaders/blob.gdshader") as Shader).code.replace("cull_disabled;", "cull_disabled, shadows_disabled;")
+	var cloud_mat := ShaderMaterial.new()
+	cloud_mat.shader = cloud_sh
 	for i in 9:
 		var mk := MeshKit.new()
 		var puffs := rng.randi_range(3, 6)
@@ -265,6 +270,7 @@ func _make_clouds() -> void:
 		m.rim_enabled = true
 		m.rim = 0.4
 		mi.mesh = mk.commit(m)
+		mi.material_override = cloud_mat
 		mi.position = Vector3(rng.randf_range(-120, 120), rng.randf_range(22, 30), rng.randf_range(-120, 120))
 		mi.scale = Vector3.ONE * rng.randf_range(0.8, 1.4)
 		mi.set_meta("speed", rng.randf_range(0.8, 1.6))
@@ -665,7 +671,8 @@ func _process(delta: float) -> void:
 		c.position.x += c.get_meta("speed") * delta
 		if c.position.x > 160.0:
 			c.position.x = -160.0
-	sun.directional_shadow_max_distance = clampf(rig.dist * 1.4, 28.0, 80.0)
+	# reach past the far corners of the view at every zoom, so shadows never thin out
+	sun.directional_shadow_max_distance = clampf(rig.dist * 2.4, 32.0, 240.0)
 	if _cursor.visible:
 		var pulse := 0.7 + 0.3 * sin(Time.get_ticks_msec() * 0.008)
 		_cursor_mat.albedo_color.a = 0.55 + 0.35 * pulse
