@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-23 12:15 UTC
+- A new app icon: a sunset waterfront of pastel towers and gabled homes, with a little sailboat on the bay. It also adapts to round, squircle and teardrop launcher shapes.
+
 ## 2026-10-23 12:00 UTC
 - A brand new sea: clear turquoise shallows you can see the sand through, deep blue water further out, rolling swell, dancing caustics and foam that laps at the beach.
 - Undo and Redo buttons. Undo gives back every coin a stroke cost, and Redo charges exactly the same again, never more.
