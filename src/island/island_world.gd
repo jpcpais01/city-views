@@ -13,6 +13,7 @@ const SHAPE := ["raise", "lower", "smooth", "flatten"]
 var land: Land
 var streets: Streets
 var growth: Growth
+var town: Town
 var brush := ""
 var brush_radius := 5.0
 var island_seed := 0
@@ -23,6 +24,8 @@ var _ring: MeshInstance3D
 var _ring_mesh: ImmediateMesh
 var _ring_at: Variant = null
 var _shore_dirty := false
+var _coast_dirty := false
+var _shore_wait := 0.0
 var _save_timer := 0.0
 var _sculpt_sound := 0.0
 # the line being drawn with the street brush, and the box a shaping stroke touched
@@ -46,6 +49,10 @@ func _ready() -> void:
 	growth.land = land
 	growth.streets = streets
 	add_child(growth)
+	town = Town.new()
+	town.setup(land, streets, city_mat)
+	town.reshaped.connect(func(): _shore_dirty = true)
+	add_child(town)
 	_make_sea()
 	rig = CameraRig.new()
 	rig.ground_fn = land.height_at
@@ -61,6 +68,7 @@ func _ready() -> void:
 func new_island(s: int) -> void:
 	island_seed = s
 	streets.clear()
+	town.clear()
 	land.generate(s)
 	_update_maps()
 	_save()
@@ -89,12 +97,15 @@ func _save() -> void:
 		f.store_string(JSON.stringify({"v": 1, "seed": island_seed, "land": land.edits(), "streets": streets.to_data(), "zone": land.zone_edits()}))
 
 
-func _update_maps() -> void:
-	water_mat.set_shader_parameter("shore_tex", ImageTexture.create_from_image(land.shore_image(16.0)))
-	water_mat.set_shader_parameter("grid_size", Land.SIZE)
+## Ground maps for the shaders; the shoreline one only when the coast may have moved.
+func _update_maps(coast := true) -> void:
+	if coast:
+		water_mat.set_shader_parameter("shore_tex", ImageTexture.create_from_image(land.shore_image(16.0)))
+		water_mat.set_shader_parameter("grid_size", Land.SIZE)
 	var ht := ImageTexture.create_from_image(land.height_image())
 	for m in [city_mat, detail_mat]:
 		m.set_shader_parameter("height_tex", ht)
+		m.set_shader_parameter("height_range", Vector2(Land.MAP_SCALE, Land.MAP_BIAS))
 		m.set_shader_parameter("grid_size", Land.SIZE)
 
 
@@ -108,10 +119,14 @@ func set_brush(id: String) -> void:
 
 func _process(delta: float) -> void:
 	land.rebuild_dirty()
-	if _shore_dirty and not _stroke and land.is_settled():
+	_shore_wait -= delta
+	# while the town grows, the shadows and maps catch up about once a second
+	if _shore_dirty and not _stroke and land.is_settled() and (_shore_wait <= 0.0 or not town.is_busy()):
 		_shore_dirty = false
+		_shore_wait = 1.0
 		land.rebuild_shadow()
-		_update_maps()
+		_update_maps(_coast_dirty)
+		_coast_dirty = false
 		_save_timer = 1.0
 	if _save_timer > 0.0:
 		_save_timer -= delta
@@ -150,15 +165,18 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 		"grow":
 			land.paint_zone(at, r, 2.5 * delta)
 			growth.wake(c)
+			town.zone_changed(c, r)
 			_save_timer = 1.0
 			return
 		"clear":
 			land.paint_zone(at, r * 0.6, -4.0 * delta)
+			town.zone_changed(c, r * 0.6)
 			if streets.erase_at(c, r * 0.6):
 				Sfx.play("bulldoze", 1.0, -8.0, 0.1)
 			_save_timer = 1.0
 			return
 	_shore_dirty = true
+	_coast_dirty = true
 	_sculpt_sound -= delta
 	if _sculpt_sound <= 0.0:
 		_sculpt_sound = 0.16

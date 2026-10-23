@@ -126,6 +126,7 @@ func _ready() -> void:
 	check(Game.knd(31, 30) == Game.K.ROAD and Game.coins < after_doze, "undo bulldoze restores road and takes back the refund")
 	_goals()
 	_streets()
+	await _island_budget()
 	await _tri_budget()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -222,6 +223,40 @@ func _goals() -> void:
 	Game.new_world(5)
 	Game.from_dict(d)
 	check(Game.goals.size() == 3 and str(Game.goals[1].text) == text and Game.goals_done == 1, "goals survive a save")
+
+
+## The new island grown into one town from coast to coast must leave room in
+## the frame budget for the HUD and for traffic and people still to come.
+func _island_budget() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(11)
+	for line in [[Vector2(-34, 4), Vector2(26, 2)], [Vector2(-6, -30), Vector2(-2, 30)]]:
+		var pts := PackedVector2Array()
+		for k in 41:
+			var a: Vector2 = line[0]
+			pts.append(a.lerp(line[1], k / 40.0) + Vector2(0, sin(k / 40.0 * PI) * 3.0))
+		island.streets.add_stroke(pts)
+	island.land.paint_zone(Vector3.ZERO, 70.0, 2.0)
+	island.growth.focus = Vector2.ZERO
+	var made := island.growth.grow_all()
+	island.streets.flush()
+	island.town.fill_all()
+	while not island.land.is_settled():
+		island.land.rebuild_dirty(1 << 20)
+	island.land.rebuild_shadow()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var acc := TriBudget.count(island)
+	for k in acc:
+		print("  island tris %-16s %7d +shadow %7d" % [k, acc[k][0], acc[k][1]])
+	var total := TriBudget.total(acc)
+	var reserve := 8000 + 16000
+	print("island: %d streets, %d houses, %d triangles (+%d for HUD, traffic and people)" % [made + 2, island.town.house_count(), total, reserve])
+	check(island.town.house_count() > 150, "a whole island grows a real town (%d houses)" % island.town.house_count())
+	check(total + reserve < TriBudget.BUDGET, "a whole-island town stays under budget (%d)" % (total + reserve))
+	island.queue_free()
+	await get_tree().process_frame
 
 
 ## Frame budget: a town the size players have now with every sub-type mixed in,

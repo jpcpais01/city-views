@@ -10,9 +10,14 @@ const HALF := SIZE * 0.5
 const CELLS := 128
 const STEP := SIZE / CELLS
 const SIDE := CELLS + 1
-const CHUNK := 32
+const CHUNK := 16
 const LOW := -4.6
 const HIGH := 11.0
+# sea floor deeper than this is drawn coarser (it is barely seen through the water)
+const DEEP := -1.4
+# heights in the shader's ground map run from -MAP_BIAS to MAP_SCALE - MAP_BIAS
+const MAP_SCALE := 16.0
+const MAP_BIAS := 1.0
 
 signal changed
 
@@ -281,6 +286,35 @@ func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend
 	_mark(i0, j0, i1, j1)
 
 
+## Level a building plot: flat at `level` inside the outline, easing back to
+## the natural ground over `blend` around it (a terrace cut into a hillside).
+func pad(outline: PackedVector2Array, level: float, blend: float, keep_off := Callable()) -> void:
+	var lo := outline[0]
+	var hi := outline[0]
+	for p in outline:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	var i0 := maxi(2, int(floor((lo.x - blend + HALF) / STEP)))
+	var i1 := mini(CELLS - 2, int(ceil((hi.x + blend + HALF) / STEP)))
+	var j0 := maxi(2, int(floor((lo.y - blend + HALF) / STEP)))
+	var j1 := mini(CELLS - 2, int(ceil((hi.y + blend + HALF) / STEP)))
+	if i0 > i1 or j0 > j1:
+		return
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var p := _pos(i, j)
+			var d := 0.0
+			if not Geometry2D.is_point_in_polygon(p, outline):
+				d = INF
+				for k in outline.size():
+					d = minf(d, Geometry2D.get_closest_point_to_segment(p, outline[k], outline[(k + 1) % outline.size()]).distance_to(p))
+			if d >= blend or (keep_off.is_valid() and keep_off.call(p)):
+				continue
+			var g := j * SIDE + i
+			heights[g] = lerpf(heights[g], level, 1.0 - smoothstep(0.0, 1.0, d / blend))
+	_mark(i0, j0, i1, j1)
+
+
 ## Remake changed chunks, spending at most `budget_us` microseconds.
 func rebuild_dirty(budget_us := 4000) -> void:
 	var start := Time.get_ticks_usec()
@@ -307,14 +341,24 @@ func rebuild_shadow() -> void:
 			var p := _pos(i * S, j * S)
 			# sunk a little so the real ground never shadows itself in stripes
 			# and never above the real ground around it, so cuttings and streets stay lit
-			var h := heights[index(i * S, j * S)]
-			for dj in range(-1, 2):
-				for di in range(-1, 2):
-					h = minf(h, heights[index(i * S + di, j * S + dj)])
+			var gi := i * S
+			var gj := j * S
+			var h := heights[gj * SIDE + gi]
+			if h > -0.6:
+				if gi > 0 and gj > 0 and gi < CELLS and gj < CELLS:
+					var k := gj * SIDE + gi
+					h = minf(minf(minf(h, heights[k - 1]), minf(heights[k + 1], heights[k - SIDE])), minf(minf(heights[k + SIDE], heights[k - SIDE - 1]), minf(minf(heights[k - SIDE + 1], heights[k + SIDE - 1]), heights[k + SIDE + 1])))
+				else:
+					for dj in range(-1, 2):
+						for di in range(-1, 2):
+							h = minf(h, heights[index(gi + di, gj + dj)])
 			verts[j * n + i] = Vector3(p.x, maxf(h, -0.6) - 0.12, p.y)
 	for j in n - 1:
 		for i in n - 1:
 			var a := j * n + i
+			# nothing on the sea floor needs shading by the ground
+			if maxf(maxf(verts[a].y, verts[a + 1].y), maxf(verts[a + n].y, verts[a + n + 1].y)) < -0.65:
+				continue
 			idx.append_array([a, a + 1, a + n, a + 1, a + n + 1, a + n])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
@@ -362,17 +406,41 @@ func _build_chunk(c: Vector2i) -> void:
 			if h > -0.3:
 				col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
 			cols[k] = col
-	for j in CHUNK:
-		for i in CHUNK:
-			var a := j * n + i
-			var b := a + 1
-			var cc := a + n
-			var d := cc + 1
-			# split each square along the diagonal that follows the land best
-			if absf(verts[a].y - verts[d].y) < absf(verts[b].y - verts[cc].y):
-				idx.append_array([a, b, d, a, d, cc])
-			else:
-				idx.append_array([a, b, cc, b, d, cc])
+	const B := 8
+	for bj in CHUNK / B:
+		for bi in CHUNK / B:
+			var deep := true
+			for j in range(bj * B, bj * B + B + 1):
+				for i in range(bi * B, bi * B + B + 1):
+					if verts[j * n + i].y > DEEP:
+						deep = false
+			if deep:
+				# deep sea floor, seen only faintly through the water: a fan from the
+				# middle out to every edge vertex, so it still meets its neighbours exactly
+				var ring := PackedInt32Array()
+				for i in range(bi * B, bi * B + B):
+					ring.append(bj * B * n + i)
+				for j in range(bj * B, bj * B + B):
+					ring.append(j * n + bi * B + B)
+				for i in range(bi * B + B, bi * B, -1):
+					ring.append((bj * B + B) * n + i)
+				for j in range(bj * B + B, bj * B, -1):
+					ring.append(j * n + bi * B)
+				var mid := (bj * B + B / 2) * n + bi * B + B / 2
+				for k in ring.size():
+					idx.append_array([mid, ring[k], ring[(k + 1) % ring.size()]])
+				continue
+			for j in range(bj * B, bj * B + B):
+				for i in range(bi * B, bi * B + B):
+					var a := j * n + i
+					var b := a + 1
+					var cc := a + n
+					var d := cc + 1
+					# split each square along the diagonal that follows the land best
+					if absf(verts[a].y - verts[d].y) < absf(verts[b].y - verts[cc].y):
+						idx.append_array([a, b, d, a, d, cc])
+					else:
+						idx.append_array([a, b, cc, b, d, cc])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
@@ -457,7 +525,7 @@ func height_image() -> Image:
 	var bytes := PackedByteArray()
 	bytes.resize(SIDE * SIDE)
 	for k in SIDE * SIDE:
-		bytes[k] = int(clampf((heights[k] + 0.5) / 2.5, 0.0, 1.0) * 255.0)
+		bytes[k] = int(clampf((heights[k] + MAP_BIAS) / MAP_SCALE, 0.0, 1.0) * 255.0)
 	return Image.create_from_data(SIDE, SIDE, false, Image.FORMAT_L8, bytes)
 
 
