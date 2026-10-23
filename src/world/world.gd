@@ -401,7 +401,8 @@ func _bake(t: Vector2i, node: Node3D) -> void:
 	if body == null or not body.has_meta("arrays"):
 		return
 	var arr: Array = body.get_meta("arrays")
-	if (arr[0] as PackedVector3Array).is_empty() and (arr[4] as PackedVector3Array).is_empty() and (arr.size() < 11 or (arr[10] as PackedVector3Array).is_empty()):
+	if (arr[0] as PackedVector3Array).is_empty() and (arr[4] as PackedVector3Array).is_empty() and (arr.size() < 11 or (arr[10] as PackedVector3Array).is_empty()) \
+			and (arr.size() < 15 or (arr[14] as PackedVector3Array).is_empty()):
 		return
 	_baked[t] = arr
 	_batch_dirty[_batch_of(t)] = true
@@ -414,6 +415,7 @@ func _rebuild_batch(b: Vector2i) -> void:
 	var sets := [[PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array()],
 		[PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array()],
 		[PackedVector3Array(), PackedVector3Array()],
+		[PackedVector3Array(), PackedColorArray(), PackedVector2Array(), PackedVector2Array()],
 		[PackedVector3Array(), PackedColorArray(), PackedVector2Array(), PackedVector2Array()]]
 	var merged: Array[Vector2i] = []
 	for z in range(b.y * BATCH, (b.y + 1) * BATCH):
@@ -437,30 +439,36 @@ func _rebuild_batch(b: Vector2i) -> void:
 				sets[3][1].append_array(arr[11])
 				sets[3][2].append_array(arr[12])
 				sets[3][3].append_array(arr[13])
+			if arr.size() > 14:
+				sets[4][0].append_array(xf * (arr[14] as PackedVector3Array))
+				sets[4][1].append_array(arr[15])
+				sets[4][2].append_array(arr[16])
+				sets[4][3].append_array(arr[17])
 			merged.append(t)
 	var quad: Array = _batches.get(b, [])
 	if quad.is_empty():
 		# 0: solid geometry, 1: flush details, 2: shadow stand-ins (shadow map only),
-		# 3: sphere sprites (draw and cast their own round shadows)
-		for k in 4:
+		# 3: sphere sprites (draw and cast their own round shadows), 4: thin sprites (no shadow)
+		for k in 5:
 			var nmi := MeshInstance3D.new()
 			nmi.set_meta("batch", k)
 			nmi.cast_shadow = [GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
-				GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY, GeometryInstance3D.SHADOW_CASTING_SETTING_ON][k]
+				GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY, GeometryInstance3D.SHADOW_CASTING_SETTING_ON,
+				GeometryInstance3D.SHADOW_CASTING_SETTING_OFF][k]
 			add_child(nmi)
 			quad.append(nmi)
 		_batches[b] = quad
-	for k in 4:
+	for k in 5:
 		var mi: MeshInstance3D = quad[k]
 		var v: PackedVector3Array = sets[k][0]
 		if v.is_empty():
 			mi.mesh = null
 			continue
-		if k == 3:
+		if k >= 3:
 			var bm := ArrayMesh.new()
-			bm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, MeshKit.blob_arrays(v, sets[3][1], sets[3][2], sets[3][3]))
+			bm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, MeshKit.blob_arrays(v, sets[k][1], sets[k][2], sets[k][3]))
 			bm.surface_set_material(0, MeshKit.blob_material())
-			bm.custom_aabb = MeshKit._blob_aabb(v, sets[3][3])
+			bm.custom_aabb = MeshKit._blob_aabb(v, sets[k][3])
 			mi.mesh = bm
 			continue
 		var arrays := []
@@ -476,7 +484,7 @@ func _rebuild_batch(b: Vector2i) -> void:
 		mi.mesh = mesh
 	# the merged copy is drawn now, so the per-tile bodies can go
 	for t in merged:
-		for part in ["Body", "Shadow", "Blobs"]:
+		for part in ["Body", "Shadow", "Blobs", "Sprites"]:
 			var n := (_tiles[t] as Node3D).get_node_or_null(part)
 			if n:
 				n.queue_free()
@@ -870,12 +878,16 @@ func _apply_one(t: Vector2i) -> void:
 	if Game.apply_tool(tool, t.x, t.y):
 		_painted_this_stroke += 1
 		var pitch := 1.0 + mini(_painted_this_stroke, 12) * 0.03
-		match tool:
-			"road": Sfx.play("road", pitch, -2.0)
-			"bulldoze": Sfx.play("bulldoze", 1.0, -3.0)
-			"raise", "lower": Sfx.play("place", 0.8 if tool == "lower" else 1.1, -2.0)
-			"tree": Sfx.play("pop", 1.3 * pitch, -5.0)
-			_: Sfx.play("place", pitch, 0.0)
+		var tk: int = Game.tool_def(tool).get("kind", -1)
+		if tk == Game.K.ROAD:
+			Sfx.play("road", pitch, -2.0)
+		elif tk == Game.K.TREE:
+			Sfx.play("pop", 1.3 * pitch, -5.0)
+		else:
+			match tool:
+				"bulldoze": Sfx.play("bulldoze", 1.0, -3.0)
+				"raise", "lower": Sfx.play("place", 0.8 if tool == "lower" else 1.1, -2.0)
+				_: Sfx.play("place", pitch, 0.0)
 		if Game.lvl(t.x, t.y) != lvl_before:
 			_hover = Vector2i(-99, -99)
 	_set_hover(t)

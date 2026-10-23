@@ -14,7 +14,7 @@ signal income_tick(amount: float)
 signal seabed_changed
 signal history_changed
 
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 const N := 64
 const TILE := 2.0
 const LEVEL_Y: Array[float] = [-0.5, 0.16, 0.42, 0.72, 1.02, 1.32, 1.62]
@@ -23,31 +23,80 @@ const MAX_LEVEL := 6
 
 enum K { EMPTY, ROAD, HOUSE, SHOP, OFFICE, PARK, TREE, LANDMARK }
 
-enum LM { NONE, FOUNTAIN, LIGHTHOUSE, WINDMILL, CLOCKTOWER, FERRIS }
+enum LM { NONE, FOUNTAIN, LIGHTHOUSE, WINDMILL, CLOCKTOWER, FERRIS, BANDSTAND, PIER, OBSERVATORY }
 
-const TOOLS := [
-	{"id": "road", "name": "Road", "cost": 5, "unlock": 0, "desc": "Drag to pave streets. Buildings grow next to roads."},
-	{"id": "house", "name": "Homes", "cost": 20, "unlock": 0, "desc": "Cozy homes that grow into townhouses and apartments."},
-	{"id": "shop", "name": "Shops", "cost": 30, "unlock": 12, "desc": "Cafés and stores with awnings facing the street."},
-	{"id": "park", "name": "Park", "cost": 15, "unlock": 12, "desc": "Green space. Nearby buildings grow faster and happier."},
-	{"id": "tree", "name": "Trees", "cost": 2, "unlock": 0, "desc": "Paint forests. Palms by the sea, pines on the hills."},
-	{"id": "office", "name": "Offices", "cost": 60, "unlock": 90, "desc": "Workplaces that rise into glassy towers downtown."},
-	{"id": "fountain", "name": "Fountain", "cost": 150, "unlock": 50, "desc": "A sparkling plaza. Big happiness boost nearby."},
-	{"id": "windmill", "name": "Windmill", "cost": 250, "unlock": 160, "desc": "Turns gently in the breeze. Loves hilltops."},
-	{"id": "lighthouse", "name": "Lighthouse", "cost": 300, "unlock": 220, "desc": "Guides boats home at night. Must touch the shore."},
-	{"id": "clocktower", "name": "Clocktower", "cost": 450, "unlock": 380, "desc": "The heart of a proper town square."},
-	{"id": "ferris", "name": "Big Wheel", "cost": 800, "unlock": 650, "desc": "The pride of the city, glowing at night."},
-	{"id": "raise", "name": "Raise", "cost": 8, "unlock": 0, "desc": "Lift the land. Raise sea tiles to make new beach."},
-	{"id": "lower", "name": "Lower", "cost": 8, "unlock": 0, "desc": "Dig the land down, all the way to the sea."},
-	{"id": "bulldoze", "name": "Clear", "cost": 0, "unlock": 0, "desc": "Remove anything. Refunds half the cost."},
+# sub-types, stored in a tile's param (trees keep their tree count in the low two bits)
+enum ROAD_SUB { STREET, AVENUE, LANE }
+enum HOME { COTTAGE, TERRACE, VILLA, APARTMENTS }
+enum SHOP_SUB { CORNER, CAFE, MARKET, STORE }
+enum WORK { TOWER, STUDIO, HOTEL }
+enum PARK_SUB { GARDEN, PLAYGROUND, PLAZA, PITCH, POND }
+enum NATURE { MIXED, BROADLEAF, PINE, PALM, BLOSSOM, FLOWERS }
+
+## The bottom bar: one key per category, each opening its own row of sub-types.
+const CATEGORIES := [
+	{"id": "roads", "name": "Roads"},
+	{"id": "homes", "name": "Homes"},
+	{"id": "shops", "name": "Shops"},
+	{"id": "work", "name": "Work"},
+	{"id": "parks", "name": "Parks"},
+	{"id": "nature", "name": "Nature"},
+	{"id": "landmarks", "name": "Landmarks"},
+	{"id": "land", "name": "Land"},
+	{"id": "clear", "name": "Clear"},
 ]
+
+# "rule" adds a placement condition: hill (level >= min), shore (touching the sea),
+# sea (a water tile against the shore)
+const TOOLS := [
+	{"id": "road", "cat": "roads", "kind": K.ROAD, "sub": ROAD_SUB.STREET, "name": "Street", "cost": 5, "unlock": 0, "desc": "Drag to pave streets. Buildings grow next to roads."},
+	{"id": "lane", "cat": "roads", "kind": K.ROAD, "sub": ROAD_SUB.LANE, "name": "Cobbled lane", "cost": 7, "unlock": 25, "desc": "A quiet cobblestone street with lanterns. Homes on it grow cosier."},
+	{"id": "avenue", "cat": "roads", "kind": K.ROAD, "sub": ROAD_SUB.AVENUE, "name": "Avenue", "cost": 14, "unlock": 60, "desc": "A boulevard with a planted median. Everything along it grows faster."},
+	{"id": "house", "cat": "homes", "kind": K.HOUSE, "sub": HOME.COTTAGE, "name": "Cottages", "cost": 20, "unlock": 0, "desc": "Cozy homes that grow into townhouses and apartments."},
+	{"id": "terrace", "cat": "homes", "kind": K.HOUSE, "sub": HOME.TERRACE, "name": "Row houses", "cost": 26, "unlock": 40, "desc": "Join side by side into colourful terraces, then tall brownstones."},
+	{"id": "villa", "cat": "homes", "kind": K.HOUSE, "sub": HOME.VILLA, "name": "Villas", "cost": 40, "unlock": 80, "desc": "Big homes with gardens and pools. Fewer people, happier streets."},
+	{"id": "apartments", "cat": "homes", "kind": K.HOUSE, "sub": HOME.APARTMENTS, "name": "Apartments", "cost": 55, "unlock": 200, "desc": "Balconied blocks that join into city blocks. Lots of homes per tile."},
+	{"id": "shop", "cat": "shops", "kind": K.SHOP, "sub": SHOP_SUB.CORNER, "name": "Corner shop", "cost": 30, "unlock": 12, "desc": "Stores with awnings facing the street. Corners wrap round both sides."},
+	{"id": "cafe", "cat": "shops", "kind": K.SHOP, "sub": SHOP_SUB.CAFE, "name": "Café", "cost": 35, "unlock": 30, "desc": "Terrace tables and parasols. Loves parks, plazas and the seafront."},
+	{"id": "market", "cat": "shops", "kind": K.SHOP, "sub": SHOP_SUB.MARKET, "name": "Market", "cost": 45, "unlock": 70, "desc": "Colourful stalls that grow into a covered market hall."},
+	{"id": "store", "cat": "shops", "kind": K.SHOP, "sub": SHOP_SUB.STORE, "name": "Department store", "cost": 90, "unlock": 300, "desc": "A big glassy store that pulls in shoppers from all over town."},
+	{"id": "office", "cat": "work", "kind": K.OFFICE, "sub": WORK.TOWER, "name": "Offices", "cost": 60, "unlock": 90, "desc": "Workplaces that rise into glassy towers downtown."},
+	{"id": "studio", "cat": "work", "kind": K.OFFICE, "sub": WORK.STUDIO, "name": "Studios", "cost": 70, "unlock": 150, "desc": "Low glass workshops with green roofs and solar panels."},
+	{"id": "hotel", "cat": "work", "kind": K.OFFICE, "sub": WORK.HOTEL, "name": "Hotel", "cost": 110, "unlock": 250, "desc": "Balconies, a rooftop pool and a glowing sign. Tourists pay well by the sea."},
+	{"id": "park", "cat": "parks", "kind": K.PARK, "sub": PARK_SUB.GARDEN, "name": "Garden", "cost": 15, "unlock": 12, "desc": "Green space. Nearby buildings grow faster and happier."},
+	{"id": "playground", "cat": "parks", "kind": K.PARK, "sub": PARK_SUB.PLAYGROUND, "name": "Playground", "cost": 20, "unlock": 25, "desc": "Slides, swings and a sandpit. Families nearby love it."},
+	{"id": "pond", "cat": "parks", "kind": K.PARK, "sub": PARK_SUB.POND, "name": "Pond", "cost": 25, "unlock": 40, "desc": "Ponds side by side join into one lake, with reeds and ducks."},
+	{"id": "plaza", "cat": "parks", "kind": K.PARK, "sub": PARK_SUB.PLAZA, "name": "Plaza", "cost": 25, "unlock": 60, "desc": "A paved square. Shops and cafés around it do great trade."},
+	{"id": "pitch", "cat": "parks", "kind": K.PARK, "sub": PARK_SUB.PITCH, "name": "Sports field", "cost": 35, "unlock": 120, "desc": "Two side by side make a full pitch. A big happiness boost."},
+	{"id": "tree", "cat": "nature", "kind": K.TREE, "sub": NATURE.MIXED, "name": "Wild trees", "cost": 2, "unlock": 0, "desc": "Paint forests. Palms by the sea, pines on the hills."},
+	{"id": "oak", "cat": "nature", "kind": K.TREE, "sub": NATURE.BROADLEAF, "name": "Broadleaf", "cost": 3, "unlock": 0, "desc": "Big leafy shade trees. Thicker in the middle of a wood."},
+	{"id": "pine", "cat": "nature", "kind": K.TREE, "sub": NATURE.PINE, "name": "Pines", "cost": 3, "unlock": 0, "desc": "Tall evergreens, tallest on the hilltops."},
+	{"id": "palm", "cat": "nature", "kind": K.TREE, "sub": NATURE.PALM, "name": "Palms", "cost": 4, "unlock": 12, "desc": "Leaning palms. They lean out towards the sea."},
+	{"id": "blossom", "cat": "nature", "kind": K.TREE, "sub": NATURE.BLOSSOM, "name": "Blossom", "cost": 5, "unlock": 40, "desc": "Pink and white blossom trees with petals on the grass."},
+	{"id": "flowers", "cat": "nature", "kind": K.TREE, "sub": NATURE.FLOWERS, "name": "Meadow", "cost": 3, "unlock": 12, "desc": "Wildflowers and tall grass. Cheap and cheerful."},
+	{"id": "fountain", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.FOUNTAIN, "name": "Fountain", "cost": 150, "unlock": 50, "desc": "A sparkling plaza. Big happiness boost nearby."},
+	{"id": "bandstand", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.BANDSTAND, "name": "Bandstand", "cost": 120, "unlock": 30, "desc": "A little round pavilion with bunting. Lights up at night."},
+	{"id": "windmill", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.WINDMILL, "name": "Windmill", "cost": 250, "unlock": 160, "desc": "Turns gently in the breeze. Loves hilltops.", "rule": "hill", "min": 3},
+	{"id": "pier", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.PIER, "name": "Pier", "cost": 200, "unlock": 120, "desc": "A wooden pier out over the water, with a kiosk at the end.", "rule": "sea"},
+	{"id": "lighthouse", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.LIGHTHOUSE, "name": "Lighthouse", "cost": 300, "unlock": 220, "desc": "Guides boats home at night. Must touch the shore.", "rule": "shore"},
+	{"id": "observatory", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.OBSERVATORY, "name": "Observatory", "cost": 400, "unlock": 320, "desc": "A domed telescope for the high hills. Opens up at night.", "rule": "hill", "min": 4},
+	{"id": "clocktower", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.CLOCKTOWER, "name": "Clocktower", "cost": 450, "unlock": 380, "desc": "The heart of a proper town square."},
+	{"id": "ferris", "cat": "landmarks", "kind": K.LANDMARK, "sub": LM.FERRIS, "name": "Big Wheel", "cost": 800, "unlock": 650, "desc": "The pride of the city, glowing at night."},
+	{"id": "raise", "cat": "land", "kind": -1, "sub": 0, "name": "Raise", "cost": 8, "unlock": 0, "desc": "Lift the land. Raise sea tiles to make new beach."},
+	{"id": "lower", "cat": "land", "kind": -1, "sub": 0, "name": "Lower", "cost": 8, "unlock": 0, "desc": "Dig the land down, all the way to the sea."},
+	{"id": "bulldoze", "cat": "clear", "kind": -1, "sub": 0, "name": "Clear", "cost": 0, "unlock": 0, "desc": "Remove anything. Refunds half the cost."},
+]
+
+# residents / jobs per growth stage, one row per sub-type
+const HOUSE_POP := [[0, 4, 12, 30], [0, 6, 14, 26], [0, 3, 6, 10], [0, 10, 24, 48]]
+const SHOP_JOBS := [[0, 4, 10, 22], [0, 3, 8, 16], [0, 5, 12, 24], [0, 8, 26, 60]]
+const OFFICE_JOBS := [[0, 12, 36, 90], [0, 10, 28, 60], [0, 8, 22, 46]]
+# happiness ("green") each park sub-type and nature sub-type is worth
+const PARK_GREEN := [6.0, 7.0, 5.0, 9.0, 8.0]
+const SUB_COUNT := {K.ROAD: 3, K.HOUSE: 4, K.SHOP: 4, K.OFFICE: 3, K.PARK: 5, K.TREE: 6}
 
 const TITLES := [
 	[0, "Hamlet"], [25, "Village"], [120, "Town"], [400, "City"], [1000, "Big City"], [2500, "Metropolis"]]
-
-const HOUSE_POP := [0, 4, 12, 30]
-const SHOP_JOBS := [0, 4, 10, 22]
-const OFFICE_JOBS := [0, 12, 36, 90]
 
 var seed_value := 1
 var level := PackedByteArray()
@@ -64,6 +113,7 @@ var coins := 600.0
 var population := 0
 var jobs := 0
 var happiness := 0.7
+var tourists := 0 # hotel growth stages: visitors spend extra coins
 var city_name := "Bayview"
 var player_name := "Mayor"
 var title := "Hamlet"
@@ -121,6 +171,27 @@ func prm(x: int, z: int) -> int:
 
 func grw(x: int, z: int) -> int:
 	return growth[idx(x, z)] if inside(x, z) else 0
+
+
+## The tile's sub-type (street / avenue, cottage / villa, …); 0 for anything unknown.
+func sub(x: int, z: int) -> int:
+	return sub_of(knd(x, z), prm(x, z))
+
+
+static func sub_of(k: int, p: int) -> int:
+	if k == K.TREE:
+		p = p >> 2
+	elif k == K.LANDMARK:
+		return p
+	var n: int = SUB_COUNT.get(k, 1)
+	return p if p < n else 0
+
+
+## Param to store for a sub-type (trees keep a 1..3 tree count alongside).
+func param_for(k: int, s: int, x: int, z: int) -> int:
+	if k == K.TREE:
+		return (1 + hash2(x, z, 11) % 3) | (s << 2)
+	return s
 
 
 func tile_y(x: int, z: int) -> float:
@@ -314,21 +385,18 @@ func is_unlocked(id: String) -> bool:
 	return unlocked.has(id)
 
 
-func _landmark_for(id: String) -> int:
-	match id:
-		"fountain": return LM.FOUNTAIN
-		"lighthouse": return LM.LIGHTHOUSE
-		"windmill": return LM.WINDMILL
-		"clocktower": return LM.CLOCKTOWER
-		"ferris": return LM.FERRIS
-	return LM.NONE
-
-
 func _near_water(x: int, z: int, r: int) -> bool:
 	for dz in range(-r, r + 1):
 		for dx in range(-r, r + 1):
 			if inside(x + dx, z + dz) and is_water(x + dx, z + dz):
 				return true
+	return false
+
+
+func _touches_land(x: int, z: int) -> bool:
+	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		if inside(x + d.x, z + d.y) and lvl(x + d.x, z + d.y) >= 1 and knd(x + d.x, z + d.y) != K.LANDMARK:
+			return true
 	return false
 
 
@@ -343,41 +411,9 @@ func check_tool(id: String, x: int, z: int) -> String:
 		return "Unlocks at %d citizens" % def.unlock
 	var k := knd(x, z)
 	var l := lvl(x, z)
-	var cost: float = def.cost
+	var cost := tool_cost(id, x, z)
+	var target: int = def.kind
 	match id:
-		"road":
-			if k == K.ROAD:
-				return "already"
-			if k != K.EMPTY and k != K.TREE:
-				return "Occupied"
-			if l == 0:
-				cost *= 4.0
-				if not _bridge_ok(x, z):
-					return "Bridges need a shore"
-		"house", "shop", "office", "park", "tree":
-			if l == 0:
-				return "Can't build on water"
-			var target := _kind_for(id)
-			if k == target:
-				return "already"
-			if k != K.EMPTY and k != K.TREE:
-				return "Occupied"
-			if id == "tree" and k == K.TREE:
-				return "already"
-		"fountain", "windmill", "clocktower", "ferris":
-			if l == 0:
-				return "Can't build on water"
-			if k != K.EMPTY and k != K.TREE:
-				return "Occupied"
-			if id == "windmill" and l < 3:
-				return "Windmills need a hill"
-		"lighthouse":
-			if l == 0:
-				return "Can't build on water"
-			if k != K.EMPTY and k != K.TREE:
-				return "Occupied"
-			if not _near_water(x, z, 1):
-				return "Must touch the sea"
 		"raise":
 			if l >= MAX_LEVEL:
 				return "As high as it goes"
@@ -391,6 +427,30 @@ func check_tool(id: String, x: int, z: int) -> String:
 		"bulldoze":
 			if k == K.EMPTY:
 				return "already"
+		_:
+			if k == target and sub(x, z) == def.sub:
+				return "already"
+			# a tile of the same family can be swapped for another sub-type in place
+			# (street to avenue, cottage to villa); trees and grass are built over
+			if k != K.EMPTY and k != K.TREE and k != target:
+				return "Occupied"
+			if k == K.LANDMARK and target == K.LANDMARK:
+				return "Occupied"
+			var rule: String = def.get("rule", "")
+			if rule == "sea":
+				if l != 0:
+					return "Piers go on the water"
+				if not _touches_land(x, z):
+					return "Piers start at the shore"
+			elif target == K.ROAD:
+				if l == 0 and not _bridge_ok(x, z):
+					return "Bridges need a shore"
+			elif l == 0:
+				return "Can't build on water"
+			if rule == "hill" and l < int(def.get("min", 3)):
+				return "Needs a higher hill" if l >= 3 else "Needs a hill"
+			if rule == "shore" and not _near_water(x, z, 1):
+				return "Must touch the sea"
 	if coins < cost:
 		return "Not enough coins"
 	return ""
@@ -406,20 +466,26 @@ func _bridge_ok(x: int, z: int) -> bool:
 
 
 func _kind_for(id: String) -> int:
-	match id:
-		"road": return K.ROAD
-		"house": return K.HOUSE
-		"shop": return K.SHOP
-		"office": return K.OFFICE
-		"park": return K.PARK
-		"tree": return K.TREE
-	return K.LANDMARK
+	return tool_def(id).get("kind", -1)
+
+
+## The tool that builds what stands on (x, z), for refunds.
+func tool_at(x: int, z: int) -> Dictionary:
+	var k := knd(x, z)
+	var s := sub(x, z)
+	for t in TOOLS:
+		if t.kind == k and t.sub == s:
+			return t
+	for t in TOOLS:
+		if t.kind == k:
+			return t
+	return {}
 
 
 func tool_cost(id: String, x: int, z: int) -> float:
 	var def := tool_def(id)
 	var cost: float = def.get("cost", 0)
-	if id == "road" and lvl(x, z) == 0:
+	if def.get("kind", -1) == K.ROAD and lvl(x, z) == 0:
 		cost *= 4.0
 	return cost
 
@@ -438,19 +504,12 @@ func apply_tool(id: String, x: int, z: int) -> bool:
 		"lower":
 			set_tile(x, z, K.EMPTY, l - 1, 0)
 		"bulldoze":
-			var refund := 0.0
-			for t in TOOLS:
-				if _kind_for(t.id) == k and (k != K.LANDMARK or _landmark_for(t.id) == prm(x, z)):
-					refund = t.cost * 0.5
-					break
+			var refund: float = tool_at(x, z).get("cost", 0) * 0.5
 			set_tile(x, z, K.EMPTY, l, 0)
 			cost = -refund
-		"tree":
-			set_tile(x, z, K.TREE, l, 1 + hash2(x, z, 11) % 3)
 		_:
-			var nk := _kind_for(id)
-			var p := _landmark_for(id) if nk == K.LANDMARK else hash2(x, z, 7) % 250
-			set_tile(x, z, nk, l, p)
+			var def := tool_def(id)
+			set_tile(x, z, def.kind, l, param_for(def.kind, def.sub, x, z))
 	add_coins(-cost)
 	_stroke.append([x, z, before[0], before[1], before[2], before[3], knd(x, z), lvl(x, z), prm(x, z), cost])
 	if tutorial_step < 3:
@@ -579,7 +638,7 @@ func _process(delta: float) -> void:
 		_grow_step()
 	if _income_timer > 3.0:
 		_income_timer = 0.0
-		var income := (population * 0.16 + mini(jobs, population) * 0.22 + 1.0) * (0.6 + happiness * 0.8)
+		var income := (population * 0.16 + mini(jobs, population) * 0.22 + tourists * 1.2 + 1.0) * (0.6 + happiness * 0.8)
 		add_coins(income)
 		income_tick.emit(income)
 	if _autosave_timer > 25.0:
@@ -593,17 +652,27 @@ func target_growth(x: int, z: int) -> int:
 	var k := knd(x, z)
 	if not is_building(k):
 		return growth[idx(x, z)]
+	var me := sub(x, z)
 	var road := false
+	var score := 1.0
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
 			if knd(x + dx, z + dz) == K.ROAD:
 				road = true
+				if absi(dx) + absi(dz) == 1:
+					# what kind of street it fronts matters
+					match sub(x + dx, z + dz):
+						ROAD_SUB.AVENUE:
+							score += 0.3
+						ROAD_SUB.LANE:
+							score += 0.2 if k == K.HOUSE else -0.15
 	if not road:
 		return 0
-	var score := 1.0
 	var houses := 0
 	var shops := 0
 	var dense := 0
+	var plaza := false
+	var green := 0
 	for dz in range(-4, 5):
 		for dx in range(-4, 5):
 			if dx == 0 and dz == 0:
@@ -612,9 +681,17 @@ func target_growth(x: int, z: int) -> int:
 			var dist: int = max(absi(dx), absi(dz))
 			match nk:
 				K.PARK:
-					if dist <= 3: score += 0.35
+					if dist <= 3:
+						score += 0.35
+						green += 1
+						var ps := sub(x + dx, z + dz)
+						if ps == PARK_SUB.PLAZA and dist <= 2:
+							plaza = true
+						elif ps == PARK_SUB.PLAYGROUND and k == K.HOUSE:
+							score += 0.15
 				K.TREE:
 					if dist <= 1: score += 0.08
+					if dist <= 2: green += 1
 				K.LANDMARK:
 					score += 0.7
 				K.HOUSE:
@@ -626,14 +703,23 @@ func target_growth(x: int, z: int) -> int:
 				K.OFFICE:
 					if dist <= 2: dense += 2
 	score += min(dense, 16) * 0.07
+	var sea := _near_water(x, z, 2)
 	if k == K.HOUSE:
 		if shops > 0: score += 0.45
-		if _near_water(x, z, 2): score += 0.3
+		if sea: score += 0.3
+		if me == HOME.VILLA:
+			# villas want space, water and greenery, not a crowd
+			score += minf(green, 6) * 0.1 + (0.35 if sea else 0.0) - maxf(dense - 8, 0) * 0.08
 	elif k == K.SHOP:
 		if houses == 0: return 1
 		score += min(houses, 10) * 0.06
+		if plaza: score += 0.35 if me != SHOP_SUB.CAFE else 0.5
+		if me == SHOP_SUB.CAFE and (sea or green > 0): score += 0.35
+		elif me == SHOP_SUB.MARKET: score += min(houses, 10) * 0.03
+		elif me == SHOP_SUB.STORE and houses + shops < 8: return 1
 	elif k == K.OFFICE:
-		if houses + shops < 4: return 1
+		if houses + shops < (3 if me == WORK.STUDIO else 4): return 1
+		if me == WORK.HOTEL and sea: score += 0.5
 	var t := 1
 	if score >= 1.9: t = 2
 	if score >= 2.9: t = 3
@@ -672,14 +758,22 @@ func _recount() -> void:
 	var pop := 0
 	var jb := 0
 	var green := 0.0
+	tourists = 0
 	for i in kind.size():
 		var g := growth[i]
+		var st := sub_of(kind[i], param[i])
 		match kind[i]:
-			K.HOUSE: pop += HOUSE_POP[g]
-			K.SHOP: jb += SHOP_JOBS[g]
-			K.OFFICE: jb += OFFICE_JOBS[g]
-			K.PARK: green += 6.0
-			K.TREE: green += 0.6
+			K.HOUSE:
+				pop += HOUSE_POP[st][g]
+				if st == HOME.VILLA: green += g * 1.5
+			K.SHOP:
+				jb += SHOP_JOBS[st][g]
+				if st == SHOP_SUB.CAFE: green += g * 1.0
+			K.OFFICE:
+				jb += OFFICE_JOBS[st][g]
+				if st == WORK.HOTEL: tourists += g
+			K.PARK: green += PARK_GREEN[st]
+			K.TREE: green += 1.0 if st == NATURE.FLOWERS else 0.6
 			K.LANDMARK: green += 30.0
 	population = pop
 	jobs = jb
@@ -720,9 +814,10 @@ func next_title_progress() -> Array:
 
 
 func _advance_tutorial(tool_id: String) -> void:
-	if tutorial_step == 0 and tool_id == "road":
+	var k := _kind_for(tool_id)
+	if tutorial_step == 0 and k == K.ROAD:
 		tutorial_step = 1
-	elif tutorial_step == 1 and tool_id == "house":
+	elif tutorial_step == 1 and k == K.HOUSE:
 		tutorial_step = 2
 	elif tutorial_step == 2 and population > 0:
 		tutorial_step = 3
@@ -759,6 +854,12 @@ func from_dict(d: Dictionary, keep_economy := false) -> void:
 		kind[i] = int(e[0])
 		level[i] = int(e[1])
 		param[i] = int(e[2])
+		if int(d.get("v", 1)) < 2:
+			# before sub-types, param held a random number on most tiles
+			if kind[i] == K.TREE:
+				param[i] = clampi(param[i], 1, 3)
+			elif kind[i] != K.LANDMARK:
+				param[i] = 0
 		growth[i] = int(e[3]) if e.size() > 3 else 0
 	compute_seabed()
 	city_name = str(d.get("name", city_name))

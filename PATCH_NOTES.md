@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 18:00 UTC
+- New build bar: Roads, Homes, Shops, Work, Parks, Nature, Landmarks, Land and Clear. Tap a category to pick from its types, each with its own price and perks.
+- 22 new things to build. Roads come as streets, tree-lined avenues and cobbled lanes. Homes come as cottages, row houses, villas and apartments. Shops come as corner shops, cafés, markets and department stores. Work comes as office towers, studios and seaside hotels.
+- Parks now include playgrounds, ponds, plazas and sports fields. Nature includes oak woods, pines, palms, cherry blossom and wildflower meadows. Three new landmarks: a bandstand, a pier out over the sea, and an observatory.
+- Buildings react to where they stand. Corner plots grow side wings and wrap shopfronts round the corner. Row houses alternate colours, and neighbouring ponds, plazas, markets and pitches join into one. Palms lean out to sea, pines grow taller on hills, and each district has its own wall and roof colours.
+- Every home gets its own front and back garden, such as a shed, a swing, a washing line or a vegetable patch. A town that mixes every type still stays under 100k triangles.
+
 ## 2026-10-23 17:00 UTC
 - The regular grid of light blotches on the open sea is gone. Sunlight on the wave crests now shows as scattered, drifting glints instead of a repeating pattern.
 - Shadows no longer fade out when you zoom out: buildings, trees and clouds keep their shadows at every zoom level.
