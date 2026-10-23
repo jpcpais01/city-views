@@ -1,7 +1,7 @@
 extends Node
 ## Screenshot of the new tile-free island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_BRUSH=raise|lower|smooth|flatten
-## (holds that brush at the focus for a second), CV_OUT.
+## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets), CV_OUT.
 
 
 func _ready() -> void:
@@ -29,6 +29,17 @@ func _ready() -> void:
 		island._stroke = true
 		await get_tree().create_timer(1.2).timeout
 		island._stroke = false
+	if OS.get_environment("CV_STREETS") != "":
+		# a gently curving main street, one crossing it and one ending on it
+		var lines := [[], [], []]
+		for k in 41:
+			var t := k / 40.0
+			lines[0].append(Vector2(f.x - 20.0 + 40.0 * t, f.z + sin(t * PI * 1.3) * 4.0))
+			lines[1].append(Vector2(f.x + 2.0 + sin(t * 2.0) * 2.0, f.z - 16.0 + 32.0 * t))
+			lines[2].append(Vector2(f.x - 12.0 + 3.0 * t, f.z + 3.0 + 13.0 * t))
+		for l in lines:
+			island.streets.add_stroke(PackedVector2Array(l))
+		print("streets: ", island.streets.streets.size())
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
 	print("prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	var img := get_viewport().get_texture().get_image()

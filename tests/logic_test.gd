@@ -125,9 +125,41 @@ func _ready() -> void:
 	Game.undo()
 	check(Game.knd(31, 30) == Game.K.ROAD and Game.coins < after_doze, "undo bulldoze restores road and takes back the refund")
 	_goals()
+	_streets()
 	await _tri_budget()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+## Island streets: a drawn line becomes a graded street the ground meets, the
+## eraser splits it, and it survives a save round trip.
+func _streets() -> void:
+	var land := Land.new()
+	add_child(land)
+	land.generate(7)
+	var st := Streets.new()
+	st.land = land
+	add_child(st)
+	var raw := PackedVector2Array()
+	for k in 31:
+		raw.append(Vector2(-15.0 + k, sin(k * 0.2) * 3.0))
+	var s: Streets.Street = st.add_stroke(raw)
+	check(s != null and s.pts.size() > 40, "a drawn line becomes a street")
+	var steep := 0.0
+	for i in s.pts.size() - 1:
+		steep = maxf(steep, absf(s.ys[i + 1] - s.ys[i]) / s.pts[i].distance_to(s.pts[i + 1]))
+	check(steep <= Streets.MAX_GRADE + 0.01, "streets never get steeper than the grade limit (%.3f)" % steep)
+	var mid := s.pts[s.pts.size() / 2]
+	check(absf(land.height_at(mid.x, mid.y) - (s.ys[s.pts.size() / 2] - 0.03)) < 0.08, "the ground is cut and filled to meet the street")
+	var cross := PackedVector2Array([Vector2(mid.x, mid.y - 10.0), Vector2(mid.x, mid.y + 10.0)])
+	var c: Streets.Street = st.add_stroke(cross)
+	check(c != null and absf(c.closest(mid).y - s.closest(mid).y) < 0.05, "crossing streets meet at one height")
+	check(st.erase_at(s.pts[s.pts.size() / 2 - 16], 1.0) and st.streets.size() == 3, "the eraser splits a street in two")
+	var data := st.to_data()
+	st.from_data(JSON.parse_string(JSON.stringify(data)))
+	check(st.streets.size() == 3 and st.to_data().size() == 3, "streets survive a save")
+	st.queue_free()
+	land.queue_free()
 
 
 ## Goals: always three, finishing one pays out and draws a fresh one, and they survive a save.
