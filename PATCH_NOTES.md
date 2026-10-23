@@ -1,6 +1,6 @@
 # City Views patch notes
 
-## 2026-10-23 21:00 UTC
+## 2026-10-23 20:30 UTC
 - Streets on the new island: pick Street and draw a line with your finger. It smooths into a gentle curve and lays itself across the land in under a second.
 - Streets follow the hills but never get too steep, and the ground is cut and filled around them so they sit naturally in the landscape.
 - Every street has asphalt with centre lines, kerbs and paved pavements. Where streets cross or one ends on another, they meet at the same height and the pavements open up into a junction.
