@@ -129,6 +129,7 @@ jobs:
         run: |
           awk '/^## /{n++} n>=1 && n<=3' PATCH_NOTES.md > release_notes.md
           printf '\n\nInstall: download **CityViews.apk** on your Android phone and open it (allow installing from your browser if asked).\n' >> release_notes.md
+          printf '\nOn Windows: download **CityViews-Windows.zip** (added a few minutes after the APK), unzip it and run CityViews.exe.\n' >> release_notes.md
 
       - name: Publish GitHub release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -139,3 +140,11 @@ jobs:
           body_path: release_notes.md
           files: build/CityViews.apk
           make_latest: true
+
+  windows:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/windows.yml
+    with:
+      attach_to: v0.1.${{ github.run_number }}
+    secrets: inherit
