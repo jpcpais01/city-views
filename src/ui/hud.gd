@@ -27,7 +27,22 @@ var _info: PanelContainer
 var _info_label: Label
 var _coins_shown := 0.0
 var _selected := ""
-var _menu_status: Label
+var _fps_label: Label
+var _fps_time := 0.0
+var _page := "island"
+var _pages := {}
+var _tab_buttons := {}
+var _pages_root: VBoxContainer
+var _new_btn: Button
+var _island_summary: Label
+var _coop_out: VBoxContainer
+var _coop_join: VBoxContainer
+var _coop_in: VBoxContainer
+var _room_big: Label
+var _room_players: Label
+var _acct_form: VBoxContainer
+var _acct_signed: HBoxContainer
+var _acct_msg: Label
 var _acct_status: Label
 var _room_status: Label
 var _email: LineEdit
@@ -47,6 +62,7 @@ const SOFT := Color("6b7785")
 const CARD := Color(1, 1, 1, 0.9)
 const ACCENT := Color("ff7a6b")
 const MINT := Color("3fae8c")
+const MENU_TABS := [["island", "Island"], ["coop", "Co-op"], ["account", "Account"], ["settings", "Settings"], ["notes", "What's new"]]
 const GLASS := Color(0.9, 0.93, 0.98)
 const GLASS_DARK := Color(0.1, 0.13, 0.18)
 
@@ -69,6 +85,7 @@ func _ready() -> void:
 	_root.theme = _make_theme()
 	add_child(_root)
 	_build_top()
+	_build_fps()
 	_build_toolbar()
 	_build_toasts()
 	_build_tutorial()
@@ -269,6 +286,16 @@ func _build_top() -> void:
 	stats.add_child(menu_btn)
 
 
+## Tiny frame-rate readout under the city card; refreshed twice a second so it costs nothing.
+func _build_fps() -> void:
+	_fps_label = _label("", 13, true, Color(1, 1, 1, 0.9))
+	_fps_label.add_theme_color_override("font_outline_color", Color(0.1, 0.14, 0.2, 0.55))
+	_fps_label.add_theme_constant_override("outline_size", 4)
+	_fps_label.position = Vector2(30, 112)
+	_fps_label.visible = Game.settings.get("fps", true)
+	_root.add_child(_fps_label)
+
+
 func _pill(parent: Control, icon: String) -> Label:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -312,6 +339,11 @@ func _process(delta: float) -> void:
 	if absf(_coins_shown - Game.coins) < 0.5:
 		_coins_shown = Game.coins
 	_coin_label.text = _short(_coins_shown)
+	if _fps_label.visible:
+		_fps_time += delta
+		if _fps_time >= 0.5:
+			_fps_time = 0.0
+			_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
 
 
 # ------------------------------------------------------------------ tools
@@ -735,11 +767,18 @@ func _refresh_players() -> void:
 
 func _toggle_menu() -> void:
 	Sfx.play("click")
-	_menu.visible = not _menu.visible
+	_set_menu(not _menu.visible)
+
+
+func _set_menu(open: bool) -> void:
+	if open == _menu.visible:
+		return
+	_menu.visible = open
 	_confirm_new = false
-	if _menu.visible:
+	_new_btn.text = "Start a new island"
+	if open:
 		_name_edit.text = Game.player_name
-		_refresh_account()
+		_show_page(_page)
 		# springy sheet entrance
 		_menu_card.pivot_offset = _menu_card.size * 0.5
 		_menu_card.scale = Vector2(0.92, 0.92)
@@ -747,12 +786,27 @@ func _toggle_menu() -> void:
 		var tw := create_tween().set_parallel(true)
 		tw.tween_property(_menu_card, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tw.tween_property(_menu, "modulate:a", 1.0, 0.18)
+	else:
+		_name_edit.release_focus()
+		Game.save_local()
+
+
+func _notification(what: int) -> void:
+	# Android back gesture closes the menu first
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and _menu != null and _menu.visible:
+		_set_menu(false)
+
+
+func _input(event: InputEvent) -> void:
+	if _menu != null and _menu.visible and event.is_action_pressed("ui_cancel"):
+		_set_menu(false)
+		get_viewport().set_input_as_handled()
 
 
 func _section(parent: Control, title: String) -> VBoxContainer:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label(title, 20, true, ACCENT))
+	v.add_child(_label(title, 18, true, ACCENT))
 	parent.add_child(v)
 	return v
 
@@ -763,9 +817,9 @@ func _button(text: String, cb: Callable, primary := false) -> Button:
 	b.custom_minimum_size = Vector2(0, 50)
 	b.add_theme_font_size_override("font_size", 18)
 	if primary:
-		b.add_theme_stylebox_override("normal", _box(ACCENT, 18, 16))
-		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 18, 16))
-		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 18, 16, false))
+		b.add_theme_stylebox_override("normal", _box(ACCENT, 25, 16))
+		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 25, 16))
+		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 25, 16, false))
 		b.add_theme_color_override("font_color", Color.WHITE)
 		b.add_theme_color_override("font_hover_color", Color.WHITE)
 		b.add_theme_color_override("font_pressed_color", Color.WHITE)
@@ -775,23 +829,48 @@ func _button(text: String, cb: Callable, primary := false) -> Button:
 	return b
 
 
+func _wrap_label(text: String, size := 16, bold := false, col := SOFT) -> Label:
+	var l := _label(text, size, bold, col)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 200
+	return l
+
+
+## One page of the menu: a scrollable column that only shows when its tab is picked.
+func _page_box(id: String) -> VBoxContainer:
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	_pages_root.add_child(scroll)
+	var m := MarginContainer.new()
+	m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	m.add_theme_constant_override("margin_right", 4)
+	scroll.add_child(m)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 20)
+	m.add_child(v)
+	_pages[id] = scroll
+	return v
+
+
 func _build_menu() -> void:
 	_menu = Control.new()
 	_menu.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_menu.visible = false
 	_root.add_child(_menu)
 	var dim := ColorRect.new()
-	dim.color = Color(0.06, 0.09, 0.14, 0.3)
+	dim.color = Color(0.06, 0.09, 0.14, 0.35)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.pressed:
+		if (e is InputEventMouseButton and e.pressed) or (e is InputEventScreenTouch and e.pressed):
 			_toggle_menu())
 	_menu.add_child(dim)
 	var card := PanelContainer.new()
 	card.set_anchors_preset(Control.PRESET_CENTER)
-	card.custom_minimum_size = Vector2(620, 560)
-	card.offset_left = -310
-	card.offset_right = 310
+	card.offset_left = -380
+	card.offset_right = 380
 	card.offset_top = -300
 	card.offset_bottom = 300
 	_menu_card = card
@@ -799,8 +878,10 @@ func _build_menu() -> void:
 	card.add_theme_stylebox_override("panel", _glass_box(Color(0.96, 0.97, 0.99), 34, 28))
 	_menu.add_child(card)
 	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 12)
+	outer.add_theme_constant_override("separation", 14)
 	card.add_child(outer)
+
+	# header: title + close
 	var head := HBoxContainer.new()
 	outer.add_child(head)
 	var t := _label("City Views", 30, true)
@@ -809,121 +890,168 @@ func _build_menu() -> void:
 	var close := _glass_button(48, "close")
 	close.pressed.connect(_toggle_menu)
 	head.add_child(close)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	outer.add_child(scroll)
-	var body := VBoxContainer.new()
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 22)
-	scroll.add_child(body)
 
-	# profile
-	var prof := _section(body, "Your name")
+	# segmented tabs, iOS style
+	var track := PanelContainer.new()
+	track.add_theme_stylebox_override("panel", _box(Color(0.2, 0.25, 0.32, 0.08), 24, 4, false))
+	outer.add_child(track)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 4)
+	track.add_child(tabs)
+	var group := ButtonGroup.new()
+	for tab in MENU_TABS:
+		var tb := Button.new()
+		tb.text = tab[1]
+		tb.toggle_mode = true
+		tb.button_group = group
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.custom_minimum_size.y = 42
+		tb.add_theme_font_size_override("font_size", 17)
+		tb.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+		tb.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.4), 20, 8, false))
+		tb.add_theme_stylebox_override("pressed", _box(Color.WHITE, 20, 8))
+		tb.add_theme_stylebox_override("hover_pressed", _box(Color.WHITE, 20, 8))
+		tb.add_theme_color_override("font_color", SOFT)
+		tb.add_theme_color_override("font_hover_color", INK)
+		tb.add_theme_color_override("font_pressed_color", INK)
+		tb.add_theme_color_override("font_hover_pressed_color", INK)
+		tb.pressed.connect(func():
+			Sfx.play("click", 1.1, -4.0)
+			_show_page(tab[0]))
+		tabs.add_child(tb)
+		_tab_buttons[tab[0]] = tb
+
+	_pages_root = VBoxContainer.new()
+	_pages_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(_pages_root)
+
+	# ---- island
+	var island := _page_box("island")
+	var prof := _section(island, "Your name")
 	_name_edit = LineEdit.new()
 	_name_edit.placeholder_text = "Mayor"
 	_name_edit.max_length = 16
 	_name_edit.text_changed.connect(func(s):
 		Game.player_name = s if s.strip_edges() != "" else "Mayor")
 	prof.add_child(_name_edit)
+	prof.add_child(_wrap_label("Other builders see this name next to your cursor."))
+	var about := _section(island, "This island")
+	_island_summary = _wrap_label("", 17, true, INK)
+	about.add_child(_island_summary)
+	_new_btn = _button("Start a new island", func(): pass)
+	_new_btn.pressed.connect(_on_new_island)
+	about.add_child(_new_btn)
+	about.add_child(_wrap_label("Starting over replaces this city with a fresh island. Tap twice to confirm."))
 
-	# co-op
-	var coop := _section(body, "Build together")
-	coop.add_child(_label("Up to 4 builders share one island in real time.", 16, false, SOFT))
+	# ---- co-op
+	var coop := _page_box("coop")
+	_coop_out = _section(coop, "Build together")
+	_coop_out.add_child(_wrap_label("Host your city and share the code, and up to 3 friends can build on it with you in real time."))
+	_coop_out.add_child(_button("Host this city", _host, true))
+	var jl := _section(coop, "Join a friend")
+	_coop_join = jl
 	var crow := HBoxContainer.new()
 	crow.add_theme_constant_override("separation", 8)
-	coop.add_child(crow)
-	var host := _button("Host this city", _host, true)
-	host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	crow.add_child(host)
+	jl.add_child(crow)
 	_room_code = LineEdit.new()
-	_room_code.placeholder_text = "CODE"
+	_room_code.placeholder_text = "Room code"
 	_room_code.max_length = 6
-	_room_code.custom_minimum_size = Vector2(120, 50)
+	_room_code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_room_code.text_submitted.connect(func(_s): _join())
 	crow.add_child(_room_code)
-	crow.add_child(_button("Join", _join))
-	coop.add_child(_button("Leave room", func():
+	var jb := _button("Join", _join)
+	jb.custom_minimum_size.x = 120
+	crow.add_child(jb)
+	_coop_in = _section(coop, "You're in a room")
+	_room_big = _label("", 44, true, INK)
+	_coop_in.add_child(_room_big)
+	_room_players = _wrap_label("", 17, true, INK)
+	_coop_in.add_child(_room_players)
+	_coop_in.add_child(_button("Leave room", func():
 		Net.leave_room()
+		_room_status.text = "You left the room. This is your own city again."
 		_refresh_account()))
-	_room_status = _label("", 16, true, SOFT)
-	_room_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_room_status = _wrap_label("", 16, true, MINT)
 	coop.add_child(_room_status)
 
-	# account
-	var acct := _section(body, "Account & cloud saves")
-	_acct_status = _label("", 16, false, SOFT)
-	_acct_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	acct.add_child(_acct_status)
+	# ---- account
+	var acct := _page_box("account")
+	var asec := _section(acct, "Account & cloud saves")
+	_acct_status = _wrap_label("")
+	asec.add_child(_acct_status)
+	_acct_form = VBoxContainer.new()
+	_acct_form.add_theme_constant_override("separation", 8)
+	asec.add_child(_acct_form)
 	_email = LineEdit.new()
-	_email.placeholder_text = "email"
+	_email.placeholder_text = "Email"
 	_email.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_EMAIL_ADDRESS
-	acct.add_child(_email)
+	_acct_form.add_child(_email)
 	_password = LineEdit.new()
-	_password.placeholder_text = "password (6+ characters)"
+	_password.placeholder_text = "Password (6+ characters)"
 	_password.secret = true
 	_password.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_PASSWORD
-	acct.add_child(_password)
+	_password.text_submitted.connect(func(_s): _sign_in())
+	_acct_form.add_child(_password)
 	var arow := HBoxContainer.new()
 	arow.add_theme_constant_override("separation", 8)
-	acct.add_child(arow)
+	_acct_form.add_child(arow)
 	var si := _button("Sign in", _sign_in)
 	si.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	arow.add_child(si)
-	var reg := _button("Create account", _register)
+	var reg := _button("Create account", _register, true)
 	reg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	arow.add_child(reg)
-	var srow := HBoxContainer.new()
-	srow.add_theme_constant_override("separation", 8)
-	acct.add_child(srow)
-	var save := _button("Save to cloud", func():
+	_acct_signed = HBoxContainer.new()
+	_acct_signed.add_theme_constant_override("separation", 8)
+	asec.add_child(_acct_signed)
+	var save := _button("Save to cloud now", func():
 		if Firebase.signed_in:
 			Firebase.save_city(Game.to_dict())
-			_menu_status.text = "Saved to the cloud ✓"
+			_acct_msg.text = "Saved to the cloud ✓"
 		else:
-			_menu_status.text = "Sign in first")
+			_acct_msg.text = "Not connected yet, try again in a moment")
 	save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	srow.add_child(save)
-	var so := _button("Sign out", func(): Firebase.sign_out())
+	_acct_signed.add_child(save)
+	var so := _button("Sign out", func():
+		await Firebase.sign_out()
+		_acct_msg.text = "Signed out. You're playing as a guest."
+		_refresh_account())
 	so.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	srow.add_child(so)
+	_acct_signed.add_child(so)
+	_acct_msg = _wrap_label("", 16, true, MINT)
+	acct.add_child(_acct_msg)
 
-	# city
-	var city := _section(body, "Island")
-	var new_btn := _button("New island", func(): pass)
-	new_btn.pressed.connect(func():
-		if not _confirm_new:
-			_confirm_new = true
-			new_btn.text = "Tap again to start over"
-			return
-		_confirm_new = false
-		new_btn.text = "New island"
-		if Net.in_room():
-			Net.leave_room()
-		Game.new_world(randi() % 1000000)
-		Game.save_local()
-		_toggle_menu())
-	city.add_child(new_btn)
-
-	# settings
-	var st := _section(body, "Settings")
-	for key in [["music", "Music"], ["sfx", "Sounds"], ["shadows", "Shadows"]]:
+	# ---- settings
+	var st := _section(_page_box("settings"), "Settings")
+	for key in [["music", "Music"], ["sfx", "Sound effects"], ["shadows", "Shadows"], ["fps", "Show FPS counter"]]:
 		var cb := CheckButton.new()
 		cb.text = key[1]
 		cb.add_theme_font_size_override("font_size", 18)
+		cb.custom_minimum_size.y = 54
+		var row := _box(Color(1, 1, 1, 0.85), 18, 16, false)
+		for st_name in ["normal", "pressed", "hover", "hover_pressed"]:
+			cb.add_theme_stylebox_override(st_name, row)
+		cb.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		for c in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
+			cb.add_theme_color_override(c, INK)
+		cb.add_theme_icon_override("checked", _switch_icon(true))
+		cb.add_theme_icon_override("unchecked", _switch_icon(false))
 		cb.button_pressed = Game.settings.get(key[0], true)
 		cb.toggled.connect(func(on):
 			Game.settings[key[0]] = on
-			if key[0] == "shadows":
-				world.sun.shadow_enabled = on
+			match key[0]:
+				"shadows": world.sun.shadow_enabled = on
+				"fps": _fps_label.visible = on
 			Game.save_local())
 		st.add_child(cb)
 
-	# patch notes
-	var notes := _section(body, "What's new")
+	# ---- what's new
+	var notes := _page_box("notes")
 	var rt := RichTextLabel.new()
 	rt.bbcode_enabled = true
 	rt.fit_content = true
 	rt.scroll_active = false
+	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rt.add_theme_font_override("normal_font", font_reg)
 	rt.add_theme_font_override("bold_font", font_bold)
 	rt.add_theme_font_size_override("normal_font_size", 16)
@@ -931,9 +1059,52 @@ func _build_menu() -> void:
 	rt.add_theme_color_override("default_color", INK)
 	rt.text = _patch_notes_bbcode()
 	notes.add_child(rt)
+	_show_page("island")
 
-	_menu_status = _label("", 16, true, MINT)
-	outer.add_child(_menu_status)
+
+## iOS-style switch drawn once into a texture: green pill with the knob right when on.
+func _switch_icon(on: bool) -> Texture2D:
+	var w := 56
+	var h := 32
+	var img := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
+	var track := MINT if on else Color(0.78, 0.8, 0.84)
+	var r := h * 0.5
+	var knob := Vector2(w - r, r) if on else Vector2(r, r)
+	for y in h:
+		for x in w:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var cx := clampf(p.x, r, w - r)
+			var d := p.distance_to(Vector2(cx, r)) - r
+			var a := clampf(0.5 - d, 0.0, 1.0)
+			var col := track
+			var kd := p.distance_to(knob) - (r - 3.0)
+			var ka := clampf(0.5 - kd, 0.0, 1.0)
+			col = col.lerp(Color.WHITE, ka)
+			img.set_pixel(x, y, Color(col.r, col.g, col.b, a))
+	return ImageTexture.create_from_image(img)
+
+
+func _show_page(id: String) -> void:
+	_page = id
+	for k in _pages:
+		_pages[k].visible = k == id
+		_tab_buttons[k].button_pressed = k == id
+	_pages[id].scroll_vertical = 0
+	_refresh_account()
+
+
+func _on_new_island() -> void:
+	if not _confirm_new:
+		_confirm_new = true
+		_new_btn.text = "Tap again to start over"
+		return
+	_confirm_new = false
+	_new_btn.text = "Start a new island"
+	if Net.in_room():
+		Net.leave_room()
+	Game.new_world(randi() % 1000000)
+	Game.save_local()
+	_set_menu(false)
 
 
 func _patch_notes_bbcode() -> String:
@@ -956,45 +1127,66 @@ func _patch_notes_bbcode() -> String:
 func _host() -> void:
 	_room_status.text = "Creating room…"
 	var err: String = await Net.create_room()
-	_room_status.text = err if err != "" else "Room %s is open. Share the code with up to 3 friends!" % Net.room_code
+	_room_status.text = err if err != "" else "Room open! Share the code with up to 3 friends."
 	_refresh_account()
 
 
 func _join() -> void:
+	if _room_code.text.strip_edges() == "":
+		_room_status.text = "Type the room code your friend shared"
+		return
 	_room_status.text = "Joining…"
 	var err: String = await Net.join_room(_room_code.text)
-	_room_status.text = err if err != "" else "Joined room %s" % Net.room_code
+	_room_status.text = err
+	_refresh_account()
 	if err == "":
-		_toggle_menu()
+		_room_code.text = ""
+		_set_menu(false)
 
 
 func _sign_in() -> void:
-	_menu_status.text = "Signing in…"
+	_acct_msg.text = "Signing in…"
 	var err: String = await Firebase.sign_in_email(_email.text.strip_edges(), _password.text)
-	_menu_status.text = err if err != "" else "Welcome back!"
+	_acct_msg.text = err if err != "" else "Welcome back!"
 	_password.text = ""
+	_refresh_account()
 
 
 func _register() -> void:
-	_menu_status.text = "Creating account…"
+	_acct_msg.text = "Creating account…"
 	var err: String = await Firebase.register_email(_email.text.strip_edges(), _password.text)
-	_menu_status.text = err if err != "" else "Account created. Your city is saved to the cloud."
+	_acct_msg.text = err if err != "" else "Account created. Your city is saved to the cloud."
 	_password.text = ""
+	_refresh_account()
 
 
+## Shows only the controls that make sense right now (in a room or not, guest or signed in).
 func _refresh_account() -> void:
 	if _acct_status == null:
 		return
+	var online := Firebase.enabled and Firebase.signed_in
 	if not Firebase.enabled:
 		_acct_status.text = "Online services aren't set up in this build, so your city is saved on this device."
 	elif not Firebase.signed_in:
 		_acct_status.text = "Connecting…"
 	elif Firebase.is_guest:
-		_acct_status.text = "Playing as a guest. Create an account to keep your city safe across devices."
+		_acct_status.text = "Playing as a guest. Your city is backed up, but create an account to keep it across phones."
 	else:
-		_acct_status.text = "Signed in as %s. Your city syncs to the cloud." % Firebase.email
-	if _room_status and Net.in_room() and _room_status.text == "":
-		_room_status.text = "In room %s" % Net.room_code
+		_acct_status.text = "Signed in as %s. Your city syncs to the cloud automatically." % Firebase.email
+	_acct_form.visible = online and Firebase.is_guest
+	_acct_signed.visible = online and not Firebase.is_guest
+	var in_room := Net.in_room()
+	_coop_out.visible = not in_room
+	_coop_join.visible = not in_room
+	_coop_in.visible = in_room
+	if in_room:
+		_room_big.text = Net.room_code
+		var names := []
+		for p in Net.active_players():
+			names.append(str(p.get("name", "?")))
+		_room_players.text = "Building now: %s" % ", ".join(names) if not names.is_empty() else "Waiting for friends to join…"
+	if _island_summary:
+		_island_summary.text = "%s  ·  %s\n%s citizens  ·  %s coins" % [Game.city_name, Game.title, _short(Game.population), _short(Game.coins)]
 
 
 func _on_reset() -> void:

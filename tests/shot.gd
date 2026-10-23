@@ -49,6 +49,10 @@ func _ready() -> void:
 		world.rig.focus(Game.tile_center(cx, cz))
 	world.rig._t_dist = float(OS.get_environment("CV_DIST")) if OS.get_environment("CV_DIST") != "" else 34.0
 	await get_tree().create_timer(10.0).timeout
+	if OS.get_environment("CV_MENU") != "":
+		hud._page = OS.get_environment("CV_MENU")
+		hud._toggle_menu()
+		await get_tree().create_timer(1.5).timeout
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(OS.get_environment("CV_OUT") if OS.get_environment("CV_OUT") != "" else "/tmp/shot.png")
 	get_tree().quit()

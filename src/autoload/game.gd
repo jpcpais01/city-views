@@ -69,7 +69,7 @@ var player_name := "Mayor"
 var title := "Hamlet"
 var best_population := 0
 var unlocked := {}
-var settings := {"music": true, "sfx": true, "shadows": true}
+var settings := {"music": true, "sfx": true, "shadows": true, "fps": true}
 var tutorial_step := 0
 var play_time := 0.0
 
