@@ -200,6 +200,17 @@ func _centre(t: Vector2i) -> Vector3:
 	return Vector3((t.x - Game.N * 0.5 + 0.5) * Game.TILE, 0.0, (t.y - Game.N * 0.5 + 0.5) * Game.TILE)
 
 
+## Whether something has been built where a gull stands.
+func _taken(p: Vector3) -> bool:
+	var t := Game.world_to_tile(p)
+	return Game.knd(t.x, t.y) != Game.K.EMPTY
+
+
+func _ground_y(p: Vector3) -> float:
+	var t := Game.world_to_tile(p)
+	return Game.tile_y(t.x, t.y)
+
+
 ## Open water clearance at a world position, in tiles (8 = far out to sea).
 func _clear(p: Vector3) -> float:
 	var t := Game.world_to_tile(p)
@@ -351,8 +362,7 @@ func _gull_step(g: Dictionary, delta: float, t: float, focus: Vector3) -> void:
 				g.look = g.h + _rng.randf_range(-1.2, 1.2)
 			want_h = g.look
 			turn_rate = 2.5
-			var tile := Game.world_to_tile(p)
-			var taken: bool = not g.wet and Game.knd(tile.x, tile.y) != Game.K.EMPTY
+			var taken: bool = not g.wet and _taken(p)
 			if g.time <= 0.0 or taken:
 				g.st = TAKEOFF
 				if _rng.randf() < 0.4:
@@ -409,17 +419,16 @@ func _gull_decide(g: Dictionary, focus: Vector3) -> void:
 		var pool: Array[Vector2i] = _shallows if on_water else _perches
 		for k in 6:
 			var tile: Vector2i = pool[_rng.randi() % pool.size()]
-			if not on_water and Game.knd(tile.x, tile.y) != Game.K.EMPTY:
-				continue
 			var c := _centre(tile)
+			if not on_water and _taken(c):
+				continue
 			var score := c.distance_to(Vector3(focus.x, 0, focus.z)) + _rng.randf() * 12.0
 			if score < best:
 				best = score
 				spot = c
 		if best < INF:
 			spot += Vector3(_rng.randf_range(-0.6, 0.6), 0, _rng.randf_range(-0.6, 0.6))
-			var tile := Game.world_to_tile(spot)
-			spot.y = 0.06 if on_water else Game.tile_y(tile.x, tile.y) + FEET
+			spot.y = 0.06 if on_water else _ground_y(spot) + FEET
 			g.st = LAND
 			g.spot = spot
 			g.wet = on_water

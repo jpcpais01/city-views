@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-23 22:00 UTC
+- The new island comes alive: little cars drive its streets, keeping to the right, turning at junctions and swinging round at dead ends.
+- Townsfolk stroll the pavements, stopping now and then to look around, with more of them as the town grows.
+- Sailboats and fishing boats wander the open water around the island, keeping off its coast.
+- Seagulls soar over the island, come down on its beaches and empty ground, and bob on the shallows.
+
 ## 2026-10-23 21:50 UTC
 - New Green brush on the island: paint parks and the town keeps them green, with trees, blossom, flower beds, ponds and benches under lamps. Paint Grow over a park to build there again.
 - Busy main streets now and then open into a cobbled square with a fountain, benches, trees and market stalls.

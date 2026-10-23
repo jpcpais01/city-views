@@ -27,6 +27,8 @@ var material: Material
 var streets: Array = []
 var _meshes := {}
 var _next_id := 1
+var _links := {}
+var _links_dirty := true
 # streets being laid out along their length: id -> seconds since placed
 var _laying := {}
 const LAY_TIME := 0.8
@@ -182,6 +184,12 @@ func _remove(s: Street) -> void:
 		_meshes.erase(s.id)
 	_laying.erase(s.id)
 	_pending.erase(s.id)
+
+
+func _init() -> void:
+	changed.connect(func(): _links_dirty = true)
+	removed.connect(func(_s): _links_dirty = true)
+	added.connect(func(_s): _links_dirty = true)
 
 
 func clear() -> void:
@@ -704,6 +712,26 @@ func _corner(buf: MeshBuf, pa: Vector2, c: Vector2, pb: Vector2, ya: float, yb: 
 
 
 # ------------------------------------------------------------------ sampling
+
+## Where streets meet, for things that travel along them: street id to a list
+## of [place along it, the other street, place along that one].
+func links() -> Dictionary:
+	if _links_dirty:
+		_links.clear()
+		for s in streets:
+			_links[s.id] = []
+		for i in streets.size():
+			for j in range(i + 1, streets.size()):
+				var a: Street = streets[i]
+				var b: Street = streets[j]
+				if not _boxes_overlap(a, b):
+					continue
+				for m in _meetings(a, b):
+					_links[a.id].append([m.x, b, m.y])
+					_links[b.id].append([m.y, a, m.x])
+		_links_dirty = false
+	return _links
+
 
 func _ptf(s: Street, f: float) -> Vector2:
 	var i := clampi(int(f), 0, s.pts.size() - 2)

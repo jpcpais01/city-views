@@ -95,6 +95,14 @@ func zone_changed(c: Vector2, r: float) -> void:
 			_todo[s.id] = s
 
 
+## Whether anything stands at p: a lot, a street or its pavement.
+func is_built(p: Vector2) -> bool:
+	var c := _cell(p)
+	if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
+		return false
+	return _occ[c.y * RES + c.x] != 0
+
+
 func house_count() -> int:
 	return lots.size()
 

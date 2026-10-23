@@ -283,6 +283,28 @@ func _island_budget() -> void:
 			else:
 				built += 1
 	check(parks > 0 and built == 0, "painted green becomes parks (%d parks, %d houses left)" % [parks, built])
+	# cars wander the streets, turning where they meet, never leaving them
+	var graph := island.streets.links()
+	var rng := RandomNumberGenerator.new()
+	var off := 0.0
+	var turns := 0
+	var lost := 0
+	for k in 6:
+		var m := StreetWalk.spawn(island.streets, rng)
+		for step in 600:
+			var was: Streets.Street = m.s
+			if not StreetWalk.advance(island.streets, graph, m, 0.05, 0.4, rng):
+				lost += 1
+				break
+			if m.s != was:
+				turns += 1
+			var spot: Vector3 = StreetWalk.place(island.streets, m, 0.3)[0]
+			var nearest := INF
+			for st: Streets.Street in island.streets.streets:
+				if st.near_box(Vector2(spot.x, spot.z), 2.0):
+					nearest = minf(nearest, st.closest(Vector2(spot.x, spot.z)).x)
+			off = maxf(off, nearest)
+	check(off < 0.6 and turns > 0 and lost == 0, "traffic keeps to the streets and turns at junctions (%.2f off, %d turns)" % [off, turns])
 	island.queue_free()
 	await get_tree().process_frame
 

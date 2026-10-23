@@ -14,6 +14,9 @@ var land: Land
 var streets: Streets
 var growth: Growth
 var town: Town
+var cars: IslandTraffic
+var folk: IslandPeople
+var wildlife: IslandLife
 var brush := ""
 var brush_radius := 5.0
 var island_seed := 0
@@ -57,6 +60,22 @@ func _ready() -> void:
 	rig = CameraRig.new()
 	rig.ground_fn = land.height_at
 	add_child(rig)
+	cars = IslandTraffic.new()
+	cars.material = city_mat
+	cars.streets = streets
+	cars.town = town
+	add_child(cars)
+	folk = IslandPeople.new()
+	folk.material = city_mat
+	folk.streets = streets
+	folk.town = town
+	add_child(folk)
+	wildlife = IslandLife.new()
+	wildlife.material = city_mat
+	wildlife.rig = rig
+	wildlife.land = land
+	wildlife.town = town
+	add_child(wildlife)
 	_make_clouds()
 	_make_ring()
 	_load()
@@ -71,6 +90,9 @@ func new_island(s: int) -> void:
 	town.clear()
 	land.generate(s)
 	_update_maps()
+	cars.clear()
+	folk.clear()
+	wildlife.reset()
 	_save()
 
 
@@ -89,6 +111,7 @@ func _load() -> void:
 		var gn: Variant = data.get("green", {})
 		land.apply_green(gn if gn is Dictionary else {})
 		_update_maps()
+		wildlife.reset()
 	else:
 		new_island(randi() % 1000000)
 
