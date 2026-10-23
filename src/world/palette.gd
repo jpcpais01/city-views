@@ -10,6 +10,7 @@ const ASPHALT := Color(0.36, 0.38, 0.43)
 const SIDEWALK := Color(0.88, 0.85, 0.8)
 const LEAF := [Color("6fb35a"), Color("5ea552"), Color("82c063"), Color("4e9a54"), Color("97c45a")]
 const BLOSSOM := [Color("f4a7c0"), Color("f7c2d4"), Color("ee8fb0"), Color("fbe3ea")]
+const LAUNDRY := [Color("ffffff"), Color("7fb8e6"), Color("ef7f6a"), Color("f2c14e"), Color("f4a7c0"), Color("3fae8c")]
 const FLOWERS := [Color("ef5b5b"), Color("f2c14e"), Color("ffffff"), Color("8a6fd6"), Color("ef7fa8"), Color("4b86d6"), Color("f28b3c")]
 
 static var _shadow_mat: Material

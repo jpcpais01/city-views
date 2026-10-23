@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-23 22:42 UTC
+- Houses with room behind them now have proper back gardens, with a hedge or fence that follows the slope of the ground.
+- Many back gardens also have a little shed, a vegetable patch or washing hung out on a line.
+
 ## 2026-10-23 22:33 UTC
 - Two anglers now sit at the end of the harbour pier with their rods out and red floats bobbing on the water.
 
