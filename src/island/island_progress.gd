@@ -65,7 +65,7 @@ func _process(delta: float) -> void:
 
 ## Coins the town pays every few seconds.
 func income() -> float:
-	return snappedf(residents * 0.05 + shops * 0.3, 0.1)
+	return snappedf(residents * 0.02 + shops * 0.15, 0.1)
 
 
 func add_coins(amount: float) -> void:
