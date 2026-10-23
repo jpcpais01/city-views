@@ -2,7 +2,7 @@ extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one), CV_GROW=radius (paints and grows the town),
-## CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
+## CV_MARK=kind (looks at that landmark once it stands), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
 
 
 func _ready() -> void:
@@ -97,6 +97,13 @@ func _ready() -> void:
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
 	print("prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	print("landmarks: ", island.landmarks.spots)
+	if island.landmarks.spots.has(OS.get_environment("CV_MARK")):
+		# then look at that landmark (a pier from out near its end)
+		var m: Vector2 = island.landmarks.spots[OS.get_environment("CV_MARK")]
+		if OS.get_environment("CV_MARK") == "pier":
+			m += island.landmarks._seaward(m) * Landmarks.PIER_LEN
+		island.rig.focus(Vector3(m.x, 0, m.y))
+		await get_tree().create_timer(1.5).timeout
 	if OS.get_environment("CV_PARTS") != "":
 		# what each part of the island costs: hide it and see what drops
 		var total := Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)

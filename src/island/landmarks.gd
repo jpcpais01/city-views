@@ -298,6 +298,9 @@ func _place_pier(p: Vector2) -> void:
 		CivicGen._lamp(mk, Vector3(sx * 1.15, deck, PIER_LEN + 0.95))
 	mk.box(Vector3(0, deck + 0.22, PIER_LEN + 1.08), Vector3(2.56, 0.03, 0.03), WHITE)
 	CivicGen._bench(mk, Vector3(0.6, deck, PIER_LEN + 0.7), PI)
+	# two anglers sit on the edge of the end, rods out over the water
+	for a in [[-0.75, Color("3fae8c")], [0.45, Color("f2c14e")]]:
+		_angler(mk, Vector3(a[0], deck, PIER_LEN + 1.08), a[1])
 	# a striped kiosk where the pier meets the shore
 	mk.rbox(Vector3(-0.75, deck + 0.22, 0.2), Vector3(0.5, 0.44, 0.44), 0.03, WHITE, null, false, MeshKit.SIDING)
 	mk.window(Vector3(-0.75, deck + 0.28, 0.43), Vector3.BACK, 0.34, 0.16, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), true)
@@ -320,6 +323,31 @@ func _place_pier(p: Vector2) -> void:
 		sh.mesh = sm
 		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 		root.add_child(sh)
+
+
+## A little figure sitting on the deck edge at `at`, legs over the water
+## (local +Z), holding a rod whose line drops into the sea.
+func _angler(mk: MeshKit, at: Vector3, shirt: Color) -> void:
+	var pants := Color("3d4a5c")
+	for sx: float in [-0.028, 0.028]:
+		mk.box(at + Vector3(sx, 0.012, 0.05), Vector3(0.045, 0.045, 0.11), pants)
+		mk.box(at + Vector3(sx, -0.05, 0.1), Vector3(0.04, 0.1, 0.04), pants)
+	mk.rbox(at + Vector3(0, 0.09, -0.01), Vector3(0.11, 0.11, 0.07), 0.025, shirt)
+	mk.blob(at + Vector3(0, 0.19, 0), Vector3(0.043, 0.045, 0.043), Color("d9a77c"))
+	mk.cone(at + Vector3(0, 0.216, 0), 0.06, 0.014, 7, Color("e9d8a6"))
+	mk.cylinder(at + Vector3(0, 0.229, 0), 0.035, 0.03, 6, Color("e9d8a6"))
+	# the rod angles up and out; the line hangs from its tip to the water
+	var butt := at + Vector3(0.05, 0.08, 0.06)
+	var rod := Vector3(0.05, 0.26, 0.46)
+	var up := rod.normalized()
+	var x := up.cross(Vector3.BACK).normalized()
+	mk.push(Transform3D(Basis(x, up, x.cross(up)), butt))
+	# a real cylinder: a pole would be drawn as an upright sprite
+	mk.cylinder(Vector3.ZERO, 0.008, rod.length(), 4, Color(0.2, 0.18, 0.16), false)
+	mk.pop()
+	var tip := butt + rod
+	mk.box(Vector3(tip.x, tip.y * 0.5, tip.z), Vector3(0.006, tip.y, 0.006), Color(0.92, 0.92, 0.92))
+	mk.blob(Vector3(tip.x, 0.03, tip.z), Vector3(0.025, 0.025, 0.025), Color("e85d5d"))
 
 
 func _lighthouse(mk: MeshKit, root: Node3D) -> void:
