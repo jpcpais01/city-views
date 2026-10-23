@@ -39,6 +39,9 @@ var _job := {}
 # streets just laid, still to be marked on the town map
 var _new_streets: Array = []
 var _patches := {}
+# ground kept for landmarks: key -> [centre, radius]; marked RESERVED on the map
+var _reserved := {}
+const RESERVED := -(1 << 30)
 var _dirty_patches := {}
 
 
@@ -82,9 +85,42 @@ func clear() -> void:
 	_occ.fill(0)
 	_front.fill(0)
 	_front_d.fill(INF)
+	for key in _reserved:
+		_mark_reserved(_reserved[key][0], _reserved[key][1], true)
 	_todo.clear()
 	_job = {}
 	_new_streets.clear()
+
+
+## Keeps the ground within `r` of `p` free of houses, for a landmark.
+func reserve(key: String, p: Vector2, r: float) -> void:
+	_reserved[key] = [p, r]
+	_mark_reserved(p, r, true)
+
+
+func unreserve(key: String) -> void:
+	if not _reserved.has(key):
+		return
+	var e: Array = _reserved[key]
+	_reserved.erase(key)
+	_mark_reserved(e[0], e[1], false)
+	for k in _reserved:
+		_mark_reserved(_reserved[k][0], _reserved[k][1], true)
+
+
+func _mark_reserved(p: Vector2, r: float, on: bool) -> void:
+	var c0 := _cell(p - Vector2(r, r))
+	var c1 := _cell(p + Vector2(r, r))
+	for cz in range(maxi(c0.y, 0), mini(c1.y + 1, RES)):
+		for cx in range(maxi(c0.x, 0), mini(c1.x + 1, RES)):
+			var q := Vector2((cx + 0.5) * CELL - Land.HALF, (cz + 0.5) * CELL - Land.HALF)
+			if q.distance_to(p) > r:
+				continue
+			var k := cz * RES + cx
+			if on and _occ[k] == 0:
+				_occ[k] = RESERVED
+			elif not on and _occ[k] == RESERVED:
+				_occ[k] = 0
 
 
 ## The player painted or wiped the growing area around `c`.

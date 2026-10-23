@@ -39,6 +39,7 @@ var _cloud_timer := 60.0
 var _cloud_checked := false
 var sync: IslandSync
 var progress: IslandProgress
+var landmarks: Landmarks
 var _broke := false
 # the line being drawn with the street brush, and the box a shaping stroke touched
 var _path := PackedVector2Array()
@@ -104,6 +105,10 @@ func _ready() -> void:
 	progress = IslandProgress.new()
 	progress.world = self
 	add_child(progress)
+	landmarks = Landmarks.new()
+	landmarks.world = self
+	landmarks.beam_mat = beam_mat
+	add_child(landmarks)
 	progress.coins_changed.connect(func():
 		if _save_timer <= 0.0:
 			_save_timer = 15.0)
@@ -127,6 +132,7 @@ func new_island(s: int) -> void:
 	_redo.clear()
 	history_changed.emit()
 	streets.clear()
+	landmarks.reset()
 	town.clear()
 	land.generate(s)
 	_update_maps()
@@ -155,7 +161,7 @@ func load_own() -> void:
 func to_dict() -> Dictionary:
 	return {"v": 1, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
 		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(),
-		"progress": progress.to_dict()}
+		"progress": progress.to_dict(), "marks": landmarks.to_dict()}
 
 
 func _apply_save(data: Dictionary) -> void:
@@ -174,6 +180,8 @@ func _apply_save(data: Dictionary) -> void:
 	land.apply_zone(zn if zn is Dictionary else {})
 	var gn: Variant = data.get("green", {})
 	land.apply_green(gn if gn is Dictionary else {})
+	var mk: Variant = data.get("marks", {})
+	landmarks.from_dict(mk if mk is Dictionary else {})
 	var pr: Variant = data.get("progress")
 	if pr is Dictionary:
 		progress.from_dict(pr)
@@ -312,7 +320,7 @@ func _process(delta: float) -> void:
 			_apply_brush(_ring_at, delta)
 	time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
 	_update_sky()
-	_update_beams(PackedVector4Array())
+	_update_beams(landmarks.beams())
 	for c in _clouds:
 		c.position.x += c.get_meta("speed") * delta
 		if c.position.x > 160.0:
