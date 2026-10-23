@@ -11,6 +11,8 @@ uniform vec3 frame_col : source_color = vec3(0.97, 0.97, 0.95);
 // ground height of every tile, so walls, trunks and kerbs darken where they meet the ground
 uniform sampler2D height_tex : filter_nearest, repeat_disable;
 uniform float grid_size = 128.0;
+// the height map stores (y + range.y) / range.x
+uniform vec2 height_range = vec2(2.5, 0.5);
 #endif
 
 varying float v_emit;
@@ -192,7 +194,7 @@ void fragment() {
 	{
 		// sides darken towards the ground they stand on (soft contact shadow), and
 		// tall walls pick up faint rain streaks
-		float h = texture(height_tex, v_world.xz / grid_size + 0.5).r * 2.5 - 0.5;
+		float h = texture(height_tex, v_world.xz / grid_size + 0.5).r * height_range.x - height_range.y;
 		float above = v_world.y - h;
 		float side = 1.0 - smoothstep(0.45, 0.85, abs(v_wnorm.y));
 		base *= mix(1.0, mix(0.68, 1.0, smoothstep(0.0, 0.3, above)) * mix(0.92, 1.0, smoothstep(0.2, 2.2, above)), side);

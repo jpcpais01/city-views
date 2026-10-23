@@ -53,22 +53,42 @@ func _ready() -> void:
 		var t0 := Time.get_ticks_msec()
 		var made := island.growth.grow_all()
 		print("grew %d streets in %d ms" % [made, Time.get_ticks_msec() - t0])
+		island.streets.flush()
+		t0 = Time.get_ticks_msec()
+		island.town.fill_all()
+		print("built %d houses in %d ms" % [island.town.house_count(), Time.get_ticks_msec() - t0])
 	if OS.get_environment("CV_LIVE") != "":
 		# paint and let the town grow in real time, watching the slowest frame
 		var r := float(OS.get_environment("CV_LIVE"))
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 2.0)
 		island.growth.wake(Vector2(f.x, f.z))
+		await get_tree().process_frame
 		var worst := 0
+		var slow := 0
+		var frames := 0
 		var last := Time.get_ticks_usec()
-		var t_end := Time.get_ticks_msec() + 8000
-		while Time.get_ticks_msec() < t_end and island.growth.is_growing():
+		var t_end := Time.get_ticks_msec() + 20000
+		while Time.get_ticks_msec() < t_end and (island.growth.is_growing() or not island.town._todo.is_empty() or not island.town._job.is_empty()):
 			await get_tree().process_frame
 			var now := Time.get_ticks_usec()
 			worst = maxi(worst, now - last)
+			if now - last > 16000:
+				slow += 1
+			frames += 1
 			last = now
-		print("live: %d streets, slowest frame %d ms grow %d us streets %d us" % [island.streets.streets.size(), worst / 1000, island.growth.slowest_us, island.streets.slowest_us])
+		print("live: %d streets, %d houses, slowest frame %d ms, %d of %d frames over 16 ms" % [island.streets.streets.size(), island.town.house_count(), worst / 1000, slow, frames])
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
 	print("prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+	if OS.get_environment("CV_PARTS") != "":
+		# what each part of the island costs: hide it and see what drops
+		var total := Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+		for part in [island.town, island.streets, island.land]:
+			part.visible = false
+			await get_tree().process_frame
+			await get_tree().process_frame
+			print("  %s: %d" % [part.get_class() if part.get_script() == null else part.get_script().get_global_name(), total - Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)])
+			part.visible = true
+			await get_tree().process_frame
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(OS.get_environment("CV_OUT") if OS.get_environment("CV_OUT") != "" else "/tmp/island.png")
 	get_tree().quit()

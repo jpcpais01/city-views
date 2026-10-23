@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 21:30 UTC
+- Houses now grow on the island: as streets appear, lots are laid along them and a house goes up on each, filling the blocks back to back.
+- Busy main streets get tall terraced houses wall to wall, each in its own colour; quieter streets get detached homes with front hedges or fences, garden paths, flowers and a tree out back.
+- Every house is different: one to four floors, gabled, hipped or flat roofs, chimneys, brick or siding, coloured front doors with steps and canopies.
+- On slopes, plots are levelled into terraces and houses stand on stone plinths.
+- A whole grown island stays well inside the triangle budget, and growing streets and houses is spread across frames so it stays smooth.
+
 ## 2026-10-23 21:00 UTC
 - New Grow brush on the island: paint where the town should spread, and it lays out its own side streets one by one, growing outwards from your brush.
 - Side streets branch off at block-sized gaps, line up across main streets into crossroads, join up with each other into blocks, and wind across hillsides instead of climbing straight up.

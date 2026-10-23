@@ -65,6 +65,9 @@ func _process(delta: float) -> void:
 	# look over the streets, then try the best spots, a slice of work per frame
 	var start := Time.get_ticks_usec()
 	while Time.get_ticks_usec() - start < 2500:
+		# laying a street is the big step: give it a frame of its own
+		if not _cands.is_empty() and Time.get_ticks_usec() - start > 300:
+			return
 		if not _cands.is_empty():
 			if _try(_cands.pop_front()):
 				_cands.clear()

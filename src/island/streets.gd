@@ -7,6 +7,8 @@ extends Node3D
 ## meet, each one leaves a gap in the other's pavement, so junctions open up.
 
 signal changed
+signal added(s: Street)
+signal removed(s: Street)
 
 const SAMPLE := 0.5
 const MAX_GRADE := 0.16
@@ -39,6 +41,8 @@ class Street:
 	var ys := PackedFloat32Array()
 	var lo := Vector2.ZERO
 	var hi := Vector2.ZERO
+	# where junction corners take over the pavements: side -> (from, to) sample ranges
+	var cuts := {}
 
 	func w() -> float:
 		return Streets.KINDS[kind].w
@@ -101,6 +105,7 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	_build(s)
 	for o in _touching(s):
 		_build_later(o)
+	added.emit(s)
 	changed.emit()
 	return s
 
@@ -142,6 +147,7 @@ func erase_at(p: Vector2, radius: float) -> bool:
 			ns.update_bounds()
 			streets.append(ns)
 			_build(ns)
+			added.emit(ns)
 		for o in touching:
 			if o in streets:
 				_build_later(o)
@@ -170,6 +176,7 @@ func regrade_in(lo: Vector2, hi: Vector2) -> void:
 
 func _remove(s: Street) -> void:
 	streets.erase(s)
+	removed.emit(s)
 	if _meshes.has(s.id):
 		_meshes[s.id].queue_free()
 		_meshes.erase(s.id)
@@ -353,6 +360,22 @@ func _process(delta: float) -> void:
 			_build(s)
 
 
+## Finishes laying and remaking every street now (tests, loading).
+func flush() -> void:
+	_laying.clear()
+	for id in _pending.keys():
+		_build(_pending[id])
+	_pending.clear()
+	for st in streets:
+		if st.cuts.is_empty():
+			_build(st)
+
+
+## Whether the street is still being laid out or waiting for its mesh.
+func is_settling(s: Street) -> bool:
+	return _laying.has(s.id) or _pending.has(s.id)
+
+
 func _build_later(s: Street) -> void:
 	_pending[s.id] = s
 
@@ -449,8 +472,8 @@ func _build(s: Street) -> void:
 	for i in range(1, last_i):
 		var d0 := (s.pts[i] - s.pts[last]).normalized()
 		var d1 := (s.pts[i + 1] - s.pts[i]).normalized()
-		var bend := absf(d0.angle_to(d1)) > 0.03
-		var grade_change := absf((s.ys[i + 1] - s.ys[i]) - (s.ys[i] - s.ys[i - 1])) > 0.004
+		var bend := absf(d0.angle_to(d1)) > 0.08
+		var grade_change := absf((s.ys[i + 1] - s.ys[i]) - (s.ys[i] - s.ys[i - 1])) > 0.007
 		var gap_change: bool = gaps[i] != gaps[i - 1] or gaps[i] != gaps[i + 1]
 		if bend or grade_change or gap_change or (i - last) * SAMPLE >= 3.0:
 			rows[float(i)] = true
@@ -460,6 +483,8 @@ func _build(s: Street) -> void:
 			for f in [c.x, c.y]:
 				if f > 0.0 and f < upto:
 					rows[f] = true
+	if upto >= n - 1:
+		s.cuts = cuts
 	var fs: Array = rows.keys()
 	fs.sort()
 	var pave := CityGen.SIDEWALK
@@ -650,7 +675,7 @@ func _junction(s: Street, fs: float, o: Street, fo: float, cuts: Dictionary, buf
 
 
 func _corner(buf: MeshBuf, pa: Vector2, c: Vector2, pb: Vector2, ya: float, yb: float, asphalt: Color) -> void:
-	const K := 6
+	const K := 4
 	var pave := CityGen.SIDEWALK
 	var kerb := CityGen.SIDEWALK.darkened(0.12)
 	var cy := (ya + yb) * 0.5
@@ -761,3 +786,5 @@ func from_data(data: Array) -> void:
 		streets.append(s)
 	for s in streets:
 		_build(s)
+	for s in streets:
+		added.emit(s)
