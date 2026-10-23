@@ -9,7 +9,7 @@ config/version="0.1.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.5", "Mobile")
 config/icon="res://icon.png"
-boot_splash/bg_color=Color(0.53, 0.75, 0.86, 1)
+boot_splash/bg_color=Color(1, 0.58, 0.52, 1)
 boot_splash/show_image=false
 run/low_processor_mode=false
 
