@@ -58,6 +58,10 @@ var _confirm_new := false
 var _undo_btn: Button
 var _menu_card: PanelContainer
 var _redo_btn: Button
+var _goals: PanelContainer
+var _goal_rows: VBoxContainer
+var _goal_count: Label
+var _goals_open := true
 var _glass_light: ShaderMaterial
 var _glass_dark: ShaderMaterial
 var _glass_accent: ShaderMaterial
@@ -98,6 +102,7 @@ func _ready() -> void:
 	_build_toolbar()
 	_build_toasts()
 	_build_tutorial()
+	_build_goals()
 	_build_info()
 	_build_menu()
 	Game.stats_changed.connect(_refresh_stats)
@@ -107,6 +112,8 @@ func _ready() -> void:
 	Game.toast.connect(func(t, k): show_toast(t, k))
 	Game.world_reset.connect(_on_reset)
 	Game.history_changed.connect(_refresh_history)
+	Game.goals_changed.connect(_refresh_goals)
+	Game.goal_ready.connect(_on_goal_ready)
 	Net.room_changed.connect(_refresh_players)
 	Net.players_changed.connect(_refresh_players)
 	Net.message.connect(func(t): show_toast(t, "info"))
@@ -121,6 +128,7 @@ func _ready() -> void:
 	_refresh_players()
 	_update_tutorial()
 	_refresh_history()
+	_refresh_goals()
 
 
 # ------------------------------------------------------------------ theme
@@ -358,6 +366,8 @@ func _process(delta: float) -> void:
 	if absf(_coins_shown - Game.coins) < 0.5:
 		_coins_shown = Game.coins
 	_coin_label.text = _short(_coins_shown)
+	if _goals.visible and _goals_open:
+		_tick_goals()
 	if _fps_label.visible:
 		_fps_time += delta
 		if _fps_time >= 0.5:
@@ -837,6 +847,170 @@ func _update_tutorial() -> void:
 		_tutorial_label.text = texts[Game.tutorial_step]
 	else:
 		_tutorial.visible = false
+	if _goals:
+		# goals take over the tutorial's spot once the first steps are done
+		_goals.visible = not _tutorial.visible and not Game.goals.is_empty()
+
+
+# ------------------------------------------------------------------ goals
+
+func _build_goals() -> void:
+	_goals = PanelContainer.new()
+	_goals.set_anchors_preset(Control.PRESET_CENTER_LEFT)
+	_goals.offset_left = 18
+	_goals.offset_top = -120
+	_glassify(_goals)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	_goals.add_child(v)
+	# the header folds the list away, for when the view needs the room
+	var head := Button.new()
+	head.flat = true
+	head.focus_mode = Control.FOCUS_NONE
+	head.custom_minimum_size = Vector2(286, 34)
+	for st in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
+		head.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	var hr := HBoxContainer.new()
+	hr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hr.add_theme_constant_override("separation", 8)
+	hr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(hr)
+	hr.add_child(_icon("star", 28))
+	var title := _label("City goals", 18, true)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hr.add_child(title)
+	_goal_count = _label("", 15, true, SOFT)
+	hr.add_child(_goal_count)
+	head.pressed.connect(func():
+		Sfx.play("click")
+		_goals_open = not _goals_open
+		_goal_rows.visible = _goals_open)
+	v.add_child(head)
+	_goal_rows = VBoxContainer.new()
+	_goal_rows.add_theme_constant_override("separation", 10)
+	v.add_child(_goal_rows)
+	_root.add_child(_goals)
+
+
+func _refresh_goals() -> void:
+	if _goal_rows == null:
+		return
+	for c in _goal_rows.get_children():
+		c.queue_free()
+	var ready := 0
+	for i in Game.goals.size():
+		var g: Dictionary = Game.goals[i]
+		if g.get("ready", false):
+			ready += 1
+		_goal_rows.add_child(_goal_row(i, g))
+	_goal_count.text = ("%d to collect" % ready) if ready > 0 else ("%d done" % Game.goals_done)
+	_goal_count.add_theme_color_override("font_color", ACCENT if ready > 0 else SOFT)
+	_update_tutorial()
+
+
+func _goal_row(i: int, g: Dictionary) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var ic := _icon(str(g.icon), 34)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(ic)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(col)
+	var t := _label(str(g.text), 15, true)
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	t.custom_minimum_size.x = 160
+	col.add_child(t)
+	if g.get("ready", false):
+		var b := Button.new()
+		b.text = "Collect +%s" % _short(float(g.reward))
+		b.custom_minimum_size = Vector2(0, 38)
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_size_override("font_size", 16)
+		b.add_theme_stylebox_override("normal", _box(ACCENT, 19, 12))
+		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 19, 12))
+		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 19, 12, false))
+		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
+			b.add_theme_color_override(fc, Color.WHITE)
+		b.pressed.connect(_claim_goal.bind(i, b))
+		col.add_child(b)
+		# a gentle breathing pulse so it is hard to miss
+		b.pivot_offset = Vector2(60, 19)
+		var tw := b.create_tween().set_loops()
+		tw.tween_property(b, "scale", Vector2(1.04, 1.04), 0.55).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(b, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_SINE)
+	else:
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 8)
+		col.add_child(h)
+		var pb := ProgressBar.new()
+		pb.custom_minimum_size = Vector2(0, 8)
+		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		pb.show_percentage = false
+		pb.max_value = 1.0
+		pb.step = 0.0
+		pb.value = Game.goal_progress(g)
+		pb.set_meta("goal", i)
+		h.add_child(pb)
+		var r := HBoxContainer.new()
+		r.add_theme_constant_override("separation", 2)
+		r.add_child(_icon("coin", 16))
+		r.add_child(_label(_short(float(g.reward)), 13, true, Color("b46a1f")))
+		h.add_child(r)
+	return row
+
+
+## Keeps the goal bars moving as the town changes, without rebuilding the rows.
+func _tick_goals() -> void:
+	for row in _goal_rows.get_children():
+		for pb in row.find_children("*", "ProgressBar", true, false):
+			var i: int = pb.get_meta("goal", -1)
+			if i >= 0 and i < Game.goals.size():
+				pb.value = lerpf(pb.value, Game.goal_progress(Game.goals[i]), 0.25)
+
+
+func _on_goal_ready(i: int) -> void:
+	if i < Game.goals.size():
+		show_toast("Goal complete: %s" % Game.goals[i].text, "unlock")
+	Sfx.play("bell", 1.2)
+	if not _goals_open:
+		_goals_open = true
+		_goal_rows.visible = true
+	_refresh_goals()
+
+
+func _claim_goal(i: int, from: Control) -> void:
+	var start := from.get_global_rect().get_center()
+	var paid := Game.claim_goal(i)
+	if paid <= 0.0:
+		return
+	Sfx.play("unlock", 1.25)
+	_fly_coins(start, 9)
+	_refresh_goals()
+
+
+## Little coins that arc from a point into the coin counter, one chime each.
+func _fly_coins(start: Vector2, count: int) -> void:
+	var end := _coin_label.get_global_rect().get_center() - _root.get_global_rect().position
+	start -= _root.get_global_rect().position
+	for k in count:
+		var c := _icon("coin", 30)
+		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		c.position = start + Vector2(randf_range(-30, 30), randf_range(-14, 14)) - Vector2(15, 15)
+		c.z_index = 10
+		_root.add_child(c)
+		var mid := (c.position + end) * 0.5 + Vector2(randf_range(-80, 80), -140)
+		var tw := c.create_tween()
+		var from_p := c.position
+		tw.tween_interval(k * 0.06)
+		tw.tween_method(func(t: float):
+			c.position = from_p.lerp(mid, t).lerp(mid.lerp(end - Vector2(15, 15), t), t)
+			c.scale = Vector2.ONE * (1.0 - 0.4 * t), 0.0, 1.0, 0.7).set_ease(Tween.EASE_IN)
+		tw.tween_callback(func():
+			Sfx.play("coin", 1.0 + k * 0.04, -6.0)
+			c.queue_free())
 
 
 # ------------------------------------------------------------------ tile info

@@ -54,6 +54,12 @@ var _moved := false
 var _mouse_buttons := 0
 var _last_fail_time := 0.0
 var _painted_this_stroke := 0
+# tip bubbles: now and then a happy building floats a coin or heart to tap
+var _bubbles := {}
+var _bubble_timer := 10.0
+static var _bubble_tex := {}
+const BUBBLE_MAX := 3
+const BUBBLE_LIFE := 40.0
 
 
 func _ready() -> void:
@@ -299,6 +305,9 @@ func _update_shore_tex() -> void:
 
 
 func _on_world_reset() -> void:
+	for b in _bubbles.values():
+		b.node.queue_free()
+	_bubbles.clear()
 	for n in _tiles.values():
 		n.queue_free()
 	_tiles.clear()
@@ -627,23 +636,167 @@ func _on_income(amount: float) -> void:
 			var p := Game.tile_center(x, z) + Vector3(0, 1.6 + Game.grw(x, z) * 0.8, 0)
 			if not _on_screen(p):
 				continue
-			var l := Label3D.new()
-			l.text = "+%d" % int(round(amount))
-			l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-			l.no_depth_test = true
-			l.font_size = 64
-			l.pixel_size = 0.006
-			l.outline_size = 14
-			l.modulate = Color(1.0, 0.86, 0.3)
-			l.outline_modulate = Color(0.45, 0.3, 0.1)
-			l.position = p
-			add_child(l)
-			var tw := create_tween()
-			tw.set_parallel(true)
-			tw.tween_property(l, "position", p + Vector3(0, 1.4, 0), 1.6).set_ease(Tween.EASE_OUT)
-			tw.tween_property(l, "modulate:a", 0.0, 1.6).set_delay(0.5)
-			tw.chain().tween_callback(l.queue_free)
+			_float_text(p, "+%d" % int(round(amount)), Color(1.0, 0.86, 0.3))
 			return
+
+
+# ------------------------------------------------------------------ tip bubbles
+
+## A round badge drawn once in code: a gold coin, or a pink heart for homes.
+static func _bubble_texture(kind: String) -> Texture2D:
+	if _bubble_tex.has(kind):
+		return _bubble_tex[kind]
+	var n := 96
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var c := Vector2(n, n) * 0.5
+	for y in n:
+		for x in n:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var d := p.distance_to(c) / (n * 0.5)
+			var col := Color(0, 0, 0, 0)
+			# white rim with a soft drop shadow, then the coloured face
+			if d < 1.0:
+				col = Color(0.1, 0.15, 0.25, 0.25 * (1.0 - d) * 3.0) if d > 0.9 else Color.WHITE
+			if d < 0.82:
+				var top := 1.0 - (p.y / n)
+				col = (Color("ffbf2e") if kind == "coin" else Color("ff6f9c")).lerp(Color.WHITE, top * 0.12)
+			if kind == "coin":
+				if d < 0.56 and d > 0.46:
+					col = Color("e09a1f")
+				if absf(p.x - c.x) < n * 0.05 and absf(p.y - c.y) < n * 0.2:
+					col = Color("e09a1f")
+			else:
+				var q := (p - c) / (n * 0.26)
+				q.y = -q.y + 0.25
+				# heart: x^2 + (y - sqrt|x|)^2 < 1
+				var hv := q.x * q.x + pow(q.y - sqrt(absf(q.x)) * 0.9, 2.0)
+				if hv < 1.0:
+					col = Color.WHITE
+			# a glint top left
+			if p.distance_to(c + Vector2(-n * 0.22, -n * 0.24)) < n * 0.07 and d < 0.82:
+				col = col.lerp(Color.WHITE, 0.7)
+			img.set_pixel(x, y, col)
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	_bubble_tex[kind] = tex
+	return tex
+
+
+func _bubble_height(t: Vector2i) -> float:
+	var g := Game.grw(t.x, t.y)
+	var hs: Array = [0.0, 1.5, 2.4, 3.8]
+	if Game.knd(t.x, t.y) == Game.K.OFFICE:
+		hs = [0.0, 2.2, 3.6, 6.8]
+	return Game.tile_y(t.x, t.y) + float(hs[g]) + 0.5
+
+
+func _update_bubbles(delta: float) -> void:
+	_bubble_timer -= delta
+	if _bubble_timer <= 0.0:
+		_bubble_timer = randf_range(12.0, 26.0)
+		if _bubbles.size() < BUBBLE_MAX:
+			_spawn_bubble()
+	var now := Time.get_ticks_msec() * 0.001
+	for t in _bubbles.keys():
+		var b: Dictionary = _bubbles[t]
+		var sp: Sprite3D = b.node
+		b.age += delta
+		if not Game.is_building(Game.knd(t.x, t.y)) or Game.grw(t.x, t.y) == 0:
+			b.age = maxf(b.age, BUBBLE_LIFE)
+		# bob gently; fade out at the end of its life
+		sp.position.y = _bubble_height(t) + sin(now * 2.4 + t.x) * 0.15
+		var a := clampf((BUBBLE_LIFE + 1.0 - b.age), 0.0, 1.0) * clampf(b.age * 3.0, 0.0, 1.0)
+		sp.modulate.a = a
+		if b.age > BUBBLE_LIFE + 1.0:
+			sp.queue_free()
+			_bubbles.erase(t)
+
+
+func _spawn_bubble() -> void:
+	for attempt in 40:
+		var t := Vector2i(randi_range(1, Game.N - 2), randi_range(1, Game.N - 2))
+		var k := Game.knd(t.x, t.y)
+		if _bubbles.has(t) or not Game.is_building(k) or Game.grw(t.x, t.y) == 0:
+			continue
+		var p := Game.tile_center(t.x, t.y)
+		p.y = _bubble_height(t)
+		if not _on_screen(p):
+			continue
+		var sp := Sprite3D.new()
+		sp.texture = _bubble_texture("heart" if k == Game.K.HOUSE else "coin")
+		sp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		sp.no_depth_test = true
+		sp.fixed_size = true
+		sp.pixel_size = 0.0007
+		sp.shaded = false
+		sp.render_priority = 10
+		sp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		sp.position = p
+		sp.modulate.a = 0.0
+		add_child(sp)
+		_bubbles[t] = {"node": sp, "age": 0.0}
+		Sfx.play("pop", 1.4, -10.0)
+		return
+
+
+## The bubble under a screen point, if any (generous, for fingers).
+func _bubble_at(screen: Vector2) -> Vector2i:
+	var best := Vector2i(-1, -1)
+	var best_d := 46.0 * maxf(1.0, get_viewport().get_visible_rect().size.y / 720.0)
+	for t in _bubbles:
+		var sp: Sprite3D = _bubbles[t].node
+		if rig.cam.is_position_behind(sp.global_position):
+			continue
+		var d := rig.cam.unproject_position(sp.global_position).distance_to(screen)
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+func _collect_bubble(t: Vector2i) -> void:
+	var b: Dictionary = _bubbles[t]
+	_bubbles.erase(t)
+	var sp: Sprite3D = b.node
+	var home := Game.knd(t.x, t.y) == Game.K.HOUSE
+	var reward := roundf(Game.income_per_tick() * 2.5 + 4.0 + Game.grw(t.x, t.y) * 3.0)
+	Game.add_coins(reward)
+	Sfx.play("coin", 1.1)
+	_float_text(sp.position + Vector3(0, 0.4, 0), ("Thanks! +%d" if home else "Tip! +%d") % int(reward), Color("ff8fb1") if home else Color(1.0, 0.86, 0.3))
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(sp, "scale", Vector3.ONE * 1.8, 0.25).set_ease(Tween.EASE_OUT)
+	tw.tween_property(sp, "modulate:a", 0.0, 0.25)
+	tw.chain().tween_callback(sp.queue_free)
+
+
+func _float_text(p: Vector3, text: String, col: Color) -> void:
+	var l := Label3D.new()
+	l.text = text
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.font_size = 64
+	l.pixel_size = 0.006
+	l.outline_size = 14
+	l.modulate = col
+	l.outline_modulate = col.darkened(0.6)
+	l.position = p
+	add_child(l)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(l, "position", p + Vector3(0, 1.4, 0), 1.6).set_ease(Tween.EASE_OUT)
+	tw.tween_property(l, "modulate:a", 0.0, 1.6).set_delay(0.5)
+	tw.chain().tween_callback(l.queue_free)
+
+
+## A tap that lands on a bubble collects it instead of painting or picking a tile.
+func _try_bubble(screen: Vector2) -> bool:
+	var t := _bubble_at(screen)
+	if t.x < 0:
+		return false
+	_collect_bubble(t)
+	_moved = true
+	return true
 
 
 # ------------------------------------------------------------------ frame
@@ -685,6 +838,7 @@ func _process(delta: float) -> void:
 		var pulse := 0.7 + 0.3 * sin(Time.get_ticks_msec() * 0.008)
 		_cursor_mat.albedo_color.a = 0.55 + 0.35 * pulse
 	_animate_remote_cursors(delta)
+	_update_bubbles(delta)
 
 
 const SKY_KEYS := [
@@ -915,6 +1069,8 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 			_press_pos = e.position
 			_moved = false
 			_painted_this_stroke = 0
+			if _try_bubble(e.position):
+				return
 			if tool != "":
 				_painting = true
 				_paint_last = Vector2i(-1, -1)
@@ -973,6 +1129,9 @@ func _on_mouse_button(e: InputEventMouseButton) -> void:
 				_press_pos = e.position
 				_moved = false
 				_painted_this_stroke = 0
+				if _try_bubble(e.position):
+					_mouse_buttons |= 1 << e.button_index
+					return
 				if tool != "":
 					_painting = true
 					_paint_last = Vector2i(-1, -1)
