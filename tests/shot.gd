@@ -49,11 +49,6 @@ func _ready() -> void:
 		world.rig.focus(Game.tile_center(cx, cz))
 	world.rig._t_dist = float(OS.get_environment("CV_DIST")) if OS.get_environment("CV_DIST") != "" else 34.0
 	await get_tree().create_timer(10.0).timeout
-	print('knd 21,12 = ', Game.knd(21, 12), ' tiles built ', world._tiles.size(), ' queue ', world._build_queue.size(), ' has ', world._tiles.has(Vector2i(21, 12)))
-	if world._tiles.has(Vector2i(21, 12)): print(world._tiles[Vector2i(21, 12)].global_position, ' scale ', world._tiles[Vector2i(21, 12)].scale)
-	print('center tile ', world.rig.pick_tile(get_viewport().get_visible_rect().size * 0.5), ' cam ', world.rig.cam.global_position, ' target ', world.rig.target)
-	var tn: Node3D = world._tiles[Vector2i(21, 12)]
-	print('vis ', tn.is_visible_in_tree(), ' children ', tn.get_child_count(), ' parent ', tn.get_parent(), ' in frustum ', world.rig.cam.is_position_in_frustum(tn.global_position), ' screen ', world.rig.cam.unproject_position(tn.global_position))
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(OS.get_environment("CV_OUT") if OS.get_environment("CV_OUT") != "" else "/tmp/shot.png")
 	get_tree().quit()

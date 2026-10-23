@@ -37,9 +37,9 @@ func _top_color(x: int, z: int, l: int) -> Color:
 		0: c = Color(0.78, 0.74, 0.58)
 		1: c = Color(0.96, 0.87, 0.66)
 		2: c = Color(0.56, 0.79, 0.4)
-		3: c = Color(0.5, 0.75, 0.37)
-		4: c = Color(0.45, 0.69, 0.36)
-		5: c = Color(0.58, 0.64, 0.48)
+		3: c = Color(0.46, 0.71, 0.35)
+		4: c = Color(0.39, 0.63, 0.33)
+		5: c = Color(0.52, 0.58, 0.44)
 		_: c = Color(0.62, 0.66, 0.52)
 	if Game.knd(x, z) == Game.K.TREE and l >= 2:
 		c = c.darkened(0.08)
