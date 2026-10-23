@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 21:50 UTC
+- New Green brush on the island: paint parks and the town keeps them green, with trees, blossom, flower beds, ponds and benches under lamps. Paint Grow over a park to build there again.
+- Busy main streets now and then open into a cobbled square with a fountain, benches, trees and market stalls.
+- Each part of town gets a church in its quarter's style: a spire in brick or stone, a white tower with a blue dome by the harbour, a campanile in the south.
+- Street lamps now line the pavements.
+- Squares on a slope stand on stone retaining walls.
+
 ## 2026-10-23 21:45 UTC
 - Each quarter of the island now has its own style: whitewashed harbour houses with blue roofs by the sea, pastel terraces, red-brick streets, cream stone under slate, a sunny terracotta south and painted nordic timber.
 - Main streets get shops on the ground floor, with display windows, striped awnings and sign boards that light up at night.

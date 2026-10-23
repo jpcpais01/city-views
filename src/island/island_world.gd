@@ -7,7 +7,7 @@ extends World
 signal brush_changed
 
 const SAVE_PATH := "user://island.json"
-const BRUSHES := ["street", "grow", "clear", "raise", "lower", "smooth", "flatten"]
+const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
 const SHAPE := ["raise", "lower", "smooth", "flatten"]
 
 var land: Land
@@ -86,6 +86,8 @@ func _load() -> void:
 		streets.from_data(st if st is Array else [])
 		var zn: Variant = data.get("zone", {})
 		land.apply_zone(zn if zn is Dictionary else {})
+		var gn: Variant = data.get("green", {})
+		land.apply_green(gn if gn is Dictionary else {})
 		_update_maps()
 	else:
 		new_island(randi() % 1000000)
@@ -94,7 +96,7 @@ func _load() -> void:
 func _save() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"v": 1, "seed": island_seed, "land": land.edits(), "streets": streets.to_data(), "zone": land.zone_edits()}))
+		f.store_string(JSON.stringify({"v": 1, "seed": island_seed, "land": land.edits(), "streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits()}))
 
 
 ## Ground maps for the shaders; the shoreline one only when the coast may have moved.
@@ -111,7 +113,7 @@ func _update_maps(coast := true) -> void:
 
 func set_brush(id: String) -> void:
 	brush = id if id != brush else ""
-	land.show_zone = brush == "grow"
+	land.show_zone = brush == "grow" or brush == "green"
 	brush_changed.emit()
 
 
@@ -164,12 +166,22 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 			land.flatten(at, r, _stroke_level, 5.0 * delta)
 		"grow":
 			land.paint_zone(at, r, 2.5 * delta)
+			land.paint_green(at, r, -2.5 * delta)
+			growth.wake(c)
+			town.zone_changed(c, r)
+			_save_timer = 1.0
+			return
+		"green":
+			# parks and gardens: still part of the town, its streets run through
+			land.paint_zone(at, r, 2.5 * delta)
+			land.paint_green(at, r, 2.5 * delta)
 			growth.wake(c)
 			town.zone_changed(c, r)
 			_save_timer = 1.0
 			return
 		"clear":
 			land.paint_zone(at, r * 0.6, -4.0 * delta)
+			land.paint_green(at, r * 0.6, -4.0 * delta)
 			town.zone_changed(c, r * 0.6)
 			if streets.erase_at(c, r * 0.6):
 				Sfx.play("bulldoze", 1.0, -8.0, 0.1)

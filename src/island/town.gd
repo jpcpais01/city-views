@@ -54,6 +54,8 @@ class Lot:
 	var dense := 0.0
 	## the style kit of its quarter (HouseGen.KITS)
 	var kit := 0
+	## house, park, square or church
+	var type := "house"
 	var patch := Vector2i.ZERO
 	var arrays: Array = []
 	var cells := PackedInt32Array()
@@ -86,7 +88,7 @@ func clear() -> void:
 func zone_changed(c: Vector2, r: float) -> void:
 	for id in lots.keys():
 		var l: Lot = lots[id]
-		if l.origin.distance_to(c) < r + 4.0 and _zone(l) < 0.25:
+		if l.origin.distance_to(c) < r + 4.0 and (_zone(l) < 0.25 or (_green(l) > 0.5) != (l.type == "park")):
 			_drop(l)
 	for s: Streets.Street in streets.streets:
 		if s.near_box(c, r + 4.0):
@@ -305,21 +307,38 @@ func _step(job: Dictionary, until: int) -> bool:
 				f += 1.0
 				continue
 			var h := _hash(s.id, f, side)
-			# terraced rows are narrow; detached houses take wider plots
-			var width := lerpf(1.7, 2.4, h) if dense > 0.6 else lerpf(2.2, 3.2, h)
-			var f1 := f + width / Streets.SAMPLE
-			if f1 > n - 1.5:
+			var kind := _kind_at(s, f, p, side, dense)
+			var lot: Lot = null
+			var f1 := f
+			for attempt in 2:
+				# terraced rows are narrow; detached houses take wider plots
+				var width := lerpf(1.7, 2.4, h) if dense > 0.6 else lerpf(2.2, 3.2, h)
+				if kind == "square":
+					width = 6.0
+				elif kind == "church":
+					width = 4.4
+				f1 = f + width / Streets.SAMPLE
+				var blocked := f1 > n - 1.5
+				for c in cuts:
+					if f1 > c.x - 0.6 and f < c.y + 0.6:
+						blocked = true
+				if not blocked:
+					lot = _try_lot(s, f, f1, side, off, dense, kind)
+				# no room for something grand here: a plain lot instead
+				if lot or kind == "house" or kind == "park":
+					break
+				kind = "house"
+			if f1 > n - 1.5 and not lot:
 				break
-			var blocked := -1.0
+			var cut_end := -1.0
 			for c in cuts:
 				if f1 > c.x - 0.6 and f < c.y + 0.6:
-					blocked = c.y + 0.6
-			if blocked > 0.0:
-				f = maxf(blocked, f + 1.0)
+					cut_end = c.y + 0.6
+			if not lot and cut_end > 0.0:
+				f = maxf(cut_end, f + 1.0)
 				continue
-			var lot := _try_lot(s, f, f1, side, off, dense)
 			if lot:
-				f = f1 + (0.0 if dense > 0.6 else lerpf(0.4, 1.2, _hash(s.id, f, side * 3.0)))
+				f = f1 + (0.0 if dense > 0.6 or kind == "park" else lerpf(0.4, 1.2, _hash(s.id, f, side * 3.0)))
 			else:
 				f += 1.0
 		job.side += 1
@@ -327,7 +346,28 @@ func _step(job: Dictionary, until: int) -> bool:
 	return true
 
 
-func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, dense: float) -> Lot:
+## What a new lot here should hold: green where the player painted parks, now
+## and then a square on a busy main street or a church, spaced well apart.
+func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float) -> String:
+	var q := p + streets._sidef(s, f) * side * (s.reach() + 2.5)
+	if land.green_at(q.x, q.y) > 0.5:
+		return "park"
+	var h := _hash(s.id, f, side * 7.0)
+	if s.kind == "main" and dense > 0.7 and h < 0.25 and _civic_near(q, "square", 48.0) == null:
+		return "square"
+	if dense > 0.5 and h > 0.88 and _civic_near(q, "church", 60.0) == null and _civic_near(q, "square", 14.0) == null:
+		return "church"
+	return "house"
+
+
+func _civic_near(p: Vector2, type: String, r: float) -> Variant:
+	for l: Lot in lots.values():
+		if l.type == type and l.origin.distance_to(p) < r:
+			return l
+	return null
+
+
+func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, dense: float, kind := "house") -> Lot:
 	var a := streets._ptf(s, f0) + streets._sidef(s, f0) * side * off
 	var b := streets._ptf(s, f1) + streets._sidef(s, f1) * side * off
 	var fm := (f0 + f1) * 0.5
@@ -345,7 +385,12 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 			depth = minf(depth, snappedf(t * 0.5 - 0.1, 0.5))
 			break
 		t += 0.25
-	while depth >= MIN_DEPTH:
+	var least := MIN_DEPTH
+	if kind == "church":
+		least = 4.5
+	elif kind == "square":
+		least = 3.5
+	while depth >= least:
 		var quad := PackedVector2Array([a, b, b + nb * depth, a + na * depth])
 		var cells := _free_cells(quad, s.id, inward)
 		if not cells.is_empty() and _ground_ok(quad):
@@ -370,11 +415,18 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 			# terrace the front of the plot, where the house stands, near the street's level
 			var mid := (a + b) * 0.5 + inward * minf(depth * 0.35, 2.0)
 			var level := clampf(land.height_at(mid.x, mid.y), street_y - 0.02, street_y + 0.45)
-			var front := minf(depth * 0.72, 4.2)
-			land.pad(PackedVector2Array([a, b, b + nb * front, a + na * front]), level, 1.4, _near_street)
+			l.type = kind
+			# squares and churches stand on a level plot all the way back; parks keep their slopes
+			var front := depth if kind == "square" or kind == "church" else minf(depth * 0.72, 4.2)
+			if kind != "park":
+				land.pad(PackedVector2Array([a, b, b + nb * front, a + na * front]), level, 1.4, _near_street)
 			l.kit = HouseGen.kit_at(land, l.origin)
 			# seeded by place, so the same lot always grows the same house
-			l.arrays = HouseGen.build(l, land, street_y, int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663, s.kind == "main")
+			var sd := int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663
+			if kind == "house":
+				l.arrays = HouseGen.build(l, land, street_y, sd, s.kind == "main")
+			else:
+				l.arrays = CivicGen.build(l, land, street_y, sd)
 			reshaped.emit()
 			_dirty_patches[l.patch] = true
 			return l
@@ -402,6 +454,11 @@ func _ground_ok(quad: PackedVector2Array) -> bool:
 		lo = minf(lo, h)
 		hi = maxf(hi, h)
 	return lo > 0.2 and hi - lo < 3.2
+
+
+func _green(l: Lot) -> float:
+	var c := (l.quad[0] + l.quad[1]) * 0.5 + (l.quad[3] - l.quad[0]).normalized() * 2.5
+	return land.green_at(c.x, c.y)
 
 
 func _zone(l: Lot) -> float:
