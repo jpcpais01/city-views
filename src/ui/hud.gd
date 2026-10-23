@@ -88,6 +88,9 @@ func _ready() -> void:
 	_glass_light = _glass_mat(0.5)
 	_glass_dark = _glass_mat(0.62)
 	_glass_accent = _glass_mat(0.72)
+	if not OS.has_feature("mobile"):
+		get_window().size_changed.connect(_fit_desktop_scale)
+		_fit_desktop_scale()
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1185,6 +1188,21 @@ func _page_box(id: String) -> VBoxContainer:
 	m.add_child(v)
 	_pages[id] = scroll
 	return v
+
+
+## The layout is sized for a 720-tall phone screen stretched to fit. On a monitor that
+## makes every panel huge, so on desktop shrink the stretch back towards real pixels
+## (scaled by the monitor's DPI); phones keep the stretched layout untouched.
+func _fit_desktop_scale() -> void:
+	var w := get_window()
+	var stretch := minf(w.size.x / 1280.0, w.size.y / 720.0)
+	if stretch <= 0.0:
+		return
+	var dpi := float(DisplayServer.screen_get_dpi(w.current_screen))
+	var px := maxf(DisplayServer.screen_get_scale(w.current_screen), dpi / 96.0 if dpi > 0.0 else 1.0)
+	var f := clampf(0.95 * clampf(px, 0.85, 3.0) / stretch, 0.45, 1.0)
+	if absf(w.content_scale_factor - f) > 0.001:
+		w.content_scale_factor = f
 
 
 func _apply_side_margins() -> void:

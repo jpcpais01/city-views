@@ -2,6 +2,7 @@
 
 ## 2026-10-23 18:30 UTC
 - Every new version now comes with a Windows download too: grab CityViews-Windows.zip from the release, unzip it and run CityViews.exe.
+- On PC the interface is now sized for a monitor instead of a phone. Panels and buttons are about a third smaller at 1080p and scale with your screen's DPI. Phones look exactly the same.
 
 ## 2026-10-23 18:30 UTC
 - City goals: three goals at a time, picked to fit your town, such as growing to the next size, trying a newly unlocked building, opening a café on the seafront or making everyone happier.
