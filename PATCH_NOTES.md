@@ -2,6 +2,8 @@
 
 ## 2026-10-23 12:15 UTC
 - A new app icon: a sunset waterfront of pastel towers and gabled homes, with a little sailboat on the bay. It also adapts to round, squircle and teardrop launcher shapes.
+- The menu is reorganised into tabs (Island, Co-op, Account, Settings, What's new) and only shows the buttons that make sense right now, like Leave only when you're in a room.
+- A tiny FPS counter sits under your city name. You can hide it in Settings.
 
 ## 2026-10-23 12:00 UTC
 - A brand new sea: clear turquoise shallows you can see the sand through, deep blue water further out, rolling swell, dancing caustics and foam that laps at the beach.
