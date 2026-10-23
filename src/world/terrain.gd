@@ -82,31 +82,44 @@ func _build_chunk(cx: int, cz: int) -> void:
 			var z0 := c.z - h
 			var z1 := c.z + h
 			var top := _top_color(x, z, l)
-			mk.quad(Vector3(x0 + bx0, y, z0 + bz0), Vector3(x1 - bx1, y, z0 + bz0), Vector3(x1 - bx1, y, z1 - bz1), Vector3(x0 + bx0, y, z1 - bz1), Vector3.UP, top)
+			# corner colours are averaged with the neighbours on the same terrace,
+			# so the grid melts into soft gradients instead of hard squares
+			mk.quad_c(Vector3(x0 + bx0, y, z0 + bz0), Vector3(x1 - bx1, y, z0 + bz0), Vector3(x1 - bx1, y, z1 - bz1), Vector3(x0 + bx0, y, z1 - bz1),
+				_corner(x, z, l, x, z), _corner(x, z, l, x + 1, z), _corner(x, z, l, x + 1, z + 1), _corner(x, z, l, x, z + 1))
 			var lip := top.lightened(0.06)
 			var yl := y - LIP
 			var up := Vector3.UP
-			# rounded lips + cliff walls on every edge that drops
+			# convex corners (both sides drop) get a rounded fillet instead of a square notch
+			var rc := [drops[0] and drops[2], drops[0] and drops[3], drops[1] and drops[2], drops[1] and drops[3]]
+			var ez1x := LIP if rc[0] else 0.0  # +x edge, z1 end
+			var ez0x := LIP if rc[1] else 0.0
+			var ez1nx := LIP if rc[2] else 0.0
+			var ez0nx := LIP if rc[3] else 0.0
 			if drops[0]:
 				var o := Vector3.RIGHT
-				mk.quad_n(Vector3(x1 - LIP, y, z0 + bz0), Vector3(x1 - LIP, y, z1 - bz1), Vector3(x1, yl, z1), Vector3(x1, yl, z0),
+				mk.quad_n(Vector3(x1 - LIP, y, z0 + bz0), Vector3(x1 - LIP, y, z1 - bz1), Vector3(x1, yl, z1 - ez1x), Vector3(x1, yl, z0 + ez0x),
 					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x1, yl, z0), Vector3(x1, yl, z1), low[0], o, l)
+				_wall(mk, Vector3(x1, yl, z0 + ez0x), Vector3(x1, yl, z1 - ez1x), low[0], o, l)
 			if drops[1]:
 				var o := Vector3.LEFT
-				mk.quad_n(Vector3(x0 + LIP, y, z0 + bz0), Vector3(x0 + LIP, y, z1 - bz1), Vector3(x0, yl, z1), Vector3(x0, yl, z0),
+				mk.quad_n(Vector3(x0 + LIP, y, z0 + bz0), Vector3(x0 + LIP, y, z1 - bz1), Vector3(x0, yl, z1 - ez1nx), Vector3(x0, yl, z0 + ez0nx),
 					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x0, yl, z0), Vector3(x0, yl, z1), low[1], o, l)
+				_wall(mk, Vector3(x0, yl, z0 + ez0nx), Vector3(x0, yl, z1 - ez1nx), low[1], o, l)
 			if drops[2]:
 				var o := Vector3.BACK
-				mk.quad_n(Vector3(x0 + bx0, y, z1 - LIP), Vector3(x1 - bx1, y, z1 - LIP), Vector3(x1, yl, z1), Vector3(x0, yl, z1),
+				mk.quad_n(Vector3(x0 + bx0, y, z1 - LIP), Vector3(x1 - bx1, y, z1 - LIP), Vector3(x1 - (LIP if rc[0] else 0.0), yl, z1), Vector3(x0 + (LIP if rc[2] else 0.0), yl, z1),
 					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x0, yl, z1), Vector3(x1, yl, z1), low[2], o, l)
+				_wall(mk, Vector3(x0 + (LIP if rc[2] else 0.0), yl, z1), Vector3(x1 - (LIP if rc[0] else 0.0), yl, z1), low[2], o, l)
 			if drops[3]:
 				var o := Vector3.FORWARD
-				mk.quad_n(Vector3(x0 + bx0, y, z0 + LIP), Vector3(x1 - bx1, y, z0 + LIP), Vector3(x1, yl, z0), Vector3(x0, yl, z0),
+				mk.quad_n(Vector3(x0 + bx0, y, z0 + LIP), Vector3(x1 - bx1, y, z0 + LIP), Vector3(x1 - (LIP if rc[1] else 0.0), yl, z0), Vector3(x0 + (LIP if rc[3] else 0.0), yl, z0),
 					(up + o * 0.4).normalized(), (up + o * 0.4).normalized(), (o + up * 0.3).normalized(), (o + up * 0.3).normalized(), lip)
-				_wall(mk, Vector3(x0, yl, z0), Vector3(x1, yl, z0), low[3], o, l)
+				_wall(mk, Vector3(x0 + (LIP if rc[3] else 0.0), yl, z0), Vector3(x1 - (LIP if rc[1] else 0.0), yl, z0), low[3], o, l)
+			var corners := [[1.0, 1.0, 0, 2], [1.0, -1.0, 0, 3], [-1.0, 1.0, 1, 2], [-1.0, -1.0, 1, 3]]
+			for k in 4:
+				if rc[k]:
+					var cr: Array = corners[k]
+					_fillet(mk, Vector3(c.x + cr[0] * (h - LIP), y, c.z + cr[1] * (h - LIP)), cr[0], cr[1], minf(low[cr[2]], low[cr[3]]), lip, l)
 			# pebbles and grass tufts on empty land for extra richness
 			if Game.knd(x, z) == Game.K.EMPTY and l >= 1:
 				var r := Game.hashf(x, z, 21)
@@ -124,8 +137,44 @@ func _build_chunk(cx: int, cz: int) -> void:
 					mk.rbox(c + Vector3(Game.hashf(x, z, 22) - 0.5, 0.02, Game.hashf(x, z, 23) - 0.5), Vector3(0.18, 0.06, 0.12), 0.03, Color(0.98, 0.95, 0.9))
 	var mi := MeshInstance3D.new()
 	mi.mesh = mk.commit(material)
+	# the ground only receives shadows; drawing it into the shadow map is wasted work
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 	_chunks[key] = mi
+
+
+## Average of the top colours of the (up to four) same-level tiles around a grid corner.
+func _corner(x: int, z: int, l: int, gx: int, gz: int) -> Color:
+	var sum := Color(0, 0, 0, 0)
+	var n := 0
+	for oz in [gz - 1, gz]:
+		for ox in [gx - 1, gx]:
+			if Game.inside(ox, oz) and Game.lvl(ox, oz) == l:
+				sum += _top_color(ox, oz, l)
+				n += 1
+	if n == 0:
+		return _top_color(x, z, l)
+	return Color(sum.r / n, sum.g / n, sum.b / n)
+
+
+## Quarter-round lip and cliff for a convex terrace corner centred on `cc` (top level).
+func _fillet(mk: MeshKit, cc: Vector3, sx: float, sz: float, bottom: float, lip: Color, l: int) -> void:
+	const SEG := 4
+	var yl := cc.y - LIP
+	var top := cc
+	var prev := Vector3.ZERO
+	var prev_n := Vector3.ZERO
+	for i in SEG + 1:
+		var a := PI * 0.5 * float(i) / SEG
+		var dir := Vector3(cos(a) * sx, 0, sin(a) * sz)
+		var p := Vector3(cc.x, yl, cc.z) + dir * LIP
+		if i > 0:
+			mk.tri_n(top, prev, p, (Vector3.UP + (prev_n + dir) * 0.2).normalized(), (prev_n + Vector3.UP * 0.3).normalized(), (dir + Vector3.UP * 0.3).normalized(), (Vector3.UP + dir).normalized(), lip)
+			if yl - bottom > 0.01:
+				var col := _wall_color(l, cc.y)
+				mk.quad_n(prev, p, Vector3(p.x, bottom, p.z), Vector3(prev.x, bottom, prev.z), prev_n, dir, dir, prev_n, col)
+		prev = p
+		prev_n = dir
 
 
 func _wall(mk: MeshKit, a: Vector3, b: Vector3, bottom: float, out: Vector3, l: int) -> void:

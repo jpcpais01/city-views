@@ -9,6 +9,13 @@ var verts := PackedVector3Array()
 var norms := PackedVector3Array()
 var cols := PackedColorArray()
 var uvs := PackedVector2Array()
+# geometry written while `detail` is on (windows, paint, lamps) goes to a second
+# set of arrays that is drawn without casting shadows
+var detail := false
+var dverts := PackedVector3Array()
+var dnorms := PackedVector3Array()
+var dcols := PackedColorArray()
+var duvs := PackedVector2Array()
 var xf := Transform3D.IDENTITY
 var _stack: Array[Transform3D] = []
 var rng := RandomNumberGenerator.new()
@@ -35,10 +42,16 @@ func pop() -> void:
 
 
 func is_empty() -> bool:
-	return verts.is_empty()
+	return verts.is_empty() and dverts.is_empty()
 
 
 func _v(p: Vector3, nn: Vector3, col: Color, e: float, r: float) -> void:
+	if detail:
+		dverts.push_back(xf * p)
+		dnorms.push_back((xf.basis * nn).normalized())
+		dcols.push_back(col)
+		duvs.push_back(Vector2(e, r))
+		return
 	verts.push_back(xf * p)
 	norms.push_back((xf.basis * nn).normalized())
 	cols.push_back(col)
@@ -72,6 +85,24 @@ func quad(a: Vector3, b: Vector3, c: Vector3, d: Vector3, face: Vector3, col: Co
 	tri_n(a, c, d, nrm, nrm, nrm, nrm, col, e, r)
 
 
+## Upward-facing quad with a colour per corner, so colours blend smoothly across it.
+func quad_c(a: Vector3, b: Vector3, c: Vector3, d: Vector3, ca: Color, cb: Color, cc: Color, cd: Color) -> void:
+	var n := Vector3.UP
+	for t in [[a, b, c, ca, cb, cc], [a, c, d, ca, cc, cd]]:
+		var p0: Vector3 = t[0]
+		var p1: Vector3 = t[1]
+		var p2: Vector3 = t[2]
+		var c0: Color = t[3]
+		var c1: Color = t[4]
+		var c2: Color = t[5]
+		if (p1 - p0).cross(p2 - p0).dot(n) > 0.0:
+			var tp := p1; p1 = p2; p2 = tp
+			var tc := c1; c1 = c2; c2 = tc
+		_v(p0, n, c0, 0.0, 0.0)
+		_v(p1, n, c1, 0.0, 0.0)
+		_v(p2, n, c2, 0.0, 0.0)
+
+
 ## Quad with explicit, interpolated normals (soft shading).
 func quad_n(a: Vector3, b: Vector3, c: Vector3, d: Vector3, na: Vector3, nb: Vector3, nc: Vector3, nd: Vector3, col: Color, e := 0.0, r := 0.0) -> void:
 	var face := (na + nb + nc + nd).normalized()
@@ -101,44 +132,53 @@ func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bo
 		quad(p000, p100, p101, p001, Vector3.DOWN, col, e)
 
 
-## Rounded (chamfered, smooth-shaded) box: the signature toy look.
+## Rounded (chamfered, smooth-shaded) box: the signature toy look. One bevel per
+## edge with normals blended across it reads as rounded at a third of the triangles.
 func rbox(center: Vector3, size: Vector3, radius: float, col: Color, top_col: Variant = null, bottom := false, e := 0.0) -> void:
 	var h := size * 0.5
 	var r: float = min(radius, min(h.x, min(h.y, h.z)) * 0.98)
 	if r <= 0.001:
 		box(center, size, col, top_col, bottom, e)
 		return
-	var inner := h - Vector3(r, r, r)
+	var i := h - Vector3(r, r, r)
 	var tc: Color = top_col if top_col != null else col
-	for axis in 3:
-		for s in [-1.0, 1.0]:
-			if axis == 1 and s < 0.0 and not bottom:
-				continue
-			var b := (axis + 1) % 3
-			var cax := (axis + 2) % 3
-			var cb := [-h[b], -inner[b], inner[b], h[b]]
-			var cc := [-h[cax], -inner[cax], inner[cax], h[cax]]
-			var face := Vector3.ZERO
-			face[axis] = s
-			var fcol: Color = tc if (axis == 1 and s > 0.0) else col
-			for i in 3:
-				for j in 3:
-					var pts: Array[Vector3] = []
-					var nrs: Array[Vector3] = []
-					for k in 4:
-						var ii: int = i + (1 if k == 1 or k == 2 else 0)
-						var jj: int = j + (1 if k >= 2 else 0)
-						var p := Vector3.ZERO
-						p[axis] = s * h[axis]
-						p[b] = cb[ii]
-						p[cax] = cc[jj]
-						var q := p.clamp(-inner, inner)
-						var nn := (p - q).normalized()
-						pts.append(center + q + nn * r)
-						nrs.append(nn)
-					var nf := (nrs[0] + nrs[1] + nrs[2] + nrs[3]).normalized()
-					tri_n(pts[0], pts[1], pts[2], nrs[0], nrs[1], nrs[2], nf, fcol, e)
-					tri_n(pts[0], pts[2], pts[3], nrs[0], nrs[2], nrs[3], nf, fcol, e)
+	var c := center
+	var lo := -i.y if bottom else -h.y
+	var U := Vector3.UP
+	# flat faces
+	quad(c + Vector3(-i.x, h.y, -i.z), c + Vector3(i.x, h.y, -i.z), c + Vector3(i.x, h.y, i.z), c + Vector3(-i.x, h.y, i.z), U, tc, e)
+	if bottom:
+		quad(c + Vector3(-i.x, -h.y, -i.z), c + Vector3(i.x, -h.y, -i.z), c + Vector3(i.x, -h.y, i.z), c + Vector3(-i.x, -h.y, i.z), Vector3.DOWN, col, e)
+	for s in [-1.0, 1.0]:
+		var nx := Vector3(s, 0, 0)
+		var nz := Vector3(0, 0, s)
+		quad(c + Vector3(s * h.x, lo, -i.z), c + Vector3(s * h.x, lo, i.z), c + Vector3(s * h.x, i.y, i.z), c + Vector3(s * h.x, i.y, -i.z), nx, col, e)
+		quad(c + Vector3(-i.x, lo, s * h.z), c + Vector3(i.x, lo, s * h.z), c + Vector3(i.x, i.y, s * h.z), c + Vector3(-i.x, i.y, s * h.z), nz, col, e)
+		# top bevels
+		quad_n(c + Vector3(s * i.x, h.y, -i.z), c + Vector3(s * i.x, h.y, i.z), c + Vector3(s * h.x, i.y, i.z), c + Vector3(s * h.x, i.y, -i.z), U, U, nx, nx, tc, e)
+		quad_n(c + Vector3(-i.x, h.y, s * i.z), c + Vector3(i.x, h.y, s * i.z), c + Vector3(i.x, i.y, s * h.z), c + Vector3(-i.x, i.y, s * h.z), U, U, nz, nz, tc, e)
+		if bottom:
+			var D := Vector3.DOWN
+			quad_n(c + Vector3(s * i.x, -h.y, -i.z), c + Vector3(s * i.x, -h.y, i.z), c + Vector3(s * h.x, -i.y, i.z), c + Vector3(s * h.x, -i.y, -i.z), D, D, nx, nx, col, e)
+			quad_n(c + Vector3(-i.x, -h.y, s * i.z), c + Vector3(i.x, -h.y, s * i.z), c + Vector3(i.x, -i.y, s * h.z), c + Vector3(-i.x, -i.y, s * h.z), D, D, nz, nz, col, e)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var nx := Vector3(sx, 0, 0)
+			var nz := Vector3(0, 0, sz)
+			# vertical bevel
+			quad_n(c + Vector3(sx * h.x, lo, sz * i.z), c + Vector3(sx * h.x, i.y, sz * i.z), c + Vector3(sx * i.x, i.y, sz * h.z), c + Vector3(sx * i.x, lo, sz * h.z), nx, nx, nz, nz, col, e)
+			# corner
+			var a := c + Vector3(sx * i.x, h.y, sz * i.z)
+			var b2 := c + Vector3(sx * h.x, i.y, sz * i.z)
+			var d := c + Vector3(sx * i.x, i.y, sz * h.z)
+			tri_n(a, b2, d, U, nx, nz, (U + nx + nz).normalized(), tc, e)
+			if bottom:
+				var D := Vector3.DOWN
+				var a2 := c + Vector3(sx * i.x, -h.y, sz * i.z)
+				var b3 := c + Vector3(sx * h.x, -i.y, sz * i.z)
+				var d2 := c + Vector3(sx * i.x, -i.y, sz * h.z)
+				tri_n(a2, b3, d2, D, nx, nz, (D + nx + nz).normalized(), col, e)
+				quad_n(c + Vector3(sx * h.x, -i.y, sz * i.z), c + Vector3(sx * h.x, lo, sz * i.z), c + Vector3(sx * i.x, lo, sz * h.z), c + Vector3(sx * i.x, -i.y, sz * h.z), nx, nx, nz, nz, col, e)
 
 
 ## Vertical cylinder standing on `base`.
@@ -308,6 +348,8 @@ func hip_roof(c: Vector3, w: float, d: float, h: float, over: float, col: Color)
 
 ## Window pane on a wall. `out` is the wall's outward normal (axis aligned in local space).
 func window(center: Vector3, out: Vector3, w: float, h: float, glass: Color, frame: Color = Color(0, 0, 0, 0), lamp := false) -> void:
+	var was := detail
+	detail = true
 	var side := Vector3.UP.cross(out).normalized() * w * 0.5
 	var up := Vector3(0, h * 0.5, 0)
 	var p := center + out * 0.012
@@ -318,23 +360,28 @@ func window(center: Vector3, out: Vector3, w: float, h: float, glass: Color, fra
 		quad(fp - fs - fu, fp + fs - fu, fp + fs + fu, fp - fs + fu, out, frame)
 		# sill
 		var sill_c := center - up - Vector3(0, 0.03, 0) + out * 0.03
-		push(Transform3D(Basis.looking_at(-out, Vector3.UP), sill_c))
-		box(Vector3.ZERO, Vector3(w + 0.08, 0.04, 0.06), frame)
-		pop()
+		# sill: just the top and front faces, the rest is never seen
+		var ss := side + side.normalized() * 0.04
+		var st := sill_c + Vector3(0, 0.02, 0)
+		quad(st - ss - out * 0.03, st + ss - out * 0.03, st + ss + out * 0.03, st - ss + out * 0.03, Vector3.UP, frame)
+		var sf := sill_c + out * 0.03
+		quad(sf - ss - Vector3(0, 0.02, 0), sf + ss - Vector3(0, 0.02, 0), sf + ss + Vector3(0, 0.02, 0), sf - ss + Vector3(0, 0.02, 0), out, frame)
 	quad(p - side - up, p + side - up, p + side + up, p - side + up, out, glass, 2.0 if lamp else 1.0, rng.randf())
+	detail = was
 
 
 func commit(material: Material = null) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
-	if verts.is_empty():
-		return mesh
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = norms
-	arrays[Mesh.ARRAY_COLOR] = cols
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	if material:
-		mesh.surface_set_material(0, material)
+	for set in [[verts, norms, cols, uvs], [dverts, dnorms, dcols, duvs]]:
+		if (set[0] as PackedVector3Array).is_empty():
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = set[0]
+		arrays[Mesh.ARRAY_NORMAL] = set[1]
+		arrays[Mesh.ARRAY_COLOR] = set[2]
+		arrays[Mesh.ARRAY_TEX_UV] = set[3]
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		if material:
+			mesh.surface_set_material(mesh.get_surface_count() - 1, material)
 	return mesh

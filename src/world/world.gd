@@ -270,8 +270,9 @@ func _on_world_reset() -> void:
 	for n in _tiles.values():
 		n.queue_free()
 	_tiles.clear()
-	for b in _batches.values():
-		b.queue_free()
+	for pair in _batches.values():
+		for mi in pair:
+			mi.queue_free()
 	_batches.clear()
 	_baked.clear()
 	_batch_dirty.clear()
@@ -364,7 +365,7 @@ func _bake(t: Vector2i, node: Node3D) -> void:
 	if body == null or not body.has_meta("arrays"):
 		return
 	var arr: Array = body.get_meta("arrays")
-	if (arr[0] as PackedVector3Array).is_empty():
+	if (arr[0] as PackedVector3Array).is_empty() and (arr[4] as PackedVector3Array).is_empty():
 		return
 	_baked[t] = arr
 	_batch_dirty[_batch_of(t)] = true
@@ -373,10 +374,9 @@ func _bake(t: Vector2i, node: Node3D) -> void:
 func _rebuild_batch(b: Vector2i) -> void:
 	_batch_dirty.erase(b)
 	_batch_urgent.erase(b)
-	var verts := PackedVector3Array()
-	var norms := PackedVector3Array()
-	var cols := PackedColorArray()
-	var uvs := PackedVector2Array()
+	# slot 0: solid geometry (casts shadows); slot 1: flush details (no shadow pass)
+	var sets := [[PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array()],
+		[PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array()]]
 	var merged: Array[Vector2i] = []
 	for z in range(b.y * BATCH, (b.y + 1) * BATCH):
 		for x in range(b.x * BATCH, (b.x + 1) * BATCH):
@@ -385,31 +385,38 @@ func _rebuild_batch(b: Vector2i) -> void:
 				continue
 			var arr: Array = _baked[t]
 			var xf := Transform3D(Basis.IDENTITY, (_tiles[t] as Node3D).position)
-			verts.append_array(xf * (arr[0] as PackedVector3Array))
-			norms.append_array(arr[1])
-			cols.append_array(arr[2])
-			uvs.append_array(arr[3])
+			for k in 2:
+				var o := k * 4
+				sets[k][0].append_array(xf * (arr[o] as PackedVector3Array))
+				sets[k][1].append_array(arr[o + 1])
+				sets[k][2].append_array(arr[o + 2])
+				sets[k][3].append_array(arr[o + 3])
 			merged.append(t)
-	var mi: MeshInstance3D = _batches.get(b)
-	if verts.is_empty():
-		if mi:
-			mi.queue_free()
-			_batches.erase(b)
-		return
-	if mi == null:
-		mi = MeshInstance3D.new()
-		add_child(mi)
-		_batches[b] = mi
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = norms
-	arrays[Mesh.ARRAY_COLOR] = cols
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	mesh.surface_set_material(0, city_mat)
-	mi.mesh = mesh
+	var pair: Array = _batches.get(b, [])
+	if pair.is_empty():
+		for k in 2:
+			var nmi := MeshInstance3D.new()
+			if k == 1:
+				nmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(nmi)
+			pair.append(nmi)
+		_batches[b] = pair
+	for k in 2:
+		var mi: MeshInstance3D = pair[k]
+		var v: PackedVector3Array = sets[k][0]
+		if v.is_empty():
+			mi.mesh = null
+			continue
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = v
+		arrays[Mesh.ARRAY_NORMAL] = sets[k][1]
+		arrays[Mesh.ARRAY_COLOR] = sets[k][2]
+		arrays[Mesh.ARRAY_TEX_UV] = sets[k][3]
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mesh.surface_set_material(0, city_mat)
+		mi.mesh = mesh
 	# the merged copy is drawn now, so the per-tile bodies can go
 	for t in merged:
 		var body := (_tiles[t] as Node3D).get_node_or_null("Body")
