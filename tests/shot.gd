@@ -39,6 +39,12 @@ func _ready() -> void:
 	var hud := Hud.new()
 	hud.world = world
 	add_child(hud)
+	if OS.get_environment("CV_FLUSH") != "":
+		while not world._build_queue.is_empty():
+			world._process(0.0)
+		if "_batch_dirty" in world:
+			for b in world._batch_dirty.keys():
+				world._rebuild_batch(b)
 	world.time_of_day = float(OS.get_environment("CV_TIME")) if OS.get_environment("CV_TIME") != "" else 0.4
 	await get_tree().create_timer(1.0).timeout
 	var fp := OS.get_environment("CV_FOCUS")
@@ -48,11 +54,13 @@ func _ready() -> void:
 	else:
 		world.rig.focus(Game.tile_center(cx, cz))
 	world.rig._t_dist = float(OS.get_environment("CV_DIST")) if OS.get_environment("CV_DIST") != "" else 34.0
-	await get_tree().create_timer(10.0).timeout
+	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 10.0).timeout
 	if OS.get_environment("CV_MENU") != "":
 		hud._page = OS.get_environment("CV_MENU")
 		hud._toggle_menu()
 		await get_tree().create_timer(1.5).timeout
+	print("geometry nodes: ", world.find_children("*", "GeometryInstance3D", true, false).size())
+	print("draw calls: ", Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), "  objects: ", Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), "  prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(OS.get_environment("CV_OUT") if OS.get_environment("CV_OUT") != "" else "/tmp/shot.png")
 	get_tree().quit()
