@@ -4,6 +4,7 @@
 - The regular grid of light blotches on the open sea is gone. Sunlight on the wave crests now shows as scattered, drifting glints instead of a repeating pattern.
 - Shadows no longer fade out when you zoom out: buildings, trees and clouds keep their shadows at every zoom level.
 - Clouds no longer cast grey shadows onto themselves.
+- On Windows, City Views now has its own sunset-skyline icon on the .exe, the taskbar and the window, instead of the Godot logo.
 
 ## 2026-10-23 16:00 UTC
 - City Views now runs on Windows PCs. Builds are made on request and posted next to the Android download.
