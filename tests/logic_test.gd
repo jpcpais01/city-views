@@ -255,6 +255,15 @@ func _island_budget() -> void:
 	print("island: %d streets, %d houses, %d triangles (+%d for HUD, traffic and people)" % [made + 2, island.town.house_count(), total, reserve])
 	check(island.town.house_count() > 150, "a whole island grows a real town (%d houses)" % island.town.house_count())
 	check(total + reserve < TriBudget.BUDGET, "a whole-island town stays under budget (%d)" % (total + reserve))
+	var kits := {}
+	for l: Town.Lot in island.town.lots.values():
+		kits[l.kit] = true
+	check(kits.size() >= 3, "the town has quarters in different styles (%d)" % kits.size())
+	# the same lot grows the same house every time
+	var some: Town.Lot = island.town.lots.values()[0]
+	var again := HouseGen.build(some, island.land, island.land.height_at(some.origin.x, some.origin.y), 1234)
+	var twice := HouseGen.build(some, island.land, island.land.height_at(some.origin.x, some.origin.y), 1234)
+	check(again[0] == twice[0] and again[2] == twice[2], "houses are built the same from the same seed")
 	island.queue_free()
 	await get_tree().process_frame
 

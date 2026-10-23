@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 21:45 UTC
+- Each quarter of the island now has its own style: whitewashed harbour houses with blue roofs by the sea, pastel terraces, red-brick streets, cream stone under slate, a sunny terracotta south and painted nordic timber.
+- Main streets get shops on the ground floor, with display windows, striped awnings and sign boards that light up at night.
+- Houses get more detail: dormer windows, painted shutters, flower boxes, little iron balconies, corner boards on timber houses and stone quoins.
+- Brick and stone terraces are built as matching rows down each side of a street.
+- The same spot always grows the same house.
+
 ## 2026-10-23 21:30 UTC
 - Houses now grow on the island: as streets appear, lots are laid along them and a house goes up on each, filling the blocks back to back.
 - Busy main streets get tall terraced houses wall to wall, each in its own colour; quieter streets get detached homes with front hedges or fences, garden paths, flowers and a tree out back.
