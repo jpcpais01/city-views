@@ -341,8 +341,102 @@ static func _garden(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hw: fl
 		for k in 2:
 			mk.blob(Vector3(door_x + (0.5 + 0.3 * k) * (1.0 if k == 0 else -1.0), 0.1, -setback * 0.6), Vector3(0.1, 0.08, 0.1), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.03)
 	var back := l.depth - setback - hd
+	var tree_x := 0.0
 	if back > 1.0:
-		_tree(mk, rng, Vector3(lerpf(-0.3, 0.3, rng.randf()) * l.width, 0.0, -setback - hd - back * 0.55), land, l, y0)
+		tree_x = lerpf(-0.3, 0.3, rng.randf()) * l.width
+		_tree(mk, rng, Vector3(tree_x, 0.0, -setback - hd - back * 0.55), land, l, y0)
+	if back > 0.8:
+		_backyard(mk, rng, l, -setback - hd, tree_x, land, y0)
+
+
+## The back garden behind a house (from z = `z0` to the back of the lot): a
+## fence or hedge round it, and often a shed, a vegetable patch or washing
+## hung out on a line. All low and kept off the shadow map.
+static func _backyard(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, z0: float, tree_x: float, land: Land, y0: float) -> void:
+	var right := Vector2(cos(l.yaw), -sin(l.yaw))
+	var fwd := Vector2(sin(l.yaw), cos(l.yaw))
+	var ground := func(x: float, z: float) -> float:
+		var p: Vector2 = l.origin + right * x + fwd * z
+		return land.height_at(p.x, p.y) - y0
+	var hedge := rng.randf() < 0.45
+	var col: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()].darkened(0.2) if hedge else [Color(0.97, 0.97, 0.95), Color(0.62, 0.46, 0.33)][rng.randi() % 2]
+	var hh := 0.18 if hedge else 0.13
+	var th := 0.12 if hedge else 0.04
+	var zb := -l.depth + 0.06
+	var hw := l.width * 0.5
+	mk.shadow = false
+	# along the back and down the right-hand side (the neighbour's fence
+	# closes the left), following the ground
+	var run := z0 - zb
+	var pts: Array[Vector3] = []
+	for x: float in _steps(-hw, hw):
+		pts.append(Vector3(x, ground.call(x, zb), zb))
+	for z: float in _steps(zb, z0).slice(1):
+		pts.append(Vector3(hw - 0.03, ground.call(hw - 0.03, z), z))
+	_fence(mk, pts, hh, th, col)
+	mk.shadow = true
+	var side := -1.0 if tree_x > 0.0 else 1.0
+	var roll := rng.randf()
+	if roll < 0.3 and run > 0.75:
+		# a garden shed in the far corner, away from the tree
+		var c := Vector3(side * (hw - 0.42), 0.0, zb + 0.36)
+		c.y = ground.call(c.x, c.z)
+		var wall: Color = [Color("8a6a4f"), Color("6f8a6a"), Color("e8e2d4"), Color("5f7a94")][rng.randi() % 4]
+		mk.box(c + Vector3(0, 0.22, 0), Vector3(0.56, 0.54, 0.46), wall)
+		mk.box_faces(c + Vector3(0.1, 0.2, 0.235), Vector3(0.18, 0.36, 0.012), wall.darkened(0.3), MeshKit.FRONT)
+		mk.window(c + Vector3(-0.15, 0.3, 0.232), Vector3.BACK, 0.12, 0.12, Palette.GLASS)
+		mk.gable_roof(c + Vector3(0, 0.49, 0), 0.56, 0.46, 0.18, 0.05, Color("5a4a44"), wall, 0.03)
+	elif roll < 0.55 and run > 0.75:
+		# a vegetable patch: dark soil with rows of greens
+		var c := Vector3(side * (hw - 0.5), 0.0, zb + 0.4)
+		c.y = ground.call(c.x, c.z)
+		mk.shadow = false
+		mk.box_faces(c + Vector3(0, 0.02, 0), Vector3(0.7, 0.06, 0.55), Color(0.42, 0.31, 0.22), MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+		mk.shadow = true
+		for r in 3:
+			for j in 3:
+				mk.blob(c + Vector3(-0.22 + j * 0.22, 0.08, -0.17 + r * 0.17), Vector3(0.07, 0.05, 0.07), Color("5e9e48").lightened(0.1 * r), 0.02)
+	elif roll < 0.85 and run > 0.9 and absf(tree_x - side * (hw - 0.3)) > 0.55:
+		# washing hung out on a line down the side of the garden, clear of the tree
+		var x := side * (hw - 0.3)
+		var za := z0 - 0.2
+		var zc := zb + 0.2
+		var ya: float = ground.call(x, za)
+		var yb: float = ground.call(x, zc)
+		mk.pole(Vector3(x, ya, za), 0.012, 0.6, 3, Color(0.85, 0.85, 0.85))
+		mk.pole(Vector3(x, yb, zc), 0.012, 0.6, 3, Color(0.85, 0.85, 0.85))
+		var top := (ya + yb) * 0.5 + 0.58
+		mk.box_faces(Vector3(x, top, (za + zc) * 0.5), Vector3(0.008, 0.008, za - zc), Color(0.9, 0.9, 0.9), MeshKit.TOP | MeshKit.LEFT)
+		var clothes := clampi(int((za - zc) / 0.3), 1, 4)
+		for k in clothes:
+			var z := lerpf(zc + 0.1, za - 0.1, (k + 0.5) / clothes)
+			var cw := rng.randf_range(0.14, 0.22)
+			var ch := rng.randf_range(0.14, 0.26)
+			mk.box_faces(Vector3(x, top - ch * 0.5, z), Vector3(0.012, ch, cw), Palette.LAUNDRY[rng.randi() % Palette.LAUNDRY.size()], MeshKit.LEFT | MeshKit.RIGHT)
+
+
+## Evenly spaced stops from `a` to `b`, about 0.6 m apart, both ends included.
+static func _steps(a: float, b: float) -> Array[float]:
+	var n := maxi(1, ceili(absf(b - a) / 0.6))
+	var out: Array[float] = []
+	for k in n + 1:
+		out.append(lerpf(a, b, float(k) / n))
+	return out
+
+
+## A low fence or hedge through ground points `pts`: two sides and a top per
+## stretch, its foot tucked a little into the ground so slopes never show a gap.
+static func _fence(mk: MeshKit, pts: Array[Vector3], hh: float, th: float, col: Color) -> void:
+	for k in pts.size() - 1:
+		var a := pts[k]
+		var b := pts[k + 1]
+		var along := Vector3(b.x - a.x, 0, b.z - a.z).normalized()
+		var n := Vector3(-along.z, 0, along.x) * th * 0.5
+		var up := Vector3(0, hh, 0)
+		var dn := Vector3(0, -0.05, 0)
+		mk.quad(a + n + dn, b + n + dn, b + n + up, a + n + up, n, col)
+		mk.quad(a - n + dn, b - n + dn, b - n + up, a - n + up, -n, col)
+		mk.quad(a + n + up, b + n + up, b - n + up, a - n + up, Vector3.UP, col.lightened(0.06))
 
 
 ## A garden tree, standing on the real ground wherever the garden slopes to.
