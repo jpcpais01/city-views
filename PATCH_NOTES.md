@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-23 22:10 UTC
+- Your island now counts its residents and earns titles as it grows, from Hamlet up to Metropolis.
+- Coins are back: the town pays its way as it grows. Streets cost a little by their length, and reshaping the land costs a little while you brush.
+- Three island goals at a time, like more homes, a town square, a church, parks or homes by the sea. Collect them for coins.
+- The Green, Smooth and Flatten brushes open up as more people move in.
+
 ## 2026-10-23 22:05 UTC
 - The island is now where the game opens. The classic town is still there, one tap away in the menu.
 - Undo and redo on the island: buttons at the bottom left (or Ctrl+Z) take back the last strokes, streets and all.

@@ -129,6 +129,7 @@ func _ready() -> void:
 	await _island_budget()
 	await _island_undo()
 	await _island_coop()
+	await _island_progress()
 	await _tri_budget()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -251,6 +252,46 @@ func _island_undo() -> void:
 	await get_tree().process_frame
 
 
+func _island_progress() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(9)
+	var pr := island.progress
+	pr.from_dict({})
+	check(not pr.can_use("green") and pr.can_use("street"), "a new island starts with the Green brush locked")
+	island.set_brush("green")
+	check(island.brush == "", "a locked brush can't be picked")
+	var pts := PackedVector2Array()
+	for k in 60:
+		pts.append(Vector2(-30 + k, 3.0))
+	pr.coins = 10.0
+	island.brush = "street"
+	island._stroke = true
+	island._path = pts
+	island._undo.append(island.snapshot())
+	island._end_stroke()
+	check(island.streets.streets.is_empty() and pr.coins == 10.0, "a street you can't afford isn't laid")
+	pr.coins = 100.0
+	island._stroke = true
+	island._path = pts
+	island._undo.append(island.snapshot())
+	island._end_stroke()
+	check(island.streets.streets.size() == 1 and absf(pr.coins - (100.0 - 59.0 * IslandProgress.STREET_COST)) < 0.5, "a street costs coins by its length (%.1f left)" % pr.coins)
+	pr.recount(true)
+	check(pr.goals.size() == 3 and pr.street_m > 50.0, "there are three goals and the street counts (%d m)" % int(pr.street_m))
+	pr.goals[0] = {"type": "streets", "base": 0, "target": 1, "icon": "road", "text": "test", "reward": 40}
+	pr.recount(true)
+	var paid := pr.claim_goal(0)
+	check(paid == 40.0 and pr.goals_done == 1 and pr.goals.size() == 3, "a finished goal pays out and a new one takes its place")
+	var saved := island.to_dict()
+	pr.coins = 0.0
+	pr.goals_done = 0
+	island._apply_save(JSON.parse_string(JSON.stringify(saved)))
+	check(absf(pr.coins - float(saved.progress.coins)) < 0.01 and pr.goals_done == 1 and pr.goals.size() == 3, "coins and goals come back with the island")
+	island.queue_free()
+	await get_tree().process_frame
+
+
 func _island_coop() -> void:
 	var a := IslandWorld.new()
 	add_child(a)
@@ -321,6 +362,13 @@ func _island_budget() -> void:
 	for l: Town.Lot in island.town.lots.values():
 		kits[l.kit] = true
 	check(kits.size() >= 3, "the town has quarters in different styles (%d)" % kits.size())
+	var pr := island.progress
+	pr.recount(true)
+	var houses := 0
+	for l: Town.Lot in island.town.lots.values():
+		houses += int(l.type == "house")
+	check(pr.homes == houses and pr.residents > pr.homes and pr.shops > 0, "the town counts its homes, residents and shops (%d, %d, %d)" % [pr.homes, pr.residents, pr.shops])
+	check(pr.title != "Hamlet" and pr.can_use("green") and pr.income() > 0.0, "a big town earns a title, opens brushes and pays its way (%s)" % pr.title)
 	# the same lot grows the same house every time
 	var some: Town.Lot = island.town.lots.values()[0]
 	var again := HouseGen.build(some, island.land, island.land.height_at(some.origin.x, some.origin.y), 1234)

@@ -128,6 +128,8 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 		floors = 1 + int(rng.randf() < 0.45)
 	# a busy main street keeps shops on the ground floor
 	var shop := main and dense and floors >= 2 and rng.randf() < 0.6
+	l.floors = floors
+	l.shop = shop
 	var hgt := floors * FH + 0.06
 	var walls: Array = K.walls
 	var wall: Color = walls[rng.randi() % walls.size()]
