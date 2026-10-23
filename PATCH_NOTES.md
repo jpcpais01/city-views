@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-23 22:25 UTC
+- Landmarks rise as your island grows. A windmill turns its sails on the highest hill once a village has formed.
+- Once your island is a proper town, a red-and-white lighthouse with a keeper's cottage stands on the headland that reaches furthest into the sea. At night its beam sweeps the water and the shore.
+- The town leaves room around its landmarks. A landmark moves to a better spot if a street is drawn through it.
+
 ## 2026-10-23 22:15 UTC
 - City Views is now all about the island. The old tile town is gone, and with it a lot of code, so the game is lighter and loads faster.
 - Signing in with your email brings your island along from your account.

@@ -96,6 +96,7 @@ func _ready() -> void:
 		hud._set_menu(true)
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
 	print("prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+	print("landmarks: ", island.landmarks.spots)
 	if OS.get_environment("CV_PARTS") != "":
 		# what each part of the island costs: hide it and see what drops
 		var total := Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
