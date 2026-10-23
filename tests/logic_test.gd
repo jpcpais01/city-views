@@ -264,6 +264,25 @@ func _island_budget() -> void:
 	var again := HouseGen.build(some, island.land, island.land.height_at(some.origin.x, some.origin.y), 1234)
 	var twice := HouseGen.build(some, island.land, island.land.height_at(some.origin.x, some.origin.y), 1234)
 	check(again[0] == twice[0] and again[2] == twice[2], "houses are built the same from the same seed")
+	var civic := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "square" or l.type == "church":
+			civic += 1
+	check(civic >= 1, "the town grows a square or a church (%d)" % civic)
+	# painting green turns the houses there into parks
+	var at: Vector2 = some.origin
+	island.land.paint_green(Vector3(at.x, 0, at.y), 8.0, 1.0)
+	island.town.zone_changed(at, 8.0)
+	island.town.fill_all()
+	var parks := 0
+	var built := 0
+	for l: Town.Lot in island.town.lots.values():
+		if island.town._green(l) > 0.6:
+			if l.type == "park":
+				parks += 1
+			else:
+				built += 1
+	check(parks > 0 and built == 0, "painted green becomes parks (%d parks, %d houses left)" % [parks, built])
 	island.queue_free()
 	await get_tree().process_frame
 

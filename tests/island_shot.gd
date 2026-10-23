@@ -49,6 +49,10 @@ func _ready() -> void:
 		var r := float(OS.get_environment("CV_GROW"))
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 1.0)
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r * 0.8, 1.0)
+		if OS.get_environment("CV_GREEN") != "":
+			# a park painted at x,z,radius
+			var g := OS.get_environment("CV_GREEN").split(",")
+			island.land.paint_green(Vector3(float(g[0]), 0, float(g[1])), float(g[2]), 1.0)
 		island.growth.focus = Vector2(f.x, f.z)
 		var t0 := Time.get_ticks_msec()
 		var made := island.growth.grow_all()
@@ -60,6 +64,8 @@ func _ready() -> void:
 		var kits := {}
 		for l: Town.Lot in island.town.lots.values():
 			kits[HouseGen.KIT_NAMES[l.kit]] = kits.get(HouseGen.KIT_NAMES[l.kit], 0) + 1
+			if l.type != "house":
+				print("  %s at %.1f,%.1f" % [l.type, l.origin.x, l.origin.y])
 		print("kits: ", kits)
 	if OS.get_environment("CV_LOOK") != "":
 		# look somewhere else than where the town was grown from

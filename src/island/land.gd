@@ -26,6 +26,8 @@ var heights := PackedFloat32Array()
 var _base := PackedFloat32Array()
 # where the player has asked the town to grow, 0..1 per ground sample
 var zone := PackedFloat32Array()
+# where the player has asked for green (parks and gardens instead of houses), 0..1
+var green := PackedFloat32Array()
 # tint the painted area strongly (while the Grow brush is in hand)
 var show_zone := false:
 	set(v):
@@ -67,6 +69,8 @@ func generate(seed_value: int) -> void:
 	_base = heights.duplicate()
 	zone.resize(SIDE * SIDE)
 	zone.fill(0.0)
+	green.resize(SIDE * SIDE)
+	green.fill(0.0)
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
@@ -186,6 +190,20 @@ func paint_zone(centre: Vector3, radius: float, amount: float) -> void:
 
 
 func zone_at(x: float, z: float) -> float:
+	return _sample(zone, x, z)
+
+
+## Paint (amount > 0) or wipe green: parks where houses would go.
+func paint_green(centre: Vector3, radius: float, amount: float) -> void:
+	_each_in(centre, radius, func(k: int, w: float) -> void:
+		green[k] = clampf(green[k] + amount * minf(w * 2.0, 1.0), 0.0, 1.0))
+
+
+func green_at(x: float, z: float) -> float:
+	return _sample(green, x, z)
+
+
+func _sample(a: PackedFloat32Array, x: float, z: float) -> float:
 	var fx := (x + HALF) / STEP
 	var fz := (z + HALF) / STEP
 	if fx < 0.0 or fz < 0.0 or fx > CELLS or fz > CELLS:
@@ -194,7 +212,7 @@ func zone_at(x: float, z: float) -> float:
 	var j := mini(int(fz), CELLS - 1)
 	var u := fx - i
 	var v := fz - j
-	return lerpf(lerpf(zone[j * SIDE + i], zone[j * SIDE + i + 1], u), lerpf(zone[(j + 1) * SIDE + i], zone[(j + 1) * SIDE + i + 1], u), v)
+	return lerpf(lerpf(a[j * SIDE + i], a[j * SIDE + i + 1], u), lerpf(a[(j + 1) * SIDE + i], a[(j + 1) * SIDE + i + 1], u), v)
 
 
 ## Ease the ground towards a level (the height where the stroke started).
@@ -403,6 +421,10 @@ func _build_chunk(c: Vector2i) -> void:
 			var zn := zone[gj * SIDE + gi]
 			if zn > 0.0 and h > 0.0:
 				col = col.lerp(Color("f4e3b0"), zn * 0.45) if show_zone else col.lerp(Color("b5c97a"), zn * 0.18)
+			var gn := green[gj * SIDE + gi]
+			if gn > 0.0 and h > 0.0:
+				# park lawns, a lusher green
+				col = col.lerp(Color("74bf5e"), gn * (0.5 if show_zone else 0.3))
 			if h > -0.3:
 				col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
 			cols[k] = col
@@ -545,6 +567,23 @@ func zone_edits() -> Dictionary:
 		if zone[k] > 0.01:
 			out[k] = snappedf(zone[k], 0.01)
 	return out
+
+
+func green_edits() -> Dictionary:
+	var out := {}
+	for k in green.size():
+		if green[k] > 0.01:
+			out[k] = snappedf(green[k], 0.01)
+	return out
+
+
+func apply_green(e: Dictionary) -> void:
+	for k in e:
+		var i := int(k)
+		if i >= 0 and i < green.size():
+			green[i] = clampf(float(e[k]), 0.0, 1.0)
+	for c in _chunks.keys():
+		_dirty[c] = true
 
 
 func apply_zone(e: Dictionary) -> void:
