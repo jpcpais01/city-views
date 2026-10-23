@@ -129,7 +129,8 @@ func _glass_box(tint := GLASS, radius := 24, pad := 14, rim := Color(1, 1, 1, 0.
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = tint
 	sb.set_corner_radius_all(radius)
-	sb.corner_detail = 12
+	# 5 segments per corner already bend by under half a pixel at this radius
+	sb.corner_detail = 5
 	sb.content_margin_left = pad
 	sb.content_margin_right = pad
 	sb.content_margin_top = pad * 0.7
@@ -157,6 +158,7 @@ func _box(bg: Color, radius := 22, pad := 14, shadow := true) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.set_corner_radius_all(radius)
+	sb.corner_detail = 5
 	sb.content_margin_left = pad
 	sb.content_margin_right = pad
 	sb.content_margin_top = pad * 0.7

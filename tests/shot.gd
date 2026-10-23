@@ -12,8 +12,14 @@ func _ready() -> void:
 		Game.unlocked[t.id] = true
 	var cx := 30
 	var cz := 30
-	for z in range(cz - 10, cz + 11):
-		for x in range(cx - 12, cx + 13):
+	# CV_TOWN=rx,rz sets the town's half size in tiles (default 12,10: a dense big city)
+	var rx := 12
+	var rz := 10
+	if OS.get_environment("CV_TOWN") != "":
+		rx = int(OS.get_environment("CV_TOWN").split(",")[0])
+		rz = int(OS.get_environment("CV_TOWN").split(",")[1])
+	for z in range(cz - rz, cz + rz + 1):
+		for x in range(cx - rx, cx + rx + 1):
 			if Game.lvl(x, z) < 1:
 				continue
 			var road := (x - cx) % 4 == 0 or (z - cz) % 4 == 0
@@ -74,6 +80,11 @@ func _ready() -> void:
 		world.life._gulls[0].r = 2.5
 		world.life._gulls[0].y = 2.5
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 10.0).timeout
+	# CV_PERSON=n: once people are about, fly in on pedestrian n
+	if OS.get_environment("CV_PERSON") != "" and world.people._people.size() > int(OS.get_environment("CV_PERSON")):
+		var pp: Dictionary = world.people._people[int(OS.get_environment("CV_PERSON"))]
+		world.rig.focus((pp.xf as Transform3D).origin)
+		await get_tree().create_timer(4.0).timeout
 	if OS.get_environment("CV_MENU") != "":
 		hud._page = OS.get_environment("CV_MENU")
 		hud._toggle_menu()
@@ -81,6 +92,13 @@ func _ready() -> void:
 	print("geometry nodes: ", world.find_children("*", "GeometryInstance3D", true, false).size())
 	print("draw calls: ", Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), "  objects: ", Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), "  prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	var img := get_viewport().get_texture().get_image()
+	if OS.get_environment("CV_TRIS") != "":
+		var acc := TriBudget.count(world)
+		var keys := acc.keys()
+		keys.sort_custom(func(a, b): return acc[a][0] + acc[a][1] > acc[b][0] + acc[b][1])
+		for k in keys:
+			print("tris %-22s %7d  +shadow %7d" % [k, acc[k][0], acc[k][1]])
+		print("tris TOTAL ", TriBudget.total(acc))
 	img.save_png(OS.get_environment("CV_OUT") if OS.get_environment("CV_OUT") != "" else "/tmp/shot.png")
 	get_tree().quit()
 
@@ -89,10 +107,11 @@ func _process(_d: float) -> void:
 	if world and Engine.get_process_frames() % 120 == 0:
 		var bad := 0
 		for c in world.traffic._cars:
-			var p: Vector3 = c.node.position
+			var p: Vector3 = (c.xf as Transform3D).origin
 			var t := Game.world_to_tile(p)
 			if Game.knd(t.x, t.y) != Game.K.ROAD:
 				bad += 1
 				if bad < 4:
 					print("off-road ", t, " car tile ", c.tile, " din ", c.din, " dout ", c.dout, " t ", c.t, " kind ", Game.knd(t.x, t.y))
 		print("cars ", world.traffic._cars.size(), " bad ", bad)
+

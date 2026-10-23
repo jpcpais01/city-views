@@ -105,7 +105,7 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 		var depth := lift + 0.1
 		for px in [-0.75, 0.75]:
 			for pz in [-0.75, 0.75]:
-				mk.cylinder(Vector3(px, -depth - 0.1, pz), 0.12, depth, 8, deck.darkened(0.15), false)
+				mk.pole(Vector3(px, -depth - 0.1, pz), 0.12, depth, 8, deck.darkened(0.15))
 		for i in 4:
 			if not links[i]:
 				var d := DIRS[i]
@@ -113,25 +113,48 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 				var along := Vector3(absf(d.y), 0, absf(d.x)) * 2.0
 				mk.rbox(side + Vector3(0, 0.12, 0), along + Vector3(absf(d.x), 0, absf(d.y)) * 0.1 + Vector3(0, 0.2, 0), 0.04, Color(1, 1, 1))
 	# asphalt: centre plus every linked arm
-	mk.box(Vector3(0, 0.03, 0), Vector3(w * 2, 0.06, w * 2), ASPHALT)
+	if water:
+		mk.box(Vector3(0, 0.03, 0), Vector3(w * 2, 0.06, w * 2), ASPHALT)
+	else:
+		_flat(mk, -w, -w, w, w, 0.06, ASPHALT)
 	for i in 4:
 		if links[i]:
 			var d := DIRS[i]
 			var c := Vector3(d.x, 0, d.y) * (w + (H - w) * 0.5)
 			var sz := Vector3(H - w if d.x != 0 else w * 2, 0.06, H - w if d.y != 0 else w * 2)
-			mk.box(c + Vector3(0, 0.03, 0), sz, ASPHALT)
+			if water:
+				mk.box(c + Vector3(0, 0.03, 0), sz, ASPHALT)
+			else:
+				_flat(mk, c.x - sz.x * 0.5, c.z - sz.z * 0.5, c.x + sz.x * 0.5, c.z + sz.z * 0.5, 0.06, ASPHALT)
 	if not water:
-		# sidewalks fill everything else with rounded curbs
-		var sw := H - w
+		# sidewalks fill everything else; only the curbs that can be seen get a face
+		var open_side := []
+		for i in 4:
+			var d := DIRS[i]
+			open_side.append(Game.knd(x + d.x, z + d.y) != Game.K.ROAD)
 		for cx in [-1, 1]:
 			for cz in [-1, 1]:
-				mk.rbox(Vector3(cx * (w + sw * 0.5), 0.05, cz * (w + sw * 0.5)), Vector3(sw, 0.1, sw), 0.03, SIDEWALK)
+				_flat(mk, minf(cx * w, cx * H), minf(cz * w, cz * H), maxf(cx * w, cx * H), maxf(cz * w, cz * H), 0.1, SIDEWALK)
+				var ix := 0 if cx > 0 else 2
+				var iz := 1 if cz > 0 else 3
+				if links[iz]:
+					_curb(mk, Vector3(cx * w, 0, cz * w), Vector3(cx * H, 0, cz * w), Vector3(0, 0, -cz), 0.04)
+				if links[ix]:
+					_curb(mk, Vector3(cx * w, 0, cz * w), Vector3(cx * w, 0, cz * H), Vector3(-cx, 0, 0), 0.04)
+				if open_side[ix]:
+					_curb(mk, Vector3(cx * H, 0, cz * w), Vector3(cx * H, 0, cz * H), Vector3(cx, 0, 0), 0.0)
+				if open_side[iz]:
+					_curb(mk, Vector3(cx * w, 0, cz * H), Vector3(cx * H, 0, cz * H), Vector3(0, 0, cz), 0.0)
 		for i in 4:
 			if not links[i]:
 				var d := DIRS[i]
-				var c := Vector3(d.x, 0, d.y) * (w + sw * 0.5)
-				var sz := Vector3(sw if d.x != 0 else w * 2, 0.1, sw if d.y != 0 else w * 2)
-				mk.rbox(c + Vector3(0, 0.05, 0), sz, 0.03, SIDEWALK)
+				var a := Vector3(d.x, 0, d.y) * w
+				var b := Vector3(d.x, 0, d.y) * H
+				var t := Vector3(absf(d.y), 0, absf(d.x)) * w
+				_flat(mk, minf(a.x, b.x) - t.x, minf(a.z, b.z) - t.z, maxf(a.x, b.x) + t.x, maxf(a.z, b.z) + t.z, 0.1, SIDEWALK)
+				_curb(mk, a - t, a + t, -Vector3(d.x, 0, d.y), 0.04)
+				if open_side[i]:
+					_curb(mk, b - t, b + t, Vector3(d.x, 0, d.y), 0.0)
 	# markings
 	var paint := Color(0.97, 0.95, 0.88)
 	if count == 2 and ((links[0] and links[2]) or (links[1] and links[3])):
@@ -196,6 +219,22 @@ static func _ramp(mk: MeshKit, x: int, z: int, rd: int, _links: Array) -> void:
 	mk.pop()
 
 
+## Upward rectangle at height y (x0..x1, z0..z1).
+static func _flat(mk: MeshKit, x0: float, z0: float, x1: float, z1: float, y: float, col: Color) -> void:
+	var was := mk.shadow
+	mk.shadow = false
+	mk.quad(Vector3(x0, y, z0), Vector3(x1, y, z0), Vector3(x1, y, z1), Vector3(x0, y, z1), Vector3.UP, col)
+	mk.shadow = was
+
+
+## Sidewalk curb face from a to b (on the ground plane), facing `out`, down to `bottom`.
+static func _curb(mk: MeshKit, a: Vector3, b: Vector3, out: Vector3, bottom: float) -> void:
+	var was := mk.shadow
+	mk.shadow = false
+	mk.quad(a + Vector3(0, bottom, 0), b + Vector3(0, bottom, 0), b + Vector3(0, 0.1, 0), a + Vector3(0, 0.1, 0), out, SIDEWALK.darkened(0.06))
+	mk.shadow = was
+
+
 ## Road paint: a flat decal quad just above the asphalt, never in the shadow pass.
 static func _paint(mk: MeshKit, p: Vector3, size: Vector2, col: Color) -> void:
 	var hx := size.x * 0.5
@@ -207,7 +246,7 @@ static func _paint(mk: MeshKit, p: Vector3, size: Vector2, col: Color) -> void:
 
 
 static func _lamp(mk: MeshKit, p: Vector3) -> void:
-	mk.cylinder(p, 0.035, 0.9, 6, Color(0.25, 0.27, 0.3), true)
+	mk.pole(p, 0.035, 0.9, 4, Color(0.25, 0.27, 0.3))
 	mk.rbox(p + Vector3(0, 0.95, 0), Vector3(0.16, 0.12, 0.16), 0.04, Color(0.25, 0.27, 0.3))
 	mk.box(p + Vector3(0, 0.88, 0), Vector3(0.12, 0.06, 0.12), Color(1, 0.9, 0.7), null, true, 2.0)
 
@@ -268,12 +307,12 @@ static func density(x: int, z: int) -> int:
 
 
 static func _round_tree(mk: MeshKit, p: Vector3, s: float, col: Color) -> void:
-	mk.cylinder(p, 0.05 * s / 0.6, 0.35 * s / 0.6, 6, Color(0.5, 0.36, 0.25), false)
+	mk.pole(p, 0.05 * s / 0.6, 0.35 * s / 0.6, 4, Color(0.5, 0.36, 0.25))
 	mk.blob(p + Vector3(0, 0.55 * s / 0.6, 0), Vector3(0.32, 0.36, 0.32) * s / 0.6, col, 0.06)
 
 
 static func _pine(mk: MeshKit, p: Vector3, s: float, col: Color) -> void:
-	mk.cylinder(p, 0.05 * s, 0.25 * s, 6, Color(0.45, 0.32, 0.22), false)
+	mk.pole(p, 0.05 * s, 0.25 * s, 6, Color(0.45, 0.32, 0.22))
 	for k in 3:
 		mk.cone(p + Vector3(0, (0.2 + k * 0.28) * s, 0), (0.42 - k * 0.1) * s, 0.5 * s, 9, col.lightened(k * 0.05))
 
@@ -282,14 +321,22 @@ static func _palm(mk: MeshKit, p: Vector3, s: float, seed_i: int) -> void:
 	var lean := Vector3(sin(seed_i * 1.7), 0, cos(seed_i * 1.7)) * 0.07
 	var pos := p
 	for k in 5:
-		mk.cylinder(pos, 0.055 * s - k * 0.004, 0.24 * s, 6, Color(0.66, 0.52, 0.36).darkened(k % 2 * 0.06), false)
+		mk.pole(pos, 0.055 * s - k * 0.004, 0.24 * s, 6, Color(0.66, 0.52, 0.36).darkened(k % 2 * 0.06))
 		pos += Vector3(0, 0.24 * s, 0) + lean * (k + 1) * s
 	var green := Color("5fae4e")
 	for f in 6:
 		var a := TAU * f / 6.0 + seed_i
 		var dir := Vector3(cos(a), 0, sin(a))
 		mk.push(Transform3D(Basis.looking_at(-dir, Vector3.UP).rotated(Vector3(dir.z, 0, -dir.x), 0.45), pos + dir * 0.28 * s))
-		mk.rbox(Vector3(0, -0.05, 0.0), Vector3(0.18 * s, 0.035, 0.62 * s), 0.02, green.darkened(f % 2 * 0.08))
+		# a frond is a thin leaf: its top and underside are all that ever shows
+		var fc := green.darkened(f % 2 * 0.08)
+		var hw := 0.09 * s
+		var hl := 0.31 * s
+		mk.quad(Vector3(-hw, -0.032, -hl), Vector3(hw, -0.032, -hl), Vector3(hw, -0.032, hl), Vector3(-hw, -0.032, hl), Vector3.UP, fc)
+		var sh := mk.shadow
+		mk.shadow = false
+		mk.quad(Vector3(-hw, -0.068, -hl), Vector3(hw, -0.068, -hl), Vector3(hw, -0.068, hl), Vector3(-hw, -0.068, hl), Vector3.DOWN, fc.darkened(0.15))
+		mk.shadow = sh
 		mk.pop()
 	mk.blob(pos, Vector3(0.09, 0.08, 0.09) * s, Color(0.55, 0.4, 0.25))
 
@@ -299,23 +346,16 @@ static func _plot(mk: MeshKit, col: Color) -> void:
 
 
 static func _windows_row(mk: MeshKit, y: float, w: float, d: float, count_front: int, count_side: int, glass: Color, frame: Color, sides := [true, true, true, true], ww := 0.22, wh := 0.3) -> void:
-	# sides: front(+z), right(+x), back(-z), left(-x)
+	# sides: front(+z), right(+x), back(-z), left(-x); each side is one quad of windows
+	var framed := frame.a > 0.0
 	if sides[0]:
-		for i in count_front:
-			var t := (i + 0.5) / count_front - 0.5
-			mk.window(Vector3(t * w, y, d * 0.5), Vector3.BACK, ww, wh, glass, frame)
+		mk.window_row(Vector3(0, y, d * 0.5), Vector3.BACK, w, count_front, ww, wh, glass, framed)
 	if sides[2]:
-		for i in count_front:
-			var t := (i + 0.5) / count_front - 0.5
-			mk.window(Vector3(t * w, y, -d * 0.5), Vector3.FORWARD, ww, wh, glass, frame)
+		mk.window_row(Vector3(0, y, -d * 0.5), Vector3.FORWARD, w, count_front, ww, wh, glass, framed)
 	if sides[1]:
-		for i in count_side:
-			var t := (i + 0.5) / count_side - 0.5
-			mk.window(Vector3(w * 0.5, y, t * d), Vector3.RIGHT, ww, wh, glass, frame)
+		mk.window_row(Vector3(w * 0.5, y, 0), Vector3.RIGHT, d, count_side, ww, wh, glass, framed)
 	if sides[3]:
-		for i in count_side:
-			var t := (i + 0.5) / count_side - 0.5
-			mk.window(Vector3(-w * 0.5, y, t * d), Vector3.LEFT, ww, wh, glass, frame)
+		mk.window_row(Vector3(-w * 0.5, y, 0), Vector3.LEFT, d, count_side, ww, wh, glass, framed)
 
 
 static func _lot(mk: MeshKit, x: int, z: int) -> void:
@@ -396,8 +436,7 @@ static func _house(mk: MeshKit, x: int, z: int) -> void:
 		var brick := pick(BRICK, x, z, 16)
 		mk.rbox(Vector3(0, 0.1 + hgt * 0.5, 0), Vector3(w, hgt, d), 0.06, brick)
 		# floor bands
-		for fl in range(1, floors):
-			mk.box(Vector3(0, 0.1 + fl * fh, 0), Vector3(w + 0.03, 0.04, d + 0.03), brick.lightened(0.25))
+		mk.bands(0.1 + fh, w, d, fh, floors - 1, 0.04, brick.lightened(0.25))
 		for fl in floors:
 			var yy := 0.1 + fl * fh + fh * 0.5
 			if fl == 0:
@@ -410,16 +449,16 @@ static func _house(mk: MeshKit, x: int, z: int) -> void:
 				if fl % 2 == 1 and Game.hashf(x, z, 17) > 0.4:
 					# balconies
 					for i in [-1, 1]:
-						mk.box(Vector3(i * w * 0.25, yy - fh * 0.32, d * 0.5 + 0.12), Vector3(0.42, 0.04, 0.24), FRAME)
-						mk.box(Vector3(i * w * 0.25, yy - fh * 0.2, d * 0.5 + 0.235), Vector3(0.42, 0.2, 0.015), Color(1, 1, 1, 1).darkened(0.1))
+						mk.box_faces(Vector3(i * w * 0.25, yy - fh * 0.32, d * 0.5 + 0.12), Vector3(0.42, 0.04, 0.24), FRAME, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+						mk.box_faces(Vector3(i * w * 0.25, yy - fh * 0.2, d * 0.5 + 0.235), Vector3(0.42, 0.2, 0.015), Color(1, 1, 1, 1).darkened(0.1), MeshKit.FRONT | MeshKit.BACK)
 		# roof: parapet + rooftop details
 		var top := 0.1 + hgt
 		mk.rbox(Vector3(0, top + 0.06, 0), Vector3(w + 0.06, 0.12, d + 0.06), 0.03, brick.lightened(0.3))
-		mk.box(Vector3(0, top + 0.1, 0), Vector3(w - 0.12, 0.02, d - 0.12), Color(0.55, 0.55, 0.57))
+		mk.box_faces(Vector3(0, top + 0.1, 0), Vector3(w - 0.12, 0.02, d - 0.12), Color(0.55, 0.55, 0.57), MeshKit.TOP)
 		var r := Game.hash2(x, z, 18) % 3
 		if r == 0:
-			mk.cylinder(Vector3(w * 0.22, top + 0.1, -d * 0.2), 0.18, 0.32, 10, Color(0.55, 0.42, 0.32), true, null, 0.16)
-			mk.cone(Vector3(w * 0.22, top + 0.42, -d * 0.2), 0.2, 0.14, 10, Color(0.45, 0.35, 0.28))
+			mk.cylinder(Vector3(w * 0.22, top + 0.1, -d * 0.2), 0.18, 0.32, 8, Color(0.55, 0.42, 0.32), false, null, 0.16)
+			mk.cone(Vector3(w * 0.22, top + 0.42, -d * 0.2), 0.2, 0.14, 8, Color(0.45, 0.35, 0.28))
 			for k in 4:
 				var a := TAU * k / 4.0 + 0.6
 				mk.box(Vector3(w * 0.22 + cos(a) * 0.12, top + 0.15, -d * 0.2 + sin(a) * 0.12), Vector3(0.03, 0.12, 0.03), Color(0.3, 0.3, 0.3))
@@ -447,14 +486,14 @@ static func _house(mk: MeshKit, x: int, z: int) -> void:
 			else:
 				_windows_row(mk, yy, w, d, nf, 1, glass, FRAME, sides)
 				if g == 2 and fl == 1 and Game.hashf(x, z, 20) > 0.4:
-					mk.box(Vector3(0, yy - 0.2, d * 0.5 + 0.13), Vector3(0.7, 0.04, 0.26), FRAME)
-					mk.box(Vector3(0, yy - 0.1, d * 0.5 + 0.255), Vector3(0.7, 0.18, 0.015), Color(0.95, 0.95, 0.95))
+					mk.box_faces(Vector3(0, yy - 0.2, d * 0.5 + 0.13), Vector3(0.7, 0.04, 0.26), FRAME, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+					mk.box_faces(Vector3(0, yy - 0.1, d * 0.5 + 0.255), Vector3(0.7, 0.18, 0.015), Color(0.95, 0.95, 0.95), MeshKit.FRONT | MeshKit.BACK)
 					for k in 3:
 						mk.blob(Vector3(-0.25 + k * 0.25, yy - 0.13, d * 0.5 + 0.2), Vector3(0.06, 0.05, 0.06), AWNINGS[(k + x) % AWNINGS.size()])
 		var top := 0.1 + hgt
 		if flat_roof:
 			mk.rbox(Vector3(0, top + 0.05, 0), Vector3(w + 0.05, 0.1, d + 0.05), 0.03, wall.lightened(0.1))
-			mk.box(Vector3(0, top + 0.08, 0), Vector3(w - 0.12, 0.02, d - 0.12), wall.darkened(0.12))
+			mk.box_faces(Vector3(0, top + 0.08, 0), Vector3(w - 0.12, 0.02, d - 0.12), wall.darkened(0.12), MeshKit.TOP)
 			if Game.hashf(x, z, 21) > 0.5:
 				# blue-domed seaside cupola
 				mk.cylinder(Vector3(w * 0.2, top + 0.08, -d * 0.15), 0.18, 0.22, 10, wall)
@@ -489,7 +528,7 @@ static func _house(mk: MeshKit, x: int, z: int) -> void:
 				# picket fence
 				var fx0 := x0 + 0.05
 				var fx1 := x1 - 0.05
-				var n := int((fx1 - fx0) / 0.14)
+				var n := int((fx1 - fx0) / 0.2)
 				for k in n + 1:
 					mk.box(Vector3(fx0 + k * (fx1 - fx0) / max(n, 1), 0.15, H - 0.08), Vector3(0.035, 0.18, 0.03), FRAME)
 				mk.box(Vector3((fx0 + fx1) * 0.5, 0.17, H - 0.08), Vector3(fx1 - fx0, 0.03, 0.02), FRAME)
@@ -544,7 +583,8 @@ static func _shop(mk: MeshKit, x: int, z: int) -> void:
 		var sx := -aw * 0.5 + (k + 0.5) * aw / stripes
 		var p0 := Vector3(sx, 0.9, sf + 0.02)
 		mk.push(Transform3D(Basis(Vector3.RIGHT, 0.5), p0))
-		mk.box(Vector3(0, 0, 0.2), Vector3(aw / stripes, 0.03, 0.42), col)
+		# neighbouring stripes hide each other's sides; the back meets the wall
+		mk.box_faces(Vector3(0, 0, 0.2), Vector3(aw / stripes, 0.03, 0.42), col, MeshKit.TOP | MeshKit.FRONT | (MeshKit.LEFT if k == 0 else 0) | (MeshKit.RIGHT if k == stripes - 1 else 0))
 		mk.pop()
 	mk.box(Vector3(0, 0.74, sf + 0.38), Vector3(aw, 0.08, 0.02), awn)
 	# sign board
@@ -571,7 +611,7 @@ static func _shop(mk: MeshKit, x: int, z: int) -> void:
 	if g <= 2 and Game.hashf(x, z, 33) > 0.35:
 		var tz := 0.82
 		mk.cylinder(Vector3(cx + 0.4, 0.06, tz), 0.15, 0.24, 8, Color(0.95, 0.95, 0.95))
-		mk.cylinder(Vector3(cx + 0.4, 0.06, tz), 0.02, 0.62, 5, Color(0.4, 0.4, 0.4), false)
+		mk.pole(Vector3(cx + 0.4, 0.06, tz), 0.02, 0.62, 5, Color(0.4, 0.4, 0.4))
 		mk.cone(Vector3(cx + 0.4, 0.62, tz), 0.36, 0.16, 10, awn)
 	mk.pop()
 
@@ -622,8 +662,7 @@ static func _office(mk: MeshKit, x: int, z: int) -> void:
 			else:
 				_windows_row(mk, yy, w, d, cols + 1, cols + 1, glass, Color(0, 0, 0, 0), [true, true, true, true], w / (cols + 1) * 0.78, fh * 0.7)
 		# mullion lines between floors
-		for fl in range(1, nf):
-			mk.box(Vector3(0, y + fl * fh, 0), Vector3(w + 0.02, 0.03, d + 0.02), tone.lightened(0.2))
+		mk.bands(y + fh, w, d, fh, nf - 1, 0.03, tone.lightened(0.2))
 		y += hh
 		mk.rbox(Vector3(0, y + 0.04, 0), Vector3(w + 0.06, 0.08, d + 0.06), 0.03, tone.lightened(0.25))
 		y += 0.08
@@ -634,7 +673,7 @@ static func _office(mk: MeshKit, x: int, z: int) -> void:
 		mk.blob(Vector3(0, y + 0.92, 0), Vector3(0.06, 0.06, 0.06), Color(1, 0.25, 0.2), 0.0, 2.0)
 	else:
 		mk.rbox(Vector3(-0.2, y + 0.14, 0.1), Vector3(0.4, 0.2, 0.3), 0.04, Color(0.75, 0.77, 0.8))
-		mk.cylinder(Vector3(0.3, y, -0.3), 0.04, 0.4, 5, Color(0.6, 0.6, 0.6), false)
+		mk.pole(Vector3(0.3, y, -0.3), 0.04, 0.4, 5, Color(0.6, 0.6, 0.6))
 	mk.pop()
 	# little plaza trees
 	_round_tree(mk, Vector3(-0.82, 0.06, 0.82), 0.35, pick(LEAF, x, z, 43))
@@ -652,7 +691,7 @@ static func _park(mk: MeshKit, x: int, z: int) -> void:
 		if k == Game.K.PARK or k == Game.K.ROAD:
 			linked += 1
 			var c := Vector3(d.x, 0, d.y) * 0.5
-			mk.box(c + Vector3(0, 0.085, 0), Vector3(1.0 if d.x != 0 else 0.34, 0.012, 1.0 if d.y != 0 else 0.34), path)
+			mk.box_faces(c + Vector3(0, 0.085, 0), Vector3(1.0 if d.x != 0 else 0.34, 0.012, 1.0 if d.y != 0 else 0.34), path, MeshKit.TOP)
 	mk.cylinder(Vector3(0, 0.08, 0), 0.32, 0.015, 12, path)
 	var r := Game.hash2(x, z, 50) % 4
 	if r == 0:
@@ -762,7 +801,7 @@ static func _landmark(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material, 
 				blades.box(Vector3(0.14, 0.95, 0.0), Vector3(0.24, 1.15, 0.02), Color(0.97, 0.95, 0.9))
 				blades.pop()
 			blades.blob(Vector3.ZERO, Vector3(0.1, 0.1, 0.1), Color(0.35, 0.27, 0.2))
-			var sp := _spinner(root, blades.commit(mat), Vector3(0, 2.1, 0.68), Vector3.BACK, 0.7)
+			var sp := _spinner(root, blades.commit(mat), Vector3(0, 2.1, 0.68), Vector3.BACK, 0.7, blades.commit_shadow(shadow_material()))
 			var pv := sp.get_parent() as Node3D
 			pv.rotation.y = yaw_of(f)
 			pv.position = Vector3(sin(yaw_of(f)), 0, cos(yaw_of(f))) * 0.68 + Vector3(0, 2.1, 0)
@@ -784,7 +823,7 @@ static func _landmark(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material, 
 				mk.window(Vector3(0, 1.4, 0) + out * 0.45, out, 0.2, 0.4, GLASS, FRAME)
 			mk.rbox(Vector3(0, 3.38, 0), Vector3(1.04, 0.16, 1.04), 0.04, Color(0.95, 0.9, 0.82))
 			mk.hip_roof(Vector3(0, 3.46, 0), 0.96, 0.96, 1.1, 0.05, Color("4b5a70"))
-			mk.cylinder(Vector3(0, 4.5, 0), 0.02, 0.4, 4, Color(0.9, 0.75, 0.3), false)
+			mk.pole(Vector3(0, 4.5, 0), 0.02, 0.4, 4, Color(0.9, 0.75, 0.3))
 			for k in 4:
 				var a := TAU * k / 4.0 + PI / 4
 				mk.rbox(Vector3(cos(a) * 0.85, 0.3, sin(a) * 0.85), Vector3(0.3, 0.44, 0.3), 0.12, Color("5c9e4e"))
@@ -828,7 +867,7 @@ static func _landmark(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material, 
 				wheel.rbox(p + Vector3(0, -0.18, 0), Vector3(0.26, 0.24, 0.26), 0.07, cab)
 				wheel.box(p + Vector3(0, -0.06, 0), Vector3(0.03, 0.12, 0.03), steel)
 			wheel.cylinder(Vector3(0, -0.06, 0), 0.12, 0.12, 8, steel)
-			var wn := _spinner(root, wheel.commit(mat), Vector3(0, 2.35, 0), Vector3.BACK, 0.18)
+			var wn := _spinner(root, wheel.commit(mat), Vector3(0, 2.35, 0), Vector3.BACK, 0.18, wheel.commit_shadow(shadow_material()))
 			(wn.get_parent() as Node3D).rotation.y = yaw_of(f)
 			root.get_child(0).rotation.y = yaw_of(f)
 
@@ -855,12 +894,19 @@ static func _beam_mesh(mat: Material) -> ArrayMesh:
 	return m
 
 
-static func _spinner(root: Node3D, mesh: ArrayMesh, pos: Vector3, axis: Vector3, speed: float) -> MeshInstance3D:
+static func _spinner(root: Node3D, mesh: ArrayMesh, pos: Vector3, axis: Vector3, speed: float, proxy: ArrayMesh = null) -> MeshInstance3D:
 	var pivot := Node3D.new()
 	pivot.position = pos
 	root.add_child(pivot)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
+	if proxy:
+		# spins along with the mesh, drawing only the cheap stand-in into the shadow map
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var sh := MeshInstance3D.new()
+		sh.mesh = proxy
+		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		mi.add_child(sh)
 	mi.set_meta("spin_axis", axis)
 	mi.set_meta("spin_speed", speed)
 	pivot.add_child(mi)
@@ -870,6 +916,19 @@ static func _spinner(root: Node3D, mesh: ArrayMesh, pos: Vector3, axis: Vector3,
 # ------------------------------------------------------------------ entry point
 
 ## Builds the visual node for a tile, positioned at the tile's centre. Returns null for empty tiles.
+static var _shadow_mat: Material
+
+
+## Double-sided, so stand-in winding never matters in the shadow pass.
+static func shadow_material() -> Material:
+	if _shadow_mat == null:
+		var m := StandardMaterial3D.new()
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_shadow_mat = m
+	return _shadow_mat
+
+
 static func build(x: int, z: int, mat: Material, beam_mat: Material) -> Node3D:
 	var k := Game.knd(x, z)
 	if k == Game.K.EMPTY:
@@ -888,7 +947,23 @@ static func build(x: int, z: int, mat: Material, beam_mat: Material) -> Node3D:
 		Game.K.TREE: _trees(mk, x, z)
 		Game.K.LANDMARK: _landmark(mk, x, z, root, mat, beam_mat)
 	body.name = "Body"
-	body.mesh = mk.commit(mat)
+	body.mesh = mk.commit(mat, false)
+	# the shadow map gets cheap stand-in shapes instead of the detailed mesh
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var sm := mk.commit_shadow(shadow_material())
+	if sm:
+		var sh := MeshInstance3D.new()
+		sh.name = "Shadow"
+		sh.mesh = sm
+		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		root.add_child(sh)
+	var bm := mk.commit_blobs()
+	if bm:
+		var bl := MeshInstance3D.new()
+		bl.name = "Blobs"
+		bl.mesh = bm
+		root.add_child(bl)
 	# raw arrays let the world merge settled tiles into big batched meshes
-	body.set_meta("arrays", [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs])
+	body.set_meta("arrays", [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,
+		mk.bverts, mk.bcols, mk.buvs, mk.bradius])
 	return root

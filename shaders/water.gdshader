@@ -19,7 +19,6 @@ uniform sampler2D shore_tex : filter_linear, repeat_disable;
 uniform float grid_size = 128.0;
 
 varying vec3 w_pos;
-varying float crest;
 
 // metres from the nearest coastline (smoothed from the tile distance map)
 float shore_dist(vec2 xz) {
@@ -35,31 +34,41 @@ const vec4 WAVES[4] = vec4[](
 	vec4(-0.95, -0.2, 3.9, 0.1)
 );
 
-void vertex() {
-	vec3 p = VERTEX;
-	// calmer far from the island so the horizon stays clean
-	float sd = shore_dist(p.xz);
-	float fade = (1.0 - smoothstep(120.0, 260.0, length(p.xz))) * wave_scale * (0.25 + 0.75 * smoothstep(0.0, 5.0, sd));
+float wave_fade(vec2 xz) {
+	// calmer far from the island so the horizon stays clean, and in the shallows
+	float sd = shore_dist(xz);
+	return (1.0 - smoothstep(120.0, 260.0, length(xz))) * wave_scale * (0.25 + 0.75 * smoothstep(0.0, 5.0, sd));
+}
+
+// Gerstner swell at xz: returns the offset; tangents written to tx / tz
+vec3 swell(vec2 xz, float t, float fade, int count, out vec3 tx, out vec3 tz) {
 	vec3 off = vec3(0.0);
-	vec3 tx = vec3(1.0, 0.0, 0.0);
-	vec3 tz = vec3(0.0, 0.0, 1.0);
-	for (int i = 0; i < 4; i++) {
+	tx = vec3(1.0, 0.0, 0.0);
+	tz = vec3(0.0, 0.0, 1.0);
+	for (int i = 0; i < count; i++) {
 		vec2 d = normalize(WAVES[i].xy);
 		float k = 6.28318 / WAVES[i].z;
 		float c = sqrt(9.8 / k) * 0.55;
 		float a = WAVES[i].w / k * fade;
-		float f = k * (dot(d, p.xz) - c * TIME);
+		float f = k * (dot(d, xz) - c * t);
 		float s = sin(f);
 		float co = cos(f);
 		off += vec3(d.x * a * co * 0.6, a * s, d.y * a * co * 0.6);
 		tx += vec3(-d.x * d.x * k * a * s * 0.6, d.x * k * a * co, -d.x * d.y * k * a * s * 0.6);
 		tz += vec3(-d.x * d.y * k * a * s * 0.6, d.y * k * a * co, -d.y * d.y * k * a * s * 0.6);
 	}
-	p += off;
-	crest = off.y;
+	return off;
+}
+
+void vertex() {
+	vec3 p = VERTEX;
+	vec3 tx;
+	vec3 tz;
+	// the coarse grid carries the two long swells; every wave's normal is worked out per pixel
+	p += swell(p.xz, TIME, wave_fade(p.xz), 2, tx, tz);
 	w_pos = p;
 	VERTEX = p;
-	NORMAL = normalize(cross(tz, tx));
+	NORMAL = vec3(0.0, 1.0, 0.0);
 }
 
 float nz2(vec2 p) {
@@ -97,7 +106,10 @@ void fragment() {
 	float t = TIME;
 	// surface normal: swell from the vertex stage plus fine ripples
 	vec2 sl = ripple_slope(w_pos.xz, t);
-	vec3 n_world = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	vec3 tx;
+	vec3 tz;
+	float crest = swell(w_pos.xz, t, wave_fade(w_pos.xz), 4, tx, tz).y;
+	vec3 n_world = normalize(cross(tz, tx));
 	n_world = normalize(n_world + vec3(-sl.x, 0.0, -sl.y) * 0.22);
 	vec3 n_view = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
@@ -136,7 +148,7 @@ void fragment() {
 	// foam: a soft lace at the waterline plus bands rolling towards the beach
 	float nz = nz2(w_pos.xz * 0.2 + vec2(t * 0.04, -t * 0.027)) * 0.6 + nz2(w_pos.xz * 0.5 - t * 0.05) * 0.4;
 	float sd = shore_dist(w_pos.xz);
-	float edge = max(1.0 - smoothstep(0.0, 0.1 + nz * 0.1, depth0), 1.0 - smoothstep(0.05, 0.3 + nz * 0.45, sd));
+	float edge = 1.0 - smoothstep(0.0, 0.05 + nz * 0.07, depth0);
 	float roll = sin(sd * 3.4 + t * 1.7 + nz * 2.2) * 0.5 + 0.5;
 	float bands = smoothstep(0.8, 0.95, roll) * (1.0 - smoothstep(0.3, 2.6, sd)) * smoothstep(0.3, 0.55, nz);
 	float caps = smoothstep(0.075, 0.095, crest) * smoothstep(0.62, 0.8, nz) * 0.5;
