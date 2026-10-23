@@ -10,6 +10,8 @@ var _t_yaw := deg_to_rad(35.0)
 var _t_dist := 38.0
 var cam: Camera3D
 var idle_spin := false
+## Ground height under a point, for worlds without tiles (null: use the tile map).
+var ground_fn: Callable
 
 const MIN_D := 9.0
 const MAX_D := 95.0
@@ -93,6 +95,8 @@ func _keyboard(delta: float) -> void:
 
 
 func _ground_height(p: Vector3) -> float:
+	if ground_fn.is_valid():
+		return maxf(0.0, ground_fn.call(p.x, p.z)) * 0.8
 	var t := Game.world_to_tile(p)
 	if not Game.inside(t.x, t.y):
 		return 0.0

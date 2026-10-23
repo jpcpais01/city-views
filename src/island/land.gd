@@ -1,0 +1,385 @@
+class_name Land
+extends Node3D
+## The new island's ground: one continuous height field (no tiles), grown from
+## noise into hills, ridges, coves, beaches and the odd cliff, and reshaped by
+## the player's brushes. Built in chunks so a brush stroke only remakes the
+## ground it touched.
+
+const SIZE := 128.0
+const HALF := SIZE * 0.5
+const CELLS := 128
+const STEP := SIZE / CELLS
+const SIDE := CELLS + 1
+const CHUNK := 32
+const LOW := -4.6
+const HIGH := 11.0
+
+signal changed
+
+var material: Material
+var heights := PackedFloat32Array()
+var _base := PackedFloat32Array()
+var _chunks := {}
+# a coarser copy of the ground drawn only into the shadow map, so hills cast
+# shadows across the valleys for a quarter of the triangles
+var _shadow: MeshInstance3D
+var _shadow_dirty := true
+var _dirty := {}
+var _noise := FastNoiseLite.new()
+var _warp := FastNoiseLite.new()
+var _detail := FastNoiseLite.new()
+
+
+## Fresh island for a seed.
+func generate(seed_value: int) -> void:
+	_noise.seed = seed_value
+	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_noise.fractal_octaves = 4
+	_noise.fractal_gain = 0.42
+	_noise.frequency = 1.0 / 55.0
+	_warp.seed = seed_value + 17
+	_warp.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_warp.fractal_octaves = 3
+	_warp.frequency = 1.0 / 40.0
+	_detail.seed = seed_value + 31
+	_detail.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_detail.fractal_octaves = 2
+	_detail.frequency = 1.0 / 9.0
+	heights.resize(SIDE * SIDE)
+	for j in SIDE:
+		for i in SIDE:
+			heights[j * SIDE + i] = _natural(_pos(i, j))
+	_base = heights.duplicate()
+	for c in _chunks.values():
+		c.queue_free()
+	_chunks.clear()
+	for cz in CELLS / CHUNK:
+		for cx in CELLS / CHUNK:
+			_dirty[Vector2i(cx, cz)] = true
+	rebuild_dirty(1 << 20)
+	rebuild_shadow()
+	changed.emit()
+
+
+func _pos(i: int, j: int) -> Vector2:
+	return Vector2(i * STEP - HALF, j * STEP - HALF)
+
+
+## The untouched landscape at a point: a warped, roughly round island whose
+## coast wanders, inland hills and ridges, broad beaches and a few cliffs.
+func _natural(p: Vector2) -> float:
+	var w := Vector2(_warp.get_noise_2d(p.x, p.y), _warp.get_noise_2d(p.x + 91.0, p.y - 37.0)) * 20.0
+	w += Vector2(_detail.get_noise_2d(p.x * 0.5, p.y * 0.5), _detail.get_noise_2d(p.x * 0.5 + 50.0, p.y * 0.5)) * 4.0
+	var q := p + w
+	var r := q.length() / HALF
+	# where the coast is cliffy the land rises sharply out of the sea
+	var cliff := smoothstep(0.3, 0.55, _warp.get_noise_2d(q.x * 0.6 - 200.0, q.y * 0.6))
+	var mask := 1.0 - smoothstep(lerpf(0.42, 0.62, cliff), lerpf(0.86, 0.72, cliff), r)
+	var hills := (_noise.get_noise_2d(q.x, q.y) * 0.5 + 0.5)
+	hills = pow(hills, 2.2) * 16.0
+	# a ridge line or two
+	var ridge := 1.0 - absf(_noise.get_noise_2d(q.x * 0.7 + 400.0, q.y * 0.7))
+	hills += pow(ridge, 5.0) * 3.5
+	var inland := smoothstep(0.2, 0.9, mask)
+	inland *= inland
+	var land := 0.8 + hills * inland + _detail.get_noise_2d(p.x, p.y) * 0.12 + cliff * 1.6 * smoothstep(0.0, 0.3, mask)
+	var h := lerpf(LOW, land, mask)
+	return _beach(h)
+
+
+## Flattens the ground just above and below the waterline into wide beaches.
+func _beach(h: float) -> float:
+	if h > 0.0:
+		return h * smoothstep(-0.2, 1.6, h)
+	return h * smoothstep(-0.4, -2.0, h) + h * 0.35
+
+
+func index(i: int, j: int) -> int:
+	return clampi(j, 0, CELLS) * SIDE + clampi(i, 0, CELLS)
+
+
+## Ground height at a world point (bilinear between samples; sea floor outside).
+func height_at(x: float, z: float) -> float:
+	var fx := (x + HALF) / STEP
+	var fz := (z + HALF) / STEP
+	if fx < 0.0 or fz < 0.0 or fx > CELLS or fz > CELLS:
+		return LOW
+	var i := mini(int(fx), CELLS - 1)
+	var j := mini(int(fz), CELLS - 1)
+	var u := fx - i
+	var v := fz - j
+	var a := heights[j * SIDE + i]
+	var b := heights[j * SIDE + i + 1]
+	var c := heights[(j + 1) * SIDE + i]
+	var d := heights[(j + 1) * SIDE + i + 1]
+	return lerpf(lerpf(a, b, u), lerpf(c, d, u), v)
+
+
+func normal_at(x: float, z: float) -> Vector3:
+	var e := STEP
+	return Vector3(height_at(x - e, z) - height_at(x + e, z), 2.0 * e, height_at(x, z - e) - height_at(x, z + e)).normalized()
+
+
+## Where a screen ray first meets the ground (or the sea surface); null if it misses.
+func raycast(origin: Vector3, dir: Vector3) -> Variant:
+	var t := 0.0
+	var prev := origin
+	while t < 600.0:
+		var p := origin + dir * t
+		var g := maxf(height_at(p.x, p.z), 0.0)
+		if p.y <= g:
+			# refine between the last point above ground and this one
+			var lo := prev
+			var hi := p
+			for k in 8:
+				var m := (lo + hi) * 0.5
+				if m.y <= maxf(height_at(m.x, m.z), 0.0):
+					hi = m
+				else:
+					lo = m
+			return hi
+		prev = p
+		t += clampf((p.y - g) * 0.5, 0.15, 3.0)
+	return null
+
+
+# ------------------------------------------------------------------ brushes
+
+## Raise (amount > 0) or lower the ground in a soft circle.
+func sculpt(centre: Vector3, radius: float, amount: float) -> void:
+	_each_in(centre, radius, func(k: int, w: float) -> void:
+		heights[k] = clampf(heights[k] + amount * w, LOW, HIGH))
+
+
+## Relax bumps and pits towards their neighbours' average.
+func smooth(centre: Vector3, radius: float, amount: float) -> void:
+	var src := heights.duplicate()
+	_each_in(centre, radius, func(k: int, w: float) -> void:
+		var i := k % SIDE
+		var j := k / SIDE
+		var avg := (src[index(i - 1, j)] + src[index(i + 1, j)] + src[index(i, j - 1)] + src[index(i, j + 1)]) * 0.25
+		heights[k] = lerpf(src[k], avg, clampf(amount * w, 0.0, 1.0)))
+
+
+## Ease the ground towards a level (the height where the stroke started).
+func flatten(centre: Vector3, radius: float, level: float, amount: float) -> void:
+	_each_in(centre, radius, func(k: int, w: float) -> void:
+		heights[k] = lerpf(heights[k], level, clampf(amount * w, 0.0, 1.0)))
+
+
+func _each_in(centre: Vector3, radius: float, f: Callable) -> void:
+	var i0 := maxi(0, int(floor((centre.x - radius + HALF) / STEP)))
+	var i1 := mini(CELLS, int(ceil((centre.x + radius + HALF) / STEP)))
+	var j0 := maxi(0, int(floor((centre.z - radius + HALF) / STEP)))
+	var j1 := mini(CELLS, int(ceil((centre.z + radius + HALF) / STEP)))
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var p := _pos(i, j)
+			var d := p.distance_to(Vector2(centre.x, centre.z)) / radius
+			if d >= 1.0:
+				continue
+			var w := (1.0 - d * d)
+			f.call(j * SIDE + i, w * w)
+	# the island's rim stays under the sea so it never shows a cut edge
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			if i <= 1 or j <= 1 or i >= CELLS - 1 or j >= CELLS - 1:
+				heights[j * SIDE + i] = minf(heights[j * SIDE + i], LOW)
+	for cz in range(maxi(0, (j0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (j1 + 1) / CHUNK) + 1):
+		for cx in range(maxi(0, (i0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (i1 + 1) / CHUNK) + 1):
+			_dirty[Vector2i(cx, cz)] = true
+
+
+## Remake changed chunks, spending at most `budget_us` microseconds.
+func rebuild_dirty(budget_us := 4000) -> void:
+	var start := Time.get_ticks_usec()
+	for c in _dirty.keys():
+		_build_chunk(c)
+		_dirty.erase(c)
+		if Time.get_ticks_usec() - start > budget_us:
+			break
+
+
+func is_settled() -> bool:
+	return _dirty.is_empty()
+
+
+## Remake the shadow stand-in (call once a stroke has finished).
+func rebuild_shadow() -> void:
+	const S := 2
+	var n := CELLS / S + 1
+	var verts := PackedVector3Array()
+	var idx := PackedInt32Array()
+	verts.resize(n * n)
+	for j in n:
+		for i in n:
+			var p := _pos(i * S, j * S)
+			# sunk a little so the real ground never shadows itself in stripes
+			verts[j * n + i] = Vector3(p.x, maxf(heights[index(i * S, j * S)], -0.6) - 0.12, p.y)
+	for j in n - 1:
+		for i in n - 1:
+			var a := j * n + i
+			idx.append_array([a, a + 1, a + n, a + 1, a + n + 1, a + n])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	if _shadow == null:
+		_shadow = MeshInstance3D.new()
+		_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		add_child(_shadow)
+	m.surface_set_material(0, CityGen.shadow_material())
+	_shadow.mesh = m
+
+
+# ------------------------------------------------------------------ mesh
+
+func _build_chunk(c: Vector2i) -> void:
+	var n := CHUNK + 1
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var cols := PackedColorArray()
+	var idx := PackedInt32Array()
+	verts.resize(n * n)
+	norms.resize(n * n)
+	cols.resize(n * n)
+	for j in n:
+		for i in n:
+			var gi := c.x * CHUNK + i
+			var gj := c.y * CHUNK + j
+			var h := heights[gj * SIDE + gi]
+			var p := _pos(gi, gj)
+			var hx := heights[index(gi + 1, gj)] - heights[index(gi - 1, gj)]
+			var hz := heights[index(gi, gj + 1)] - heights[index(gi, gj - 1)]
+			var nrm := Vector3(-hx, 2.0 * STEP, -hz).normalized()
+			var k := j * n + i
+			verts[k] = Vector3(p.x, h, p.y)
+			norms[k] = nrm
+			# hollows a touch darker, crests a touch lighter: the land's shape reads from any angle
+			var lap := (heights[index(gi - 2, gj)] + heights[index(gi + 2, gj)] + heights[index(gi, gj - 2)] + heights[index(gi, gj + 2)] - 4.0 * h) / (4.0 * STEP * STEP)
+			var col := _colour(p, h, nrm.y)
+			if h > -0.3:
+				col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
+			cols[k] = col
+	for j in CHUNK:
+		for i in CHUNK:
+			var a := j * n + i
+			var b := a + 1
+			var cc := a + n
+			var d := cc + 1
+			# split each square along the diagonal that follows the land best
+			if absf(verts[a].y - verts[d].y) < absf(verts[b].y - verts[cc].y):
+				idx.append_array([a, b, d, a, d, cc])
+			else:
+				idx.append_array([a, b, cc, b, d, cc])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = norms
+	arr[Mesh.ARRAY_COLOR] = cols
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	m.surface_set_material(0, material)
+	var mi: MeshInstance3D = _chunks.get(c)
+	if mi == null:
+		mi = MeshInstance3D.new()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		_chunks[c] = mi
+	mi.mesh = m
+
+
+## Ground colour from height, steepness and a little noise: wet and dry sand,
+## meadow grass that is lusher low down and drier up high, rock on steep slopes.
+func _colour(p: Vector2, h: float, up: float) -> Color:
+	var n := _detail.get_noise_2d(p.x * 1.7, p.y * 1.7)
+	var slope := 1.0 - up
+	var sand_line := 0.32 + n * 0.12
+	var col: Color
+	if h < -0.05:
+		col = Color("d9c9a0").darkened(clampf(-h * 0.06, 0.0, 0.25))
+	elif h < sand_line:
+		col = Color("efe0b4").lerp(Color("e2cf9c"), clampf(0.5 - h * 2.0, 0.0, 1.0))
+	else:
+		var lush := Color("7fbf5f")
+		var dry := Color("a9c46a")
+		col = lush.lerp(dry, clampf(h / 8.0 + n * 0.3, 0.0, 1.0))
+		col = col.lerp(Color("efe0b4"), 1.0 - smoothstep(sand_line, sand_line + 0.18, h))
+	var rock := Color("a49d90").lerp(Color("8a847a"), clampf(n + 0.5, 0.0, 1.0))
+	col = col.lerp(rock, smoothstep(0.3, 0.45, slope + n * 0.06))
+	return col
+
+
+# ------------------------------------------------------------------ maps for shaders
+
+## Distance from every sea point to the nearest land, in world units (capped),
+## for the water shader's foam and calm shallows.
+func shore_image(cap: float) -> Image:
+	var big := 1e6
+	var d := PackedFloat32Array()
+	d.resize(SIDE * SIDE)
+	for k in SIDE * SIDE:
+		d[k] = 0.0 if heights[k] > 0.0 else big
+	# two-pass chamfer distance (3-4 weights), good to a few percent
+	var a := STEP
+	var b := STEP * 1.4142
+	for j in SIDE:
+		for i in SIDE:
+			var k := j * SIDE + i
+			var v := d[k]
+			if i > 0: v = minf(v, d[k - 1] + a)
+			if j > 0:
+				v = minf(v, d[k - SIDE] + a)
+				if i > 0: v = minf(v, d[k - SIDE - 1] + b)
+				if i < CELLS: v = minf(v, d[k - SIDE + 1] + b)
+			d[k] = v
+	for j in range(CELLS, -1, -1):
+		for i in range(CELLS, -1, -1):
+			var k := j * SIDE + i
+			var v := d[k]
+			if i < CELLS: v = minf(v, d[k + 1] + a)
+			if j < CELLS:
+				v = minf(v, d[k + SIDE] + a)
+				if i < CELLS: v = minf(v, d[k + SIDE + 1] + b)
+				if i > 0: v = minf(v, d[k + SIDE - 1] + b)
+			d[k] = v
+	var bytes := PackedByteArray()
+	bytes.resize(SIDE * SIDE)
+	for k in SIDE * SIDE:
+		bytes[k] = int(clampf(d[k] / cap, 0.0, 1.0) * 255.0)
+	return Image.create_from_data(SIDE, SIDE, false, Image.FORMAT_L8, bytes)
+
+
+## Ground height map for the city shader's contact shading.
+func height_image() -> Image:
+	var bytes := PackedByteArray()
+	bytes.resize(SIDE * SIDE)
+	for k in SIDE * SIDE:
+		bytes[k] = int(clampf((heights[k] + 0.5) / 2.5, 0.0, 1.0) * 255.0)
+	return Image.create_from_data(SIDE, SIDE, false, Image.FORMAT_L8, bytes)
+
+
+## The little edits the player has made, as (index, delta) pairs, for saving.
+func edits() -> Dictionary:
+	var out := {}
+	for k in heights.size():
+		var dlt := heights[k] - _base[k]
+		if absf(dlt) > 0.01:
+			out[k] = snappedf(dlt, 0.01)
+	return out
+
+
+func apply_edits(e: Dictionary) -> void:
+	for k in e:
+		var i := int(k)
+		if i >= 0 and i < heights.size():
+			heights[i] = _base[i] + float(e[k])
+	for c in _chunks.keys():
+		_dirty[c] = true
+	rebuild_dirty(1 << 20)
+	rebuild_shadow()
+	changed.emit()

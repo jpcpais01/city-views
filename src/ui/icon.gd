@@ -297,6 +297,23 @@ func _draw() -> void:
 			_rr(Rect2(P.call(0.14, 0.6), Vector2(0.72, 0.28) * s), 0.06 * s, Color("6fc3e8"))
 			draw_colored_polygon(PackedVector2Array([P.call(0.5, 0.54), P.call(0.74, 0.26), P.call(0.26, 0.26)]), a)
 			draw_rect(Rect2(P.call(0.43, 0.1), Vector2(0.14, 0.18) * s), a)
+		"smooth":
+			# a rough hill eased into a soft one
+			var pts := PackedVector2Array([P.call(0.1, 0.86)])
+			for k in 13:
+				var u := k / 12.0
+				pts.append(P.call(0.1 + u * 0.8, 0.86 - 0.42 * sin(u * PI) * (1.0 - 0.18 * (k % 2))))
+			pts.append(P.call(0.9, 0.86))
+			draw_colored_polygon(pts, Color("8fc56a"))
+			var arc := PackedVector2Array()
+			for k in 13:
+				var u := k / 12.0
+				arc.append(P.call(0.1 + u * 0.8, 0.36 - 0.2 * sin(u * PI)))
+			draw_polyline(arc, a, 0.07 * s, true)
+		"flatten":
+			draw_colored_polygon(PackedVector2Array([P.call(0.1, 0.86), P.call(0.1, 0.56), P.call(0.9, 0.56), P.call(0.9, 0.86)]), Color("8fc56a"))
+			draw_rect(Rect2(P.call(0.14, 0.4), Vector2(0.72, 0.08) * s), a)
+			draw_colored_polygon(PackedVector2Array([P.call(0.5, 0.36), P.call(0.66, 0.14), P.call(0.34, 0.14)]), a)
 		"bulldoze":
 			_rr(Rect2(P.call(0.18, 0.42), Vector2(0.5, 0.3) * s), 0.06 * s, Color("f2b33d"))
 			_rr(Rect2(P.call(0.3, 0.26), Vector2(0.24, 0.18) * s), 0.04 * s, Color("f2b33d"))
