@@ -31,8 +31,6 @@ func _ready() -> void:
 		await refresh()
 	else:
 		await sign_in_guest()
-	if signed_in:
-		await _maybe_pull_cloud_save()
 
 
 func _load_config() -> void:
@@ -137,12 +135,14 @@ func sign_in_email(mail: String, password: String) -> String:
 	if r.ok:
 		email = mail
 		_apply_auth(r.data)
-		await _maybe_pull_cloud_save(true)
+		# your account's island comes along
+		if Net.island:
+			await Net.island.pull_cloud(true)
 		return ""
 	return _error_text(r)
 
 
-## Creates an email account. If currently a guest, the guest account is upgraded (keeps the city).
+## Creates an email account. If currently a guest, the guest account is upgraded (keeps the island).
 func register_email(mail: String, password: String) -> String:
 	if not enabled:
 		return "Online features are not configured"
@@ -155,7 +155,8 @@ func register_email(mail: String, password: String) -> String:
 	if r.ok:
 		email = mail
 		_apply_auth(r.data)
-		save_city(Game.to_dict())
+		if Net.island:
+			Net.island.save_cloud()
 		return ""
 	return _error_text(r)
 
@@ -231,27 +232,3 @@ func open_stream(path: String) -> FirebaseStream:
 	s.path = path
 	add_child(s)
 	return s
-
-
-# ------------------------------------------------------------------ saves
-
-func save_city(d: Dictionary) -> void:
-	if not signed_in:
-		return
-	db_put("users/%s/city" % uid, d)
-
-
-func _maybe_pull_cloud_save(force := false) -> void:
-	var r := await db_get("users/%s/city" % uid)
-	if not r.ok or not r.data is Dictionary:
-		return
-	var cloud: Dictionary = r.data
-	var local_time := float(Game.to_dict().get("time", 0.0)) if not force else 0.0
-	if FileAccess.file_exists("user://city.json") and not force:
-		var d = JSON.parse_string(FileAccess.get_file_as_string("user://city.json"))
-		if d is Dictionary:
-			local_time = float(d.get("time", 0.0))
-	if force or float(cloud.get("time", 0.0)) > local_time + 5.0:
-		if not Net.in_room():
-			Game.from_dict(cloud)
-			Game.toast.emit("Cloud save loaded", "info")

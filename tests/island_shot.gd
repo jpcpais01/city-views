@@ -7,8 +7,7 @@ extends Node
 func _ready() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
-	var hud := IslandHud.new()
-	hud.world = island
+	var hud := Hud.new()
 	hud.island = island
 	add_child(hud)
 	if OS.get_environment("CV_SEED") != "":

@@ -402,7 +402,7 @@ func rebuild_shadow() -> void:
 		_shadow = MeshInstance3D.new()
 		_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 		add_child(_shadow)
-	m.surface_set_material(0, CityGen.shadow_material())
+	m.surface_set_material(0, Palette.shadow_material())
 	_shadow.mesh = m
 
 

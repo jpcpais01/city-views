@@ -1,9 +1,9 @@
 class_name Life
 extends Node3D
 ## Ambient life around the island: sailboats and fishing boats wandering the
-## open water, and seagulls that soar on the breeze, flap, dive for fish, and
-## come down to stand on the beach or bob on the water before taking off again.
-## Every kind is one MultiMesh, so the whole lot costs three draw calls.
+## open water off its real coastline, and seagulls that soar on the breeze, flap,
+## dive for fish, and come down on its beaches and empty ground or bob on the
+## shallows. Every kind is one MultiMesh, so the whole lot costs three draw calls.
 
 const BOATS := 9
 const GULLS := 16
@@ -14,6 +14,8 @@ const SAIL_COLORS := [Color("f7f3ea"), Color("ef7f6a"), Color("7fb8e6"), Color("
 const HULL_COLORS := [Color("f5f5f2"), Color("3d5f8f"), Color("c8553d"), Color("2f8f83")]
 
 var material: Material
+var land: Land
+var town: Town
 var rig: CameraRig
 var _boat_mm: Array[MultiMesh] = []
 # boxy stand-ins that draw the boats into the shadow map
@@ -23,7 +25,7 @@ var gull_mat: ShaderMaterial
 var _gull_mm: MultiMesh
 var _boats: Array = []
 var _gulls: Array = []
-# where a gull may come down: empty coast tiles and calm water near the shore
+# where a gull may come down: empty coast and calm water near the shore
 var _perches: Array[Vector2i] = []
 var _shallows: Array[Vector2i] = []
 var _call_timer := 5.0
@@ -94,7 +96,7 @@ func _sailboat() -> ArrayMesh:
 	mk.tri(d, e, f, SAIL_COLORS[1], 0.0, 0.0, Vector3.LEFT)
 	# mast-top lantern for night sailing
 	mk.box(Vector3(0, 1.42, 0.12), Vector3(0.05, 0.05, 0.05), Color(1, 0.9, 0.6), null, false, 2.0)
-	_shadow_mesh = mk.commit_shadow(CityGen.shadow_material())
+	_shadow_mesh = mk.commit_shadow(Palette.shadow_material())
 	return mk.commit(material)
 
 
@@ -108,7 +110,7 @@ func _fishing_boat() -> ArrayMesh:
 	mk.cylinder(Vector3(0, 0.5, -0.28), 0.03, 0.18, 6, Color("2b2b30"))
 	mk.cylinder(Vector3(0, 0.2, 0.3), 0.015, 0.55, 5, Color("8a6a4a"))
 	mk.box(Vector3(0, 0.62, 0.3), Vector3(0.06, 0.06, 0.06), Color(1, 0.9, 0.6), null, false, 2.0)
-	_shadow_mesh = mk.commit_shadow(CityGen.shadow_material())
+	_shadow_mesh = mk.commit_shadow(Palette.shadow_material())
 	return mk.commit(material)
 
 
@@ -143,36 +145,43 @@ func _gull() -> ArrayMesh:
 
 # ------------------------------------------------------------------ spawning
 
+## Places are kept on a half-metre grid: a cell is Vector2i(round(x * 2), round(z * 2)).
+func _centre(t: Vector2i) -> Vector3:
+	return Vector3(t.x * 0.5, 0.0, t.y * 0.5)
+
+
 func reset() -> void:
-	_rng.seed = Game.seed_value
+	_rng.seed = land._noise.seed
 	_boats.clear()
 	_gulls.clear()
+	_perches.clear()
+	_shallows.clear()
 	var sea: Array[Vector2i] = []
 	var coast: Array[Vector2i] = []
-	for z in Game.N:
-		for x in Game.N:
-			var s := Game.shore[Game.idx(x, z)] if Game.shore.size() == Game.N * Game.N else 8.0
-			if Game.lvl(x, z) == 0 and s >= 3.0 and s <= 7.0:
-				sea.append(Vector2i(x, z))
-			elif Game.lvl(x, z) >= 1 and _near_water(x, z):
-				coast.append(Vector2i(x, z))
+	var x := -Land.HALF + 2.0
+	while x < Land.HALF - 2.0:
+		var z := -Land.HALF + 2.0
+		while z < Land.HALF - 2.0:
+			var h := land.height_at(x, z)
+			var cell := Vector2i(roundi(x * 2.0), roundi(z * 2.0))
+			if h < -2.2:
+				sea.append(cell)
+			elif h < -0.3 and h > -0.9:
+				_shallows.append(cell)
+			elif h > 0.1 and h < 1.0 and _by_water(x, z):
+				coast.append(cell)
+			z += 2.0
+		x += 2.0
 	for i in BOATS:
 		var p: Vector3
 		if sea.is_empty():
 			var a := _rng.randf() * TAU
-			p = Vector3(cos(a), 0, sin(a)) * 80.0
+			p = Vector3(cos(a), 0, sin(a)) * 70.0
 		else:
 			p = _centre(sea[_rng.randi() % sea.size()])
 		_boats.append({"p": p, "h": _rng.randf() * TAU, "th": _rng.randf() * TAU, "kind": 0 if i % 3 != 2 else 1,
 			"v": _rng.randf_range(0.9, 1.5), "ph": _rng.randf() * TAU, "turn": 0.0})
-	_perches.clear()
-	_shallows.clear()
-	for t in coast:
-		if Game.knd(t.x, t.y) == Game.K.EMPTY:
-			_perches.append(t)
-	for t in sea:
-		if Game.shore[Game.idx(t.x, t.y)] <= 4.0:
-			_shallows.append(t)
+	_perches = coast
 	for i in GULLS:
 		var c := Vector3.ZERO
 		if not coast.is_empty():
@@ -189,36 +198,27 @@ func reset() -> void:
 		mm.visible_instance_count = 0
 
 
-func _near_water(x: int, z: int) -> bool:
-	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-		if Game.inside(x + d.x, z + d.y) and Game.lvl(x + d.x, z + d.y) == 0:
+func _by_water(x: float, z: float) -> bool:
+	for k in 6:
+		var d := Vector2.from_angle(k * TAU / 6.0) * 3.0
+		if land.height_at(x + d.x, z + d.y) < 0.0:
 			return true
 	return false
 
 
-func _centre(t: Vector2i) -> Vector3:
-	return Vector3((t.x - Game.N * 0.5 + 0.5) * Game.TILE, 0.0, (t.y - Game.N * 0.5 + 0.5) * Game.TILE)
-
-
-## Whether something has been built where a gull stands.
 func _taken(p: Vector3) -> bool:
-	var t := Game.world_to_tile(p)
-	return Game.knd(t.x, t.y) != Game.K.EMPTY
+	return town.is_built(Vector2(p.x, p.z))
 
 
 func _ground_y(p: Vector3) -> float:
-	var t := Game.world_to_tile(p)
-	return Game.tile_y(t.x, t.y)
+	return land.height_at(p.x, p.z)
 
 
-## Open water clearance at a world position, in tiles (8 = far out to sea).
+## Open water ahead: 0 on land, 8 far out to sea.
 func _clear(p: Vector3) -> float:
-	var t := Game.world_to_tile(p)
-	if not Game.inside(t.x, t.y):
+	if absf(p.x) > Land.HALF or absf(p.z) > Land.HALF:
 		return 8.0
-	if Game.lvl(t.x, t.y) > 0 or Game.shore.size() != Game.N * Game.N:
-		return 0.0
-	return Game.shore[Game.idx(t.x, t.y)]
+	return clampf(-land.height_at(p.x, p.z) * 2.0, 0.0, 8.0)
 
 
 # ------------------------------------------------------------------ motion
@@ -428,6 +428,8 @@ func _gull_decide(g: Dictionary, focus: Vector3) -> void:
 				spot = c
 		if best < INF:
 			spot += Vector3(_rng.randf_range(-0.6, 0.6), 0, _rng.randf_range(-0.6, 0.6))
+			# a spot on the shore that has been dug below the sea is water now
+			on_water = on_water or _ground_y(spot) < 0.05
 			spot.y = 0.06 if on_water else _ground_y(spot) + FEET
 			g.st = LAND
 			g.spot = spot

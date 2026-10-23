@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-23 22:15 UTC
+- City Views is now all about the island. The old tile town is gone, and with it a lot of code, so the game is lighter and loads faster.
+- Signing in with your email brings your island along from your account.
+- Gulls no longer stand on shore that has been dug below the sea. They bob on the water there instead.
+
 ## 2026-10-23 22:10 UTC
 - Your island now counts its residents and earns titles as it grows, from Hamlet up to Metropolis.
 - Coins are back: the town pays its way as it grows. Streets cost a little by their length, and reshaping the land costs a little while you brush.

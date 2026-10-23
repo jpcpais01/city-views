@@ -1,12 +1,15 @@
 class_name Traffic
 extends Node3D
-## Little toy cars that wander the road network, following lanes, ramps and bridges.
+## The toy cars on the island's streets: keeping to the right, turning where
+## streets meet, round again at a dead end, more of them as the town grows.
+## One MultiMesh per colour keeps every car of a colour to a single draw call.
 
-const DIRS := CityGen.DIRS
-const LANE := 0.3
 const CAR_COLORS := [Color("ef5b5b"), Color("4b86d6"), Color("f2c14e"), Color("f5f5f2"), Color("3fae8c"), Color("ef7fa8"), Color("6c7a89"), Color("ff9248")]
 
 var material: Material
+var streets: Streets
+var town: Town
+var _rng := RandomNumberGenerator.new()
 const MAX_CARS := 48
 var _meshes: Array[ArrayMesh] = []
 var _shadow_meshes: Array[ArrayMesh] = []
@@ -15,8 +18,6 @@ var _multi: Array[MultiMesh] = []
 # a box or two per car for the shadow map instead of the whole car
 var _shadow_multi: Array[MultiMesh] = []
 var _cars: Array = []
-var _road_tiles: Array[Vector2i] = []
-var _dirty := true
 var _spawn_timer := 0.0
 
 
@@ -45,15 +46,10 @@ func _ready() -> void:
 		_shadow_multi.append(sm)
 
 
-func mark_dirty() -> void:
-	_dirty = true
-
-
 func clear() -> void:
 	_cars.clear()
 	for mm in _multi + _shadow_multi:
 		mm.visible_instance_count = 0
-	_dirty = true
 
 
 func _car_mesh(col: Color, variant: int) -> ArrayMesh:
@@ -81,53 +77,28 @@ func _car_mesh(col: Color, variant: int) -> ArrayMesh:
 		var f := len * 0.5 + 0.015
 		mk.quad(Vector3(sx - 0.035, 0.12, f), Vector3(sx + 0.035, 0.12, f), Vector3(sx + 0.035, 0.16, f), Vector3(sx - 0.035, 0.16, f), Vector3.BACK, Color(1, 0.97, 0.85), 2.0)
 		mk.quad(Vector3(sx - 0.035, 0.12, -f), Vector3(sx + 0.035, 0.12, -f), Vector3(sx + 0.035, 0.16, -f), Vector3(sx - 0.035, 0.16, -f), Vector3.FORWARD, Color(0.9, 0.2, 0.2), 2.0)
-	_shadow_meshes.append(mk.commit_shadow(CityGen.shadow_material()))
+	_shadow_meshes.append(mk.commit_shadow(Palette.shadow_material()))
 	return mk.commit(material)
 
 
-func _rebuild_tiles() -> void:
-	_road_tiles.clear()
-	for z in Game.N:
-		for x in Game.N:
-			if Game.knd(x, z) == Game.K.ROAD:
-				_road_tiles.append(Vector2i(x, z))
-	_dirty = false
-
-
-func _links(t: Vector2i) -> Array:
-	return CityGen.road_links(t.x, t.y)
-
-
-func _choose_out(t: Vector2i, din: int) -> int:
-	var links := _links(t)
-	var opts: Array[int] = []
-	for i in 4:
-		if links[i] and i != (din + 2) % 4:
-			opts.append(i)
-	if opts.is_empty():
-		if links[(din + 2) % 4]:
-			return (din + 2) % 4
-		return -1
-	# prefer going straight a bit more often
-	if opts.has(din) and randf() < 0.5:
-		return din
-	return opts[randi() % opts.size()]
-
-
 func _process(delta: float) -> void:
-	if _dirty:
-		_rebuild_tiles()
-	var wanted: int = mini(mini(_road_tiles.size() / 3, 4 + Game.population / 8), MAX_CARS - 8)
+	var graph := streets.links()
+	var total := 0.0
+	for s: Streets.Street in streets.streets:
+		total += s.pts.size() * Streets.SAMPLE
+	var wanted := mini(int(total / 16.0) + town.lots.size() / 10, MAX_CARS - 8)
 	_spawn_timer -= delta
 	if _cars.size() < wanted and _spawn_timer <= 0.0:
 		_spawn_timer = 0.4
-		_spawn()
+		var m := StreetWalk.spawn(streets, _rng)
+		if not m.is_empty():
+			m.merge({"v": _rng.randi() % _meshes.size(), "xf": Transform3D(), "speed": _rng.randf_range(1.3, 1.9), "grow": 0.0})
+			_cars.append(m)
 	elif _cars.size() > wanted + 2:
 		_cars.pop_back()
 	var i := 0
 	while i < _cars.size():
-		var c: Dictionary = _cars[i]
-		if not _step(c, delta):
+		if not _drive(_cars[i], graph, delta):
 			_cars.remove_at(i)
 			continue
 		i += 1
@@ -135,8 +106,6 @@ func _process(delta: float) -> void:
 	counts.resize(_multi.size())
 	for c in _cars:
 		var v: int = c.v
-		if counts[v] >= MAX_CARS:
-			continue
 		_multi[v].set_instance_transform(counts[v], c.xf)
 		_shadow_multi[v].set_instance_transform(counts[v], c.xf)
 		counts[v] += 1
@@ -145,81 +114,22 @@ func _process(delta: float) -> void:
 		_shadow_multi[v].visible_instance_count = counts[v]
 
 
-func _spawn() -> void:
-	if _road_tiles.is_empty():
-		return
-	var t := _road_tiles[randi() % _road_tiles.size()]
-	var links := _links(t)
-	var dirs: Array[int] = []
-	for k in 4:
-		if links[k]:
-			dirs.append(k)
-	if dirs.is_empty():
-		return
-	var din: int = dirs[randi() % dirs.size()]
-	var dout := _choose_out(t, din)
-	if dout < 0:
-		return
-	var car := {"v": randi() % _meshes.size(), "xf": Transform3D(), "tile": t, "din": din, "dout": dout, "t": randf() * 0.5, "speed": randf_range(1.3, 1.9), "grow": 0.0}
-	_cars.append(car)
-
-
-func _right(i: int) -> Vector3:
-	var d := DIRS[i]
-	return Vector3(-d.y, 0, d.x)
-
-
-func _local_pos(din: int, dout: int, t: float) -> Array:
-	var h := Game.TILE * 0.5
-	var di := Vector3(DIRS[din].x, 0, DIRS[din].y)
-	var dd := Vector3(DIRS[dout].x, 0, DIRS[dout].y)
-	var a := -di * h + _right(din) * LANE
-	var b := dd * h + _right(dout) * LANE
-	var c: Vector3
-	if din == dout:
-		c = _right(din) * LANE
-	elif dout == (din + 2) % 4:
-		c = di * 0.35
-	else:
-		c = _right(din) * LANE + _right(dout) * LANE
-	var u := 1.0 - t
-	var p := a * u * u + c * 2.0 * u * t + b * t * t
-	var tan := (c - a) * 2.0 * u + (b - c) * 2.0 * t
-	return [p, tan]
-
-
-func _step(c: Dictionary, delta: float) -> bool:
-	var t: Vector2i = c.tile
-	if Game.knd(t.x, t.y) != Game.K.ROAD:
+func _drive(c: Dictionary, graph: Dictionary, delta: float) -> bool:
+	if not StreetWalk.advance(streets, graph, c, c.speed * delta, 0.4, _rng):
 		return false
-	c.grow = min(1.0, c.grow + delta * 3.0)
-	c.t += delta * c.speed / Game.TILE
-	while c.t >= 1.0:
-		c.t -= 1.0
-		var d := DIRS[c.dout]
-		var nt := Vector2i(t.x + d.x, t.y + d.y)
-		if Game.knd(nt.x, nt.y) != Game.K.ROAD or not _links(t)[c.dout]:
-			return false
-		c.tile = nt
-		t = nt
-		c.din = c.dout
-		var o := _choose_out(nt, c.din)
-		if o < 0:
-			return false
-		c.dout = o
-	var res := _local_pos(c.din, c.dout, c.t)
-	var lp: Vector3 = res[0]
-	var tan: Vector3 = res[1]
-	var center := Game.tile_center(t.x, t.y)
-	var y := center.y + CityGen.road_height(t.x, t.y, Vector2(lp.x, lp.z)) + 0.06
-	var pos := Vector3(center.x + lp.x, y, center.z + lp.z)
-	var rot: Basis = (c.xf as Transform3D).basis.orthonormalized()
-	if tan.length() > 0.001:
-		var ahead := Vector2(lp.x, lp.z) + Vector2(tan.x, tan.z).normalized() * 0.2
-		var y2 := center.y + CityGen.road_height(t.x, t.y, ahead) + 0.06
-		var fwd := Vector3(tan.x, 0, tan.z).normalized()
-		var pitch := atan2(y2 - y, 0.2)
-		rot = Basis(Vector3.UP, atan2(fwd.x, fwd.z)) * Basis(Vector3.RIGHT, -pitch)
-	var s := Tween.interpolate_value(0.0, 1.0, c.grow, 1.0, Tween.TRANS_BACK, Tween.EASE_OUT) as float
-	c.xf = Transform3D(rot.scaled(Vector3.ONE * max(s, 0.01)), pos)
+	var s: Streets.Street = c.s
+	var at := StreetWalk.place(streets, c, s.w() * 0.42 * c.dir)
+	var pos: Vector3 = at[0]
+	var fwd: Vector3 = at[1]
+	var pitch: float = atan2(at[2] as float, Streets.SAMPLE) * c.dir
+	var goal := Basis(Vector3.UP, atan2(fwd.x, fwd.z)) * Basis(Vector3.RIGHT, -pitch)
+	c.grow = minf(1.0, c.grow + delta * 3.0)
+	var sc := Tween.interpolate_value(0.0, 1.0, c.grow, 1.0, Tween.TRANS_BACK, Tween.EASE_OUT) as float
+	var old: Transform3D = c.xf
+	# ease round corners and across junctions rather than jumping lanes
+	var k := 1.0 - exp(-delta * 10.0)
+	if c.grow < 1.0 or old.origin.distance_to(pos) > 1.5:
+		k = 1.0
+	var rot := old.basis.orthonormalized().get_rotation_quaternion().slerp(goal.get_rotation_quaternion(), k) if k < 1.0 else goal.get_rotation_quaternion()
+	c.xf = Transform3D(Basis(rot).scaled(Vector3.ONE * maxf(sc, 0.01)), old.origin.lerp(pos, k))
 	return true

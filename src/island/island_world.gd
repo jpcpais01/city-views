@@ -1,13 +1,13 @@
 class_name IslandWorld
 extends World
-## The new, tile-free island (preview while it grows into the full game): the
-## same sky, sea, light and camera as the classic town, over one continuous
-## landscape the player reshapes with soft brushes.
+## The island: one continuous landscape the player reshapes with soft brushes,
+## the streets drawn over it and the town that grows along them, under the
+## sky, sea and light of World.
 
 signal brush_changed
 signal history_changed
 ## something the player should hear about, such as a brush they can't use yet
-signal note(text: String)
+signal note(text: String, kind: String)
 
 const SAVE_PATH := "user://island.json"
 const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
@@ -18,9 +18,9 @@ var land: Land
 var streets: Streets
 var growth: Growth
 var town: Town
-var cars: IslandTraffic
-var folk: IslandPeople
-var wildlife: IslandLife
+var cars: Traffic
+var folk: People
+var wildlife: Life
 var brush := ""
 var brush_radius := 5.0
 var island_seed := 0
@@ -45,6 +45,12 @@ var _path := PackedVector2Array()
 var _stroke_lo := Vector2.ZERO
 var _stroke_hi := Vector2.ZERO
 # the island as it was before each stroke, for undo, and as it was before each undo
+# input state
+var _touches := {}
+var _gesture_prev := {}
+var _press_pos := Vector2.ZERO
+var _moved := false
+var _mouse_buttons := 0
 var _undo: Array = []
 var _redo: Array = []
 var _stroke_did := false
@@ -74,17 +80,17 @@ func _ready() -> void:
 	rig = CameraRig.new()
 	rig.ground_fn = land.height_at
 	add_child(rig)
-	cars = IslandTraffic.new()
+	cars = Traffic.new()
 	cars.material = city_mat
 	cars.streets = streets
 	cars.town = town
 	add_child(cars)
-	folk = IslandPeople.new()
+	folk = People.new()
 	folk.material = city_mat
 	folk.streets = streets
 	folk.town = town
 	add_child(folk)
-	wildlife = IslandLife.new()
+	wildlife = Life.new()
 	wildlife.material = city_mat
 	wildlife.rig = rig
 	wildlife.land = land
@@ -110,7 +116,7 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if Net.island == self:
 		Net.island = null
-		# off to the classic town: a shared island stays in its room
+		# a shared island stays in its room
 		if Net.in_room():
 			Net.leave_room()
 
@@ -226,17 +232,25 @@ func _cloud(delta: float) -> void:
 		return
 	if not _cloud_checked:
 		_cloud_checked = true
-		var r: Dictionary = await Firebase.db_get("users/%s/island" % Firebase.uid)
-		if r.ok and r.data is Dictionary and r.data.has("seed") and float(r.data.get("t", 0.0)) > _local_time() + 5.0:
-			_apply_save(r.data)
-			var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-			if f:
-				f.store_string(JSON.stringify(r.data))
+		pull_cloud(false)
 		return
 	_cloud_timer -= delta
 	if _cloud_timer <= 0.0:
 		_cloud_timer = 60.0
 		save_cloud()
+
+
+## Brings in your account's island if it is newer than this one (or whenever, if `force`).
+func pull_cloud(force: bool) -> void:
+	if not Firebase.signed_in or Net.in_room():
+		return
+	var r: Dictionary = await Firebase.db_get("users/%s/island" % Firebase.uid)
+	if r.ok and r.data is Dictionary and r.data.has("seed") and (force or float(r.data.get("t", 0.0)) > _local_time() + 5.0):
+		_apply_save(r.data)
+		var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+		if f:
+			f.store_string(JSON.stringify(r.data))
+		note.emit("Your island was brought in from your account", "info")
 
 
 func save_cloud() -> void:
@@ -265,7 +279,7 @@ func _update_maps(coast := true) -> void:
 
 func set_brush(id: String) -> void:
 	if id != brush and not progress.can_use(id):
-		note.emit(progress.unlock_text(id))
+		note.emit(progress.unlock_text(id), "warn")
 		Sfx.play("error", 1.0, -6.0)
 		return
 	brush = id if id != brush else ""
@@ -316,7 +330,7 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 	if brush in SHAPE and not progress.spend(IslandProgress.SHAPE_COST * delta):
 		if not _broke:
 			_broke = true
-			note.emit("Not enough coins to reshape the land: the town pays as it grows")
+			note.emit("Not enough coins to reshape the land: the town pays as it grows", "warn")
 			Sfx.play("error", 1.0, -6.0)
 		return
 	match brush:
@@ -447,7 +461,7 @@ func _end_stroke() -> void:
 	if brush == "street":
 		var cost := _path_length(_path) * IslandProgress.STREET_COST
 		if progress.coins < cost:
-			note.emit("Not enough coins for that street (%d)" % ceili(cost))
+			note.emit("Not enough coins for that street (%d)" % ceili(cost), "warn")
 			Sfx.play("error", 1.0, -6.0)
 		elif streets.add_stroke(_path) != null:
 			progress.spend(cost)

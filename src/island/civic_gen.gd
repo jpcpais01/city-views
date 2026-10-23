@@ -64,7 +64,7 @@ static func _park(mk: MeshKit, l: Town.Lot, land: Land, y0: float) -> void:
 		mk.shadow = true
 		for k in 6:
 			var a := k * TAU / 6.0
-			mk.blob(Vector3(cos(a) * 0.32, gy + 0.1, fz + sin(a) * 0.32), Vector3(0.12, 0.08, 0.12), CityGen.FLOWERS[rng.randi() % CityGen.FLOWERS.size()], 0.03)
+			mk.blob(Vector3(cos(a) * 0.32, gy + 0.1, fz + sin(a) * 0.32), Vector3(0.12, 0.08, 0.12), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.03)
 	elif feature < 0.8:
 		# a little pond with reeds
 		mk.shadow = false
@@ -76,15 +76,15 @@ static func _park(mk: MeshKit, l: Town.Lot, land: Land, y0: float) -> void:
 	for k in 2:
 		var x := lerpf(-hw + 0.3, hw - 0.3, rng.randf())
 		var z := -lerpf(0.5, l.depth - 0.3, rng.randf())
-		mk.blob(Vector3(x, _ground(l, land, x, z, y0) + 0.12, z), Vector3(0.22, 0.16, 0.22), CityGen.LEAF[rng.randi() % CityGen.LEAF.size()].darkened(0.1), 0.06)
+		mk.blob(Vector3(x, _ground(l, land, x, z, y0) + 0.12, z), Vector3(0.22, 0.16, 0.22), Palette.LEAF[rng.randi() % Palette.LEAF.size()].darkened(0.1), 0.06)
 
 
 static func _tree(mk: MeshKit, rng: RandomNumberGenerator, at: Vector3) -> void:
 	var s := lerpf(0.85, 1.35, rng.randf())
 	mk.pole(at, 0.055 * s, 0.55 * s, 5, Color(0.45, 0.33, 0.24))
-	var leaf: Color = CityGen.LEAF[rng.randi() % CityGen.LEAF.size()]
+	var leaf: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()]
 	if rng.randf() < 0.15:
-		leaf = CityGen.BLOSSOM[rng.randi() % CityGen.BLOSSOM.size()]
+		leaf = Palette.BLOSSOM[rng.randi() % Palette.BLOSSOM.size()]
 	mk.blob(at + Vector3(0, 0.8 * s, 0), Vector3(0.48, 0.44, 0.48) * s, leaf, 0.1)
 	mk.blob(at + Vector3(0.2 * s, 1.06 * s, -0.05), Vector3(0.32, 0.3, 0.32) * s, leaf.lightened(0.08), 0.1)
 
@@ -138,7 +138,7 @@ static func _square(mk: MeshKit, l: Town.Lot, land: Land, y0: float) -> void:
 	# a market stall or two, awnings bright
 	for k in rng.randi() % 3:
 		var sx := (k * 2 - 1) * (w * 0.5 - 1.1)
-		var awn: Color = CityGen.AWNINGS[rng.randi() % CityGen.AWNINGS.size()]
+		var awn: Color = Palette.AWNINGS[rng.randi() % Palette.AWNINGS.size()]
 		mk.box(Vector3(sx, 0.2, -0.95), Vector3(0.7, 0.34, 0.36), Color(0.62, 0.45, 0.32))
 		for px: float in [-0.32, 0.32]:
 			mk.pole(Vector3(sx + px, 0.03, -0.8), 0.015, 0.62, 4, Color(0.4, 0.4, 0.4))
@@ -146,7 +146,7 @@ static func _square(mk: MeshKit, l: Town.Lot, land: Land, y0: float) -> void:
 		mk.box_faces(Vector3.ZERO, Vector3(0.82, 0.03, 0.5), awn, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
 		mk.pop()
 		for j in 3:
-			mk.blob(Vector3(sx - 0.2 + j * 0.2, 0.42, -0.85), Vector3(0.07, 0.05, 0.07), CityGen.FLOWERS[rng.randi() % CityGen.FLOWERS.size()], 0.02)
+			mk.blob(Vector3(sx - 0.2 + j * 0.2, 0.42, -0.85), Vector3(0.07, 0.05, 0.07), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.02)
 
 
 # ------------------------------------------------------------------ churches
@@ -185,8 +185,8 @@ static func _church(mk: MeshKit, l: Town.Lot) -> void:
 	mk.pop()
 	# tall windows down both sides, a rose window at the back
 	for sx: float in [-1.0, 1.0]:
-		mk.window_row(Vector3(sx * nw * 0.5, nh * 0.52, 0), Vector3.RIGHT * sx, nd - 0.4, int(nd / 0.8), 0.22, 0.72, CityGen.GLASS_LIGHT, true)
-	mk.window(Vector3(0, nh + 0.25, -nd * 0.5), Vector3.FORWARD, 0.36, 0.36, CityGen.GLASS_LIGHT, Color(1, 1, 1, 1))
+		mk.window_row(Vector3(sx * nw * 0.5, nh * 0.52, 0), Vector3.RIGHT * sx, nd - 0.4, int(nd / 0.8), 0.22, 0.72, Palette.GLASS_LIGHT, true)
+	mk.window(Vector3(0, nh + 0.25, -nd * 0.5), Vector3.FORWARD, 0.36, 0.36, Palette.GLASS_LIGHT, Color(1, 1, 1, 1))
 	mk.pop()
 	# the tower: stages marked by bands, a door, belfry openings and a clock
 	mk.push_at(Vector3(0, 0, tz))

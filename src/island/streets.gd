@@ -452,7 +452,7 @@ func _build(s: Street) -> void:
 		upto = clampf((n - 1) * (1.0 - pow(1.0 - t, 3.0)), 1.0, n - 1)
 	var w := s.w()
 	var buf := MeshBuf.new()
-	var asphalt := CityGen.ASPHALT.darkened(0.05) if s.kind == "main" else CityGen.ASPHALT
+	var asphalt := Palette.ASPHALT.darkened(0.05) if s.kind == "main" else Palette.ASPHALT
 	# where junction corners take over this street's pavements, per side
 	var cuts := {-1.0: PackedVector2Array(), 1.0: PackedVector2Array()}
 	var near := _touching(s)
@@ -495,8 +495,8 @@ func _build(s: Street) -> void:
 		s.cuts = cuts
 	var fs: Array = rows.keys()
 	fs.sort()
-	var pave := CityGen.SIDEWALK
-	var kerb := CityGen.SIDEWALK.darkened(0.12)
+	var pave := Palette.SIDEWALK
+	var kerb := Palette.SIDEWALK.darkened(0.12)
 	# each row's centre, sideways direction and height, worked out once
 	var rp := PackedVector2Array()
 	var rn := PackedVector2Array()
@@ -684,8 +684,8 @@ func _junction(s: Street, fs: float, o: Street, fo: float, cuts: Dictionary, buf
 
 func _corner(buf: MeshBuf, pa: Vector2, c: Vector2, pb: Vector2, ya: float, yb: float, asphalt: Color) -> void:
 	const K := 4
-	var pave := CityGen.SIDEWALK
-	var kerb := CityGen.SIDEWALK.darkened(0.12)
+	var pave := Palette.SIDEWALK
+	var kerb := Palette.SIDEWALK.darkened(0.12)
 	var cy := (ya + yb) * 0.5
 	var c3 := Vector3(c.x, cy, c.y)
 	var prev_p := Vector3.ZERO
