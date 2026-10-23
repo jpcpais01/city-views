@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-23 22:33 UTC
+- Two anglers now sit at the end of the harbour pier with their rods out and red floats bobbing on the water.
+
 ## 2026-10-23 22:29 UTC
 - Once your harbour has grown, a wooden pier reaches out into the sea from its shore, with a T-shaped end, rails, lamps, a bench, a striped kiosk and rowing boats tied alongside.
 
