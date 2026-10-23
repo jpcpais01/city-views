@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-23 13:00 UTC
+- Another big speed boost: rounded shapes use a third of the triangles with the same soft look, windows and road paint skip the shadow pass, and all the cars are drawn together.
+- The ground now flows: grass and sand blend smoothly from tile to tile instead of a checkerboard, and terrace corners are rounded off.
+
 ## 2026-10-23 12:15 UTC
 - A new loading screen: a soft sunset in the icon's colours with drifting clouds and a slim glowing progress bar, which melts away to show your island blooming into view.
 - A new app icon: a sunset waterfront of pastel towers and gabled homes, with a little sailboat on the bay. It also adapts to round, squircle and teardrop launcher shapes.

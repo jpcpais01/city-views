@@ -7,7 +7,10 @@ const LANE := 0.3
 const CAR_COLORS := [Color("ef5b5b"), Color("4b86d6"), Color("f2c14e"), Color("f5f5f2"), Color("3fae8c"), Color("ef7fa8"), Color("6c7a89"), Color("ff9248")]
 
 var material: Material
+const MAX_CARS := 48
 var _meshes: Array[ArrayMesh] = []
+# one MultiMesh per car style: every car of a colour is a single draw call
+var _multi: Array[MultiMesh] = []
 var _cars: Array = []
 var _road_tiles: Array[Vector2i] = []
 var _dirty := true
@@ -17,6 +20,15 @@ var _spawn_timer := 0.0
 func _ready() -> void:
 	for i in CAR_COLORS.size():
 		_meshes.append(_car_mesh(CAR_COLORS[i], i))
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _meshes[i]
+		mm.instance_count = MAX_CARS
+		mm.visible_instance_count = 0
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		add_child(mmi)
+		_multi.append(mm)
 
 
 func mark_dirty() -> void:
@@ -24,9 +36,9 @@ func mark_dirty() -> void:
 
 
 func clear() -> void:
-	for c in _cars:
-		c.node.queue_free()
 	_cars.clear()
+	for mm in _multi:
+		mm.visible_instance_count = 0
 	_dirty = true
 
 
@@ -87,22 +99,30 @@ func _choose_out(t: Vector2i, din: int) -> int:
 func _process(delta: float) -> void:
 	if _dirty:
 		_rebuild_tiles()
-	var wanted: int = mini(mini(_road_tiles.size() / 3, 4 + Game.population / 8), 40)
+	var wanted: int = mini(mini(_road_tiles.size() / 3, 4 + Game.population / 8), MAX_CARS - 8)
 	_spawn_timer -= delta
 	if _cars.size() < wanted and _spawn_timer <= 0.0:
 		_spawn_timer = 0.4
 		_spawn()
 	elif _cars.size() > wanted + 2:
-		var c = _cars.pop_back()
-		c.node.queue_free()
+		_cars.pop_back()
 	var i := 0
 	while i < _cars.size():
 		var c: Dictionary = _cars[i]
 		if not _step(c, delta):
-			c.node.queue_free()
 			_cars.remove_at(i)
 			continue
 		i += 1
+	var counts: Array[int] = []
+	counts.resize(_multi.size())
+	for c in _cars:
+		var v: int = c.v
+		if counts[v] >= MAX_CARS:
+			continue
+		_multi[v].set_instance_transform(counts[v], c.xf)
+		counts[v] += 1
+	for v in _multi.size():
+		_multi[v].visible_instance_count = counts[v]
 
 
 func _spawn() -> void:
@@ -120,11 +140,7 @@ func _spawn() -> void:
 	var dout := _choose_out(t, din)
 	if dout < 0:
 		return
-	var mi := MeshInstance3D.new()
-	mi.mesh = _meshes[randi() % _meshes.size()]
-	mi.scale = Vector3.ONE * 0.01
-	add_child(mi)
-	var car := {"node": mi, "tile": t, "din": din, "dout": dout, "t": randf() * 0.5, "speed": randf_range(1.3, 1.9), "grow": 0.0}
+	var car := {"v": randi() % _meshes.size(), "xf": Transform3D(), "tile": t, "din": din, "dout": dout, "t": randf() * 0.5, "speed": randf_range(1.3, 1.9), "grow": 0.0}
 	_cars.append(car)
 
 
@@ -176,14 +192,14 @@ func _step(c: Dictionary, delta: float) -> bool:
 	var tan: Vector3 = res[1]
 	var center := Game.tile_center(t.x, t.y)
 	var y := center.y + CityGen.road_height(t.x, t.y, Vector2(lp.x, lp.z)) + 0.06
-	var node: MeshInstance3D = c.node
-	node.position = Vector3(center.x + lp.x, y, center.z + lp.z)
+	var pos := Vector3(center.x + lp.x, y, center.z + lp.z)
+	var rot: Basis = (c.xf as Transform3D).basis.orthonormalized()
 	if tan.length() > 0.001:
 		var ahead := Vector2(lp.x, lp.z) + Vector2(tan.x, tan.z).normalized() * 0.2
 		var y2 := center.y + CityGen.road_height(t.x, t.y, ahead) + 0.06
 		var fwd := Vector3(tan.x, 0, tan.z).normalized()
 		var pitch := atan2(y2 - y, 0.2)
-		node.basis = Basis(Vector3.UP, atan2(fwd.x, fwd.z)) * Basis(Vector3.RIGHT, -pitch)
+		rot = Basis(Vector3.UP, atan2(fwd.x, fwd.z)) * Basis(Vector3.RIGHT, -pitch)
 	var s := Tween.interpolate_value(0.0, 1.0, c.grow, 1.0, Tween.TRANS_BACK, Tween.EASE_OUT) as float
-	node.scale = Vector3.ONE * max(s, 0.01)
+	c.xf = Transform3D(rot.scaled(Vector3.ONE * max(s, 0.01)), pos)
 	return true

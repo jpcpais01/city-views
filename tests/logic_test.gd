@@ -68,7 +68,7 @@ func _ready() -> void:
 	for p in [Game.LM.FOUNTAIN, Game.LM.LIGHTHOUSE, Game.LM.WINDMILL, Game.LM.CLOCKTOWER, Game.LM.FERRIS]:
 		Game.set_tile(10, 10, Game.K.LANDMARK, 3, p)
 		var n := CityGen.build(10, 10, mat, mat)
-		check(n != null and (n.get_child(0) as MeshInstance3D).mesh.get_surface_count() == 1, "landmark %d builds" % p)
+		check(n != null and (n.get_child(0) as MeshInstance3D).mesh.get_surface_count() >= 1, "landmark %d builds" % p)
 		n.free()
 	for g in 4:
 		for k in [Game.K.HOUSE, Game.K.SHOP, Game.K.OFFICE]:

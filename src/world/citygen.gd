@@ -139,7 +139,7 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 		for k in 3:
 			var o := -0.66 + k * 0.66
 			var p := Vector3(o, 0.062, 0) if along_x else Vector3(0, 0.062, o)
-			mk.box(p, Vector3(0.34, 0.006, 0.05) if along_x else Vector3(0.05, 0.006, 0.34), paint)
+			_paint(mk, p, Vector2(0.34, 0.05) if along_x else Vector2(0.05, 0.34), paint)
 	elif count >= 3:
 		for i in 4:
 			if links[i]:
@@ -147,10 +147,10 @@ static func _road(mk: MeshKit, x: int, z: int, root: Node3D, mat: Material) -> v
 				for k in 5:
 					var o := -0.48 + k * 0.24
 					var p := Vector3(d.x * 0.8, 0.062, d.y * 0.8) + Vector3(d.y, 0, d.x) * o
-					mk.box(p, Vector3(0.24 if d.x != 0 else 0.12, 0.006, 0.12 if d.x != 0 else 0.24), paint)
+					_paint(mk, p, Vector2(0.24 if d.x != 0 else 0.12, 0.12 if d.x != 0 else 0.24), paint)
 	elif count == 2:
 		# corner: a little curved dash at the centre
-		mk.box(Vector3(0, 0.062, 0), Vector3(0.12, 0.006, 0.12), paint)
+		_paint(mk, Vector3(0, 0.062, 0), Vector2(0.12, 0.12), paint)
 	elif count == 0:
 		# lonely road piece: a round little plaza
 		mk.cylinder(Vector3(0, 0.0, 0), 0.5, 0.07, 14, SIDEWALK.darkened(0.05))
@@ -194,6 +194,16 @@ static func _ramp(mk: MeshKit, x: int, z: int, rd: int, _links: Array) -> void:
 		var t := 0.2 + k * 0.3
 		mk.box(Vector3(0, 0.07 + rise * t, -H + 2.0 * H * t), Vector3(0.05, 0.01, 0.3), Color(0.97, 0.95, 0.88))
 	mk.pop()
+
+
+## Road paint: a flat decal quad just above the asphalt, never in the shadow pass.
+static func _paint(mk: MeshKit, p: Vector3, size: Vector2, col: Color) -> void:
+	var hx := size.x * 0.5
+	var hz := size.y * 0.5
+	var y := p.y + 0.003
+	mk.detail = true
+	mk.quad(Vector3(p.x - hx, y, p.z - hz), Vector3(p.x + hx, y, p.z - hz), Vector3(p.x + hx, y, p.z + hz), Vector3(p.x - hx, y, p.z + hz), Vector3.UP, col)
+	mk.detail = false
 
 
 static func _lamp(mk: MeshKit, p: Vector3) -> void:
@@ -880,5 +890,5 @@ static func build(x: int, z: int, mat: Material, beam_mat: Material) -> Node3D:
 	body.name = "Body"
 	body.mesh = mk.commit(mat)
 	# raw arrays let the world merge settled tiles into big batched meshes
-	body.set_meta("arrays", [mk.verts, mk.norms, mk.cols, mk.uvs])
+	body.set_meta("arrays", [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs])
 	return root
