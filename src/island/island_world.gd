@@ -5,10 +5,12 @@ extends World
 ## landscape the player reshapes with soft brushes.
 
 signal brush_changed
+signal history_changed
 
 const SAVE_PATH := "user://island.json"
 const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
 const SHAPE := ["raise", "lower", "smooth", "flatten"]
+const HISTORY := 25
 
 var land: Land
 var streets: Streets
@@ -31,13 +33,21 @@ var _coast_dirty := false
 var _shore_wait := 0.0
 var _save_timer := 0.0
 var _sculpt_sound := 0.0
+var _cloud_timer := 60.0
+var _cloud_checked := false
+var sync: IslandSync
 # the line being drawn with the street brush, and the box a shaping stroke touched
 var _path := PackedVector2Array()
 var _stroke_lo := Vector2.ZERO
 var _stroke_hi := Vector2.ZERO
+# the island as it was before each stroke, for undo, and as it was before each undo
+var _undo: Array = []
+var _redo: Array = []
+var _stroke_did := false
 
 
 func _ready() -> void:
+	Net.island = self
 	_make_materials()
 	_make_environment()
 	land = Land.new()
@@ -78,14 +88,28 @@ func _ready() -> void:
 	add_child(wildlife)
 	_make_clouds()
 	_make_ring()
+	sync = IslandSync.new()
+	sync.world = self
+	add_child(sync)
 	_load()
 	rig.focus(Vector3.ZERO)
 	rig._t_dist = 70.0
 	rig.dist = 70.0
 
 
+func _exit_tree() -> void:
+	if Net.island == self:
+		Net.island = null
+		# off to the classic town: a shared island stays in its room
+		if Net.in_room():
+			Net.leave_room()
+
+
 func new_island(s: int) -> void:
 	island_seed = s
+	_undo.clear()
+	_redo.clear()
+	history_changed.emit()
 	streets.clear()
 	town.clear()
 	land.generate(s)
@@ -101,25 +125,110 @@ func _load() -> void:
 	if FileAccess.file_exists(SAVE_PATH):
 		data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
 	if data is Dictionary and data.has("seed"):
-		island_seed = int(data.seed)
-		land.generate(island_seed)
-		land.apply_edits(data.get("land", {}))
-		var st: Variant = data.get("streets", [])
-		streets.from_data(st if st is Array else [])
-		var zn: Variant = data.get("zone", {})
-		land.apply_zone(zn if zn is Dictionary else {})
-		var gn: Variant = data.get("green", {})
-		land.apply_green(gn if gn is Dictionary else {})
-		_update_maps()
-		wildlife.reset()
+		_apply_save(data)
 	else:
 		new_island(randi() % 1000000)
 
 
+## Your own island again (after leaving a co-op room).
+func load_own() -> void:
+	sync.end()
+	_load()
+
+
+func to_dict() -> Dictionary:
+	return {"v": 1, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
+		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits()}
+
+
+func _apply_save(data: Dictionary) -> void:
+	_undo.clear()
+	_redo.clear()
+	history_changed.emit()
+	growth.stop()
+	town.clear()
+	island_seed = int(data.seed)
+	land.generate(island_seed)
+	var ed: Variant = data.get("land", {})
+	land.apply_edits(ed if ed is Dictionary else {})
+	var st: Variant = data.get("streets", [])
+	streets.from_data(st if st is Array else [])
+	var zn: Variant = data.get("zone", {})
+	land.apply_zone(zn if zn is Dictionary else {})
+	var gn: Variant = data.get("green", {})
+	land.apply_green(gn if gn is Dictionary else {})
+	_update_maps()
+	cars.clear()
+	folk.clear()
+	wildlife.reset()
+
+
+## Opens a co-op room's island: its seed, with everything the builders made on it.
+func load_room(seed_value: int, state: Variant) -> void:
+	var d := {"seed": seed_value}
+	if state is Dictionary:
+		for layer in ["land", "zone", "green"]:
+			var cells := {}
+			var src: Variant = state.get(layer, {})
+			if src is Dictionary:
+				for key in src:
+					if str(key).begins_with("c"):
+						cells[str(key).substr(1)] = src[key]
+			d[layer] = cells
+		var list := []
+		var sts: Variant = state.get("streets", {})
+		if sts is Dictionary:
+			for key in sts:
+				if sts[key] is Dictionary:
+					var sd: Dictionary = sts[key]
+					sd["id"] = str(key)
+					list.append(sd)
+		d["streets"] = list
+	_apply_save(d)
+	sync.begin()
+
+
 func _save() -> void:
+	# a shared island lives in its room; your own stays as you left it
+	if Net.in_room():
+		return
+	var data := to_dict()
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"v": 1, "seed": island_seed, "land": land.edits(), "streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits()}))
+		f.store_string(JSON.stringify(data))
+	_cloud_timer = minf(_cloud_timer, 20.0)
+
+
+## Keeps a copy of your island in your account, and brings back a newer one
+## from another device when you sign in.
+func _cloud(delta: float) -> void:
+	if not Firebase.signed_in or Net.in_room():
+		return
+	if not _cloud_checked:
+		_cloud_checked = true
+		var r: Dictionary = await Firebase.db_get("users/%s/island" % Firebase.uid)
+		if r.ok and r.data is Dictionary and r.data.has("seed") and float(r.data.get("t", 0.0)) > _local_time() + 5.0:
+			_apply_save(r.data)
+			var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+			if f:
+				f.store_string(JSON.stringify(r.data))
+		return
+	_cloud_timer -= delta
+	if _cloud_timer <= 0.0:
+		_cloud_timer = 60.0
+		save_cloud()
+
+
+func save_cloud() -> void:
+	if Firebase.signed_in and not Net.in_room():
+		Firebase.db_put("users/%s/island" % Firebase.uid, to_dict())
+
+
+func _local_time() -> float:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return 0.0
+	var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	return float(d.get("t", 0.0)) if d is Dictionary else 0.0
 
 
 ## Ground maps for the shaders; the shoreline one only when the coast may have moved.
@@ -157,6 +266,7 @@ func _process(delta: float) -> void:
 		_save_timer -= delta
 		if _save_timer <= 0.0:
 			_save()
+	_cloud(delta)
 	if _stroke and _ring_at != null:
 		if brush == "street":
 			_extend_path(_ring_at)
@@ -176,6 +286,7 @@ func _process(delta: float) -> void:
 func _apply_brush(at: Vector3, delta: float) -> void:
 	var r := brush_radius
 	var c := Vector2(at.x, at.z)
+	_stroke_did = true
 	_stroke_lo = _stroke_lo.min(c - Vector2(r, r))
 	_stroke_hi = _stroke_hi.max(c + Vector2(r, r))
 	match brush:
@@ -288,6 +399,8 @@ func _begin_stroke(screen: Vector2) -> void:
 	if brush == "" or _ring_at == null:
 		return
 	_stroke = true
+	_stroke_did = false
+	_undo.append(snapshot())
 	_stroke_level = land.height_at(_ring_at.x, _ring_at.z)
 	_stroke_lo = Vector2(INF, INF)
 	_stroke_hi = Vector2(-INF, -INF)
@@ -303,9 +416,69 @@ func _end_stroke() -> void:
 	if brush == "street":
 		if streets.add_stroke(_path) != null:
 			Sfx.play("road", 1.0, -4.0)
+			_stroke_did = true
 		_path = PackedVector2Array()
 	elif brush in SHAPE and _stroke_lo.x < _stroke_hi.x:
 		streets.regrade_in(_stroke_lo, _stroke_hi)
+	# a stroke that changed nothing leaves nothing to undo
+	if not _stroke_did:
+		_undo.pop_back()
+	else:
+		if _undo.size() > HISTORY:
+			_undo.pop_front()
+		_redo.clear()
+		history_changed.emit()
+
+
+# ------------------------------------------------------------------ undo
+
+func snapshot() -> Dictionary:
+	return {"land": land.snapshot(), "streets": streets.to_data()}
+
+
+## Puts the island back as a snapshot had it; the town re-grows its houses.
+func restore(snap: Dictionary) -> void:
+	growth.stop()
+	town.clear()
+	land.restore(snap.land)
+	streets.from_data(snap.streets)
+	cars.clear()
+	folk.clear()
+	_shore_dirty = true
+	_coast_dirty = true
+	_save_timer = 0.5
+
+
+## Another builder reshaped the ground: shadows and the sea's shore follow.
+func ground_changed() -> void:
+	_shore_dirty = true
+	_coast_dirty = true
+
+
+func can_undo() -> bool:
+	return not _undo.is_empty() and not _stroke
+
+
+func can_redo() -> bool:
+	return not _redo.is_empty() and not _stroke
+
+
+func undo() -> bool:
+	if not can_undo():
+		return false
+	_redo.append(snapshot())
+	restore(_undo.pop_back())
+	history_changed.emit()
+	return true
+
+
+func redo() -> bool:
+	if not can_redo():
+		return false
+	_undo.append(snapshot())
+	restore(_redo.pop_back())
+	history_changed.emit()
+	return true
 
 
 func _extend_path(at: Vector3) -> void:

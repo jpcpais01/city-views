@@ -242,7 +242,21 @@ func _each_in(centre: Vector3, radius: float, f: Callable) -> void:
 	_mark(i0, j0, i1, j1)
 
 
+## The ground samples changed since take_touched() was last called, as a box.
+var touched_lo := Vector2i(1 << 20, 1 << 20)
+var touched_hi := Vector2i(-1, -1)
+
+
+func take_touched() -> Rect2i:
+	var r := Rect2i(touched_lo, touched_hi - touched_lo + Vector2i.ONE) if touched_hi.x >= 0 else Rect2i()
+	touched_lo = Vector2i(1 << 20, 1 << 20)
+	touched_hi = Vector2i(-1, -1)
+	return r
+
+
 func _mark(i0: int, j0: int, i1: int, j1: int) -> void:
+	touched_lo = touched_lo.min(Vector2i(maxi(i0, 0), maxi(j0, 0)))
+	touched_hi = touched_hi.max(Vector2i(mini(i1, CELLS), mini(j1, CELLS)))
 	for cz in range(maxi(0, (j0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (j1 + 1) / CHUNK) + 1):
 		for cx in range(maxi(0, (i0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (i1 + 1) / CHUNK) + 1):
 			_dirty[Vector2i(cx, cz)] = true
@@ -593,6 +607,46 @@ func apply_zone(e: Dictionary) -> void:
 			zone[i] = clampf(float(e[k]), 0.0, 1.0)
 	for c in _chunks.keys():
 		_dirty[c] = true
+
+
+## Heights, growing area and green all at once, as snapshot() took them.
+func snapshot() -> Array:
+	return [heights.duplicate(), zone.duplicate(), green.duplicate()]
+
+
+func restore(snap: Array) -> void:
+	heights = snap[0].duplicate()
+	zone = snap[1].duplicate()
+	green = snap[2].duplicate()
+	_mark(0, 0, CELLS, CELLS)
+	for c in _chunks.keys():
+		_dirty[c] = true
+	changed.emit()
+
+
+## The natural ground height at sample k, before anyone reshaped it.
+func base_height(k: int) -> float:
+	return _base[k]
+
+
+## Sets single samples (from another builder), redrawing only where they are.
+## `layer` is heights (as offsets from the natural ground), zone or green.
+func set_samples(layer: String, values: Dictionary) -> void:
+	for k in values:
+		var i: int = k
+		if i < 0 or i >= heights.size():
+			continue
+		var v: float = values[k]
+		match layer:
+			"land":
+				heights[i] = _base[i] + v
+			"zone":
+				zone[i] = clampf(v, 0.0, 1.0)
+			"green":
+				green[i] = clampf(v, 0.0, 1.0)
+		var x := i % SIDE
+		var z := i / SIDE
+		_mark(x, z, x, z)
 
 
 func apply_edits(e: Dictionary) -> void:

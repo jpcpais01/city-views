@@ -23,6 +23,8 @@ var _cursor_timer := 0.0
 var _edit_stream: FirebaseStream
 var _player_stream: FirebaseStream
 var _busy := false
+## the new island, while it is open: rooms then build on it instead of the classic town
+var island: IslandWorld
 
 
 func in_room() -> bool:
@@ -90,7 +92,10 @@ func create_room() -> String:
 	if err != "":
 		_busy = false
 		return err
-	Game.save_local()
+	if island:
+		island._save()
+	else:
+		Game.save_local()
 	var code := ""
 	for attempt in 5:
 		code = ""
@@ -105,10 +110,18 @@ func create_room() -> String:
 		"edits": Game.edits_dict(),
 		"players": {Firebase.uid: _me()},
 	}
+	if island:
+		room = {
+			"meta": {"seed": island.island_seed, "kind": "island", "name": "Shared island", "host": Firebase.uid, "created": {".sv": "timestamp"}, "v": 2},
+			"island": island.sync.full_state(),
+			"players": {Firebase.uid: _me()},
+		}
 	var r := await Firebase.db_put("rooms/%s" % code, room)
 	_busy = false
 	if not r.ok:
 		return "Couldn't create the room (%d)" % r.code
+	if island:
+		island.sync.begin()
 	_enter(code)
 	return ""
 
@@ -128,6 +141,10 @@ func join_room(code: String) -> String:
 	if not meta.ok or not meta.data is Dictionary:
 		_busy = false
 		return "No room with code %s" % code
+	var is_island: bool = meta.data.get("kind", "") == "island"
+	if is_island != (island != null):
+		_busy = false
+		return "That room is building on the new island: open it to join" if is_island else "That room is building a classic town: open it to join"
 	var pl := await Firebase.db_get("rooms/%s/players" % code)
 	var taken := []
 	var count := 0
@@ -143,12 +160,19 @@ func join_room(code: String) -> String:
 		if not taken.has(c.to_html(false)):
 			my_color = c
 			break
-	var edits := await Firebase.db_get("rooms/%s/edits" % code)
+	var edits := await Firebase.db_get("rooms/%s/%s" % [code, "island" if island else "edits"])
+	if not in_room():
+		if island:
+			island._save()
+		else:
+			Game.save_local()
 	if in_room():
 		_leave_quietly()
-	Game.save_local()
-	Game.from_dict({"seed": meta.data.get("seed", 1), "name": meta.data.get("name", "Shared City"),
-		"edits": edits.data if edits.data is Dictionary else {}}, true)
+	if island:
+		island.load_room(int(meta.data.get("seed", 1)), edits.data)
+	else:
+		Game.from_dict({"seed": meta.data.get("seed", 1), "name": meta.data.get("name", "Shared City"),
+			"edits": edits.data if edits.data is Dictionary else {}}, true)
 	await Firebase.db_patch("rooms/%s/players/%s" % [code, Firebase.uid], _me())
 	_busy = false
 	_enter(code)
@@ -158,8 +182,15 @@ func join_room(code: String) -> String:
 func _enter(code: String) -> void:
 	room_code = code
 	players.clear()
-	_edit_stream = Firebase.open_stream("rooms/%s/edits" % code)
-	_edit_stream.changed.connect(_on_edits)
+	if island:
+		_edit_stream = Firebase.open_stream("rooms/%s/island" % code)
+		var world := island
+		_edit_stream.changed.connect(func(_ev: String, path: String, data: Variant):
+			if is_instance_valid(world):
+				world.sync.apply(path, data))
+	else:
+		_edit_stream = Firebase.open_stream("rooms/%s/edits" % code)
+		_edit_stream.changed.connect(_on_edits)
 	_player_stream = Firebase.open_stream("rooms/%s/players" % code)
 	_player_stream.changed.connect(_on_players)
 	room_changed.emit()
@@ -172,7 +203,9 @@ func leave_room() -> void:
 	var code := room_code
 	_leave_quietly()
 	Firebase.db_delete("rooms/%s/players/%s" % [code, Firebase.uid])
-	if not Game.load_local():
+	if island:
+		island.load_own()
+	elif not Game.load_local():
 		Game.new_world(randi() % 1000000)
 	room_changed.emit()
 

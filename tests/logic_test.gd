@@ -127,6 +127,8 @@ func _ready() -> void:
 	_goals()
 	_streets()
 	await _island_budget()
+	await _island_undo()
+	await _island_coop()
 	await _tri_budget()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -227,6 +229,66 @@ func _goals() -> void:
 
 ## The new island grown into one town from coast to coast must leave room in
 ## the frame budget for the HUD and for traffic and people still to come.
+func _island_undo() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(5)
+	var before := island.land.heights.duplicate()
+	island._undo.append(island.snapshot())
+	var pts := PackedVector2Array()
+	for k in 30:
+		pts.append(Vector2(-12 + k, 2 + sin(k * 0.2) * 2.0))
+	var s := island.streets.add_stroke(pts)
+	island._redo.clear()
+	check(s != null and island.streets.streets.size() == 1 and island.land.heights != before, "a street is laid and cuts into the land")
+	var key := s.key
+	check(island.undo() and island.streets.streets.is_empty() and island.land.heights == before, "undo takes the street and its earthworks away")
+	check(island.redo() and island.streets.streets.size() == 1 and island.streets.streets[0].key == key, "redo puts the same street back")
+	var data := island.streets.to_data()
+	island.streets.from_data(data)
+	check(island.streets.streets[0].key == key, "streets keep their keys through a save")
+	island.queue_free()
+	await get_tree().process_frame
+
+
+func _island_coop() -> void:
+	var a := IslandWorld.new()
+	add_child(a)
+	a.new_island(7)
+	a.sync.begin()
+	var b := IslandWorld.new()
+	add_child(b)
+	b.load_room(7, a.sync.full_state())
+	# A lays a street and paints; B hears about it as one patch
+	var pts := PackedVector2Array()
+	for k in 30:
+		pts.append(Vector2(-10 + k, -4 + cos(k * 0.2) * 2.0))
+	var s := a.streets.add_stroke(pts)
+	a.streets.flush()
+	a.land.paint_zone(Vector3(0, 0, 0), 6.0, 1.0)
+	a.land.paint_green(Vector3(3, 0, 3), 3.0, 1.0)
+	var patch := a.sync.changes()
+	check(patch.has("streets/" + s.key) and patch.size() > 20, "a builder's street and painting go out as one patch (%d entries)" % patch.size())
+	check(a.sync.changes().is_empty(), "nothing is sent twice")
+	b.sync.apply("/", patch)
+	var got := b.streets.by_key(s.key)
+	var same := got != null
+	if got:
+		same = got.pts.size() == s.pts.size() and got.pts[5].distance_to(s.pts[5]) < 0.02 and absf(got.ys[5] - s.ys[5]) < 0.02
+	var k := 64 * Land.SIDE + 64
+	check(same and absf(b.land.zone[k] - a.land.zone[k]) < 0.02 and absf(b.land.heights[k] - a.land.heights[k]) < 0.02, "the other builder gets the same street, ground and painting")
+	check(b.sync.changes().is_empty(), "what came from the room is not sent back")
+	# taking the street away reaches the room too
+	a.streets.remove_street(s)
+	var gone := a.sync.changes()
+	check(gone.has("streets/" + s.key) and gone["streets/" + s.key] == null, "a removed street is removed for everyone")
+	b.sync.apply("/streets/" + s.key, null)
+	check(b.streets.by_key(s.key) == null, "and it goes from the other island")
+	a.queue_free()
+	b.queue_free()
+	await get_tree().process_frame
+
+
 func _island_budget() -> void:
 	var island := IslandWorld.new()
 	add_child(island)

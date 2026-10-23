@@ -50,8 +50,15 @@ func _ready() -> void:
 	_build_island_top()
 	_build_brushes()
 	_build_fps()
+	_build_menu()
 	island.brush_changed.connect(_refresh_brushes)
+	Net.room_changed.connect(_refresh_players)
+	Net.players_changed.connect(_refresh_players)
+	Net.message.connect(func(t): _help.text = t)
+	Firebase.auth_changed.connect(_refresh_account)
 	_refresh_brushes()
+	_refresh_account()
+	_refresh_players()
 
 
 func _build_island_top() -> void:
@@ -75,50 +82,98 @@ func _build_island_top() -> void:
 	var name_row := HBoxContainer.new()
 	name_row.add_theme_constant_override("separation", 10)
 	v.add_child(name_row)
-	name_row.add_child(_label("New island", 26, true))
-	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", _box(Color("dff3ea"), 12, 8, false))
-	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(_label("Preview", 16, true, MINT))
-	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	name_row.add_child(chip)
+	name_row.add_child(_label("Your island", 26, true))
 	_help = _label("Draw streets, or shape the land: pick a brush", 14, false, SOFT)
 	v.add_child(_help)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(spacer)
-	var fresh := _text_pill("New landscape")
-	fresh.pressed.connect(func():
-		Sfx.play("unlock", 1.0, -6.0)
-		island.new_island(randi() % 1000000))
-	row.add_child(fresh)
-	var back := _text_pill("Classic town")
-	back.pressed.connect(func():
+	_players_row = HBoxContainer.new()
+	_players_row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_players_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_players_row)
+	var menu_btn := _glass_button(58)
+	var mi := _icon("menu", 30)
+	mi.set_anchors_preset(Control.PRESET_FULL_RECT)
+	menu_btn.add_child(mi)
+	menu_btn.pressed.connect(_toggle_menu)
+	menu_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(menu_btn)
+
+
+## The menu's first page on the island: your name, this island, starting over, the classic town.
+func _build_world_page(page: VBoxContainer) -> void:
+	var prof := _section(page, "Your name")
+	_name_edit = LineEdit.new()
+	_name_edit.placeholder_text = "Mayor"
+	_name_edit.max_length = 16
+	_name_edit.text_changed.connect(func(t):
+		Game.player_name = t if t.strip_edges() != "" else "Mayor")
+	prof.add_child(_name_edit)
+	prof.add_child(_wrap_label("Builders in your co-op room see this name."))
+	var about := _section(page, "This island")
+	_island_summary = _wrap_label("", 17, true, INK)
+	about.add_child(_island_summary)
+	_new_btn = _button("Start a new island", func(): pass)
+	_new_btn.pressed.connect(_on_new_island)
+	about.add_child(_new_btn)
+	about.add_child(_wrap_label("A fresh landscape replaces this island. Tap twice to confirm."))
+	var classic := _section(page, "The classic town")
+	classic.add_child(_wrap_label("Your tile town, with its goals and coins, is still here while the island grows into the whole game."))
+	classic.add_child(_button("Open the classic town", func():
+		_set_menu(false)
 		Sfx.play("click")
-		back_to_town.emit())
-	row.add_child(back)
+		back_to_town.emit()))
 
 
-func _text_pill(text: String) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(0, 56)
-	b.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	b.material = _glass_light
-	b.add_theme_font_override("font", font_bold)
-	b.add_theme_font_size_override("font_size", 17)
-	b.add_theme_color_override("font_color", INK)
-	b.add_theme_color_override("font_hover_color", INK)
-	b.add_theme_color_override("font_pressed_color", INK)
-	b.add_theme_stylebox_override("normal", _glass_box(GLASS, 28, 18))
-	b.add_theme_stylebox_override("hover", _glass_box(Color(0.97, 0.98, 1.0), 28, 18))
-	b.add_theme_stylebox_override("pressed", _glass_box(Color(1, 0.88, 0.84), 28, 18))
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	b.pivot_offset = Vector2(60, 28)
-	b.button_down.connect(func(): _squish(b, 0.93))
-	b.button_up.connect(func(): _squish(b, 1.0))
-	return b
+func _world_summary() -> String:
+	var houses := 0
+	var parks := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "park":
+			parks += 1
+		else:
+			houses += 1
+	return "%d streets  ·  %d buildings  ·  %d parks" % [island.streets.streets.size(), houses, parks]
+
+
+func _save_cloud() -> void:
+	island.save_cloud()
+
+
+func _on_new_island() -> void:
+	if not _confirm_new:
+		_confirm_new = true
+		_new_btn.text = "Tap again to start over"
+		return
+	_confirm_new = false
+	_new_btn.text = "Start a new island"
+	if Net.in_room():
+		Net.leave_room()
+	Sfx.play("unlock", 1.0, -6.0)
+	island.new_island(randi() % 1000000)
+	_set_menu(false)
+
+
+func _refresh_players() -> void:
+	for c in _players_row.get_children():
+		c.queue_free()
+	if Net.in_room():
+		var chip := PanelContainer.new()
+		_glassify(chip)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 8)
+		chip.add_child(h)
+		h.add_child(_icon("globe", 22))
+		h.add_child(_label("Room %s" % Net.room_code, 17, true))
+		for p in Net.active_players():
+			var dot := PanelContainer.new()
+			dot.add_theme_stylebox_override("panel", _box(Color(str(p.get("color", "ffffff"))), 10, 8, false))
+			dot.add_child(_label(str(p.get("name", "?")), 14, true, Color.WHITE))
+			h.add_child(dot)
+		_players_row.add_child(chip)
+	_refresh_account()
 
 
 func _build_brushes() -> void:
@@ -171,6 +226,44 @@ func _build_brushes() -> void:
 		Sfx.play("click", 0.9 + _size_i * 0.15, -4.0)
 		_refresh_brushes())
 	row.add_child(_size_btn)
+	# undo / redo float on the left above the brushes
+	var over := HBoxContainer.new()
+	over.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	over.offset_top = -184
+	over.offset_bottom = -124
+	over.offset_left = 18
+	over.add_theme_constant_override("separation", 10)
+	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(over)
+	_undo_btn = _glass_button(56, "undo")
+	_undo_btn.pressed.connect(_on_undo)
+	over.add_child(_undo_btn)
+	_redo_btn = _glass_button(56, "redo")
+	_redo_btn.pressed.connect(_on_redo)
+	over.add_child(_redo_btn)
+	island.history_changed.connect(_refresh_history)
+	_refresh_history()
+
+
+func _refresh_history() -> void:
+	if _undo_btn == null:
+		return
+	_undo_btn.disabled = not island.can_undo()
+	_redo_btn.disabled = not island.can_redo()
+	_undo_btn.modulate.a = 1.0 if island.can_undo() else 0.45
+	_redo_btn.modulate.a = 1.0 if island.can_redo() else 0.45
+
+
+func _on_undo() -> void:
+	if island.undo():
+		Sfx.play("pop", 0.8, -3.0)
+	_refresh_history()
+
+
+func _on_redo() -> void:
+	if island.redo():
+		Sfx.play("pop", 1.2, -3.0)
+	_refresh_history()
 
 
 func _refresh_brushes() -> void:
@@ -197,6 +290,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_F11 or (event.alt_pressed and event.keycode == KEY_ENTER)):
 		var w := get_window()
 		w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and (event.ctrl_pressed or event.meta_pressed) and event.keycode == KEY_Z:
+		if event.shift_pressed:
+			_on_redo()
+		else:
+			_on_undo()
 		get_viewport().set_input_as_handled()
 
 

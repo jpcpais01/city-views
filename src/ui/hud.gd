@@ -1290,27 +1290,7 @@ func _build_menu() -> void:
 	outer.add_child(_pages_root)
 
 	# ---- island
-	var island := _page_box("island")
-	var preview := _section(island, "Coming soon: a living island")
-	preview.add_child(_wrap_label("A new way to build with no grid: real hills and coves, and towns that grow themselves where you paint. Try the first piece, shaping the land. Your town here stays as it is."))
-	preview.add_child(_button("Open the new island", func():
-		_set_menu(false)
-		open_island.emit(), true))
-	var prof := _section(island, "Your name")
-	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "Mayor"
-	_name_edit.max_length = 16
-	_name_edit.text_changed.connect(func(s):
-		Game.player_name = s if s.strip_edges() != "" else "Mayor")
-	prof.add_child(_name_edit)
-	prof.add_child(_wrap_label("Other builders see this name next to your cursor."))
-	var about := _section(island, "This island")
-	_island_summary = _wrap_label("", 17, true, INK)
-	about.add_child(_island_summary)
-	_new_btn = _button("Start a new island", func(): pass)
-	_new_btn.pressed.connect(_on_new_island)
-	about.add_child(_new_btn)
-	about.add_child(_wrap_label("Starting over replaces this city with a fresh island. Tap twice to confirm."))
+	_build_world_page(_page_box("island"))
 
 	# ---- co-op
 	var coop := _page_box("coop")
@@ -1375,7 +1355,7 @@ func _build_menu() -> void:
 	asec.add_child(_acct_signed)
 	var save := _button("Save to cloud now", func():
 		if Firebase.signed_in:
-			Firebase.save_city(Game.to_dict())
+			_save_cloud()
 			_acct_msg.text = "Saved to the cloud ✓"
 		else:
 			_acct_msg.text = "Not connected yet, try again in a moment")
@@ -1429,6 +1409,30 @@ func _build_menu() -> void:
 	rt.text = _patch_notes_bbcode()
 	notes.add_child(rt)
 	_show_page("island")
+
+
+## The menu's first page: this world, your name, starting over.
+func _build_world_page(island: VBoxContainer) -> void:
+	var preview := _section(island, "The new island")
+	preview.add_child(_wrap_label("Build with no grid: real hills and coves, and towns that grow themselves where you paint. Your town here stays as it is."))
+	preview.add_child(_button("Open the island", func():
+		_set_menu(false)
+		open_island.emit(), true))
+	var prof := _section(island, "Your name")
+	_name_edit = LineEdit.new()
+	_name_edit.placeholder_text = "Mayor"
+	_name_edit.max_length = 16
+	_name_edit.text_changed.connect(func(s):
+		Game.player_name = s if s.strip_edges() != "" else "Mayor")
+	prof.add_child(_name_edit)
+	prof.add_child(_wrap_label("Other builders see this name next to your cursor."))
+	var about := _section(island, "This island")
+	_island_summary = _wrap_label("", 17, true, INK)
+	about.add_child(_island_summary)
+	_new_btn = _button("Start a new island", func(): pass)
+	_new_btn.pressed.connect(_on_new_island)
+	about.add_child(_new_btn)
+	about.add_child(_wrap_label("Starting over replaces this city with a fresh island. Tap twice to confirm."))
 
 
 ## iOS-style switch drawn once into a texture: green pill with the knob right when on.
@@ -1555,7 +1559,15 @@ func _refresh_account() -> void:
 			names.append(str(p.get("name", "?")))
 		_room_players.text = "Building now: %s" % ", ".join(names) if not names.is_empty() else "Waiting for friends to join…"
 	if _island_summary:
-		_island_summary.text = "%s  ·  %s\n%s citizens  ·  %s coins" % [Game.city_name, Game.title, _short(Game.population), _short(Game.coins)]
+		_island_summary.text = _world_summary()
+
+
+func _world_summary() -> String:
+	return "%s  ·  %s\n%s citizens  ·  %s coins" % [Game.city_name, Game.title, _short(Game.population), _short(Game.coins)]
+
+
+func _save_cloud() -> void:
+	Firebase.save_city(Game.to_dict())
 
 
 func _on_reset() -> void:
