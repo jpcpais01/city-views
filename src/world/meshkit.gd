@@ -202,6 +202,8 @@ func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bo
 
 
 # emission codes the city shader paints as surface patterns (no extra triangles)
+const ASPHALT := 0.1
+const SLABS := 0.16
 const ROOF_TILES := 0.25
 const COBBLE := 0.33
 const PAVING := 0.37
@@ -679,9 +681,15 @@ func window(center: Vector3, out: Vector3, w: float, h: float, glass: Color, fra
 		var rr := floorf(rng.randf() * 100.0)
 		quad_uv(p - fs + bot, p + fs + bot, p + fs + top, p - fs + top, out, glass,
 			Vector2(4.0, rr), Vector2(4.98, rr), Vector2(4.98, rr + 0.98), Vector2(4.0, rr + 0.98))
-	else:
+	elif lamp:
 		var p := center + out * 0.012
-		quad(p - side - up, p + side - up, p + side + up, p - side + up, out, glass, 2.0 if lamp else 1.0, rng.randf())
+		quad(p - side - up, p + side - up, p + side + up, p - side + up, out, glass, 2.0, rng.randf())
+	else:
+		# a frameless pane is a one-window row, so the shader knows where on the glass it is
+		var p := center + out * 0.012
+		var seed := floorf(rng.randf() * 100.0)
+		quad_uv(p - side - up, p + side - up, p + side + up, p - side + up, out, Color(glass.r, glass.g, glass.b, 1.0),
+			Vector2(121.0, seed), Vector2(121.98, seed), Vector2(121.98, seed + 0.98), Vector2(121.0, seed + 0.98))
 	detail = was
 
 
