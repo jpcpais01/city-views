@@ -61,6 +61,9 @@ func _ready() -> void:
 	Game.tile_changed.connect(_on_tile_changed)
 	Game.growth_changed.connect(_on_growth_changed)
 	Game.income_tick.connect(_on_income)
+	Game.seabed_changed.connect(func():
+		terrain.build_all()
+		_update_shore_tex())
 	Net.players_changed.connect(_update_remote_cursors)
 	_on_world_reset()
 
@@ -125,8 +128,10 @@ func _make_environment() -> void:
 	sun = DirectionalLight3D.new()
 	sun.shadow_enabled = Game.settings.get("shadows", true)
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 90.0
-	sun.shadow_blur = 1.5
+	sun.directional_shadow_max_distance = 60.0
+	sun.directional_shadow_blend_splits = true
+	sun.directional_shadow_split_1 = 0.25
+	sun.shadow_blur = 2.4
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
 	add_child(sun)
@@ -134,11 +139,8 @@ func _make_environment() -> void:
 
 func _make_sea() -> void:
 	var water := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(700, 700)
-	pm.subdivide_width = 90
-	pm.subdivide_depth = 90
-	water.mesh = pm
+	water.mesh = _sea_mesh(150, 350.0)
+	water.extra_cull_margin = 2.0
 	water.material_override = water_mat
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(water)
@@ -150,8 +152,40 @@ func _make_sea() -> void:
 	fmat.albedo_color = Color(0.72, 0.7, 0.56)
 	fmat.roughness = 1.0
 	floor_mi.material_override = fmat
-	floor_mi.position.y = Game.LEVEL_Y[0] - 0.01
+	floor_mi.position.y = Game.SEA_FLOOR - 0.01
 	add_child(floor_mi)
+
+
+## A grid that is dense around the island (where waves are seen up close) and
+## stretches out towards the horizon.
+func _sea_mesh(cells: int, half: float) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var idx := PackedInt32Array()
+	var coord := PackedFloat32Array()
+	for i in cells + 1:
+		var u := float(i) / cells * 2.0 - 1.0
+		coord.append(half * (0.28 * u + 0.72 * u * u * u))
+	for z in cells + 1:
+		for x in cells + 1:
+			verts.append(Vector3(coord[x], 0.0, coord[z]))
+	for z in cells:
+		for x in cells:
+			var a := z * (cells + 1) + x
+			var b := a + 1
+			var c := a + cells + 1
+			var d := c + 1
+			idx.append_array([a, b, c, b, d, c])
+	var normals := PackedVector3Array()
+	normals.resize(verts.size())
+	normals.fill(Vector3.UP)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return m
 
 
 func _make_cursor() -> void:
@@ -202,7 +236,21 @@ func _make_clouds() -> void:
 
 # ------------------------------------------------------------------ tiles
 
+## Distance-to-land map the water shader uses for shore foam and calmer shallows.
+func _update_shore_tex() -> void:
+	if Game.shore.size() != Game.N * Game.N:
+		return
+	var img := Image.create_empty(Game.N, Game.N, false, Image.FORMAT_L8)
+	for z in Game.N:
+		for x in Game.N:
+			var v := Game.shore[Game.idx(x, z)] / 8.0
+			img.set_pixel(x, z, Color(v, v, v))
+	water_mat.set_shader_parameter("shore_tex", ImageTexture.create_from_image(img))
+	water_mat.set_shader_parameter("grid_size", Game.N * Game.TILE)
+
+
 func _on_world_reset() -> void:
+	_update_shore_tex()
 	for n in _tiles.values():
 		n.queue_free()
 	_tiles.clear()
@@ -442,7 +490,7 @@ func _process(delta: float) -> void:
 		c.position.x += c.get_meta("speed") * delta
 		if c.position.x > 160.0:
 			c.position.x = -160.0
-	sun.directional_shadow_max_distance = clampf(rig.dist * 2.2, 40.0, 160.0)
+	sun.directional_shadow_max_distance = clampf(rig.dist * 1.4, 28.0, 80.0)
 	if _cursor.visible:
 		var pulse := 0.7 + 0.3 * sin(Time.get_ticks_msec() * 0.008)
 		_cursor_mat.albedo_color.a = 0.55 + 0.35 * pulse
@@ -464,6 +512,14 @@ const SKY_KEYS := [
 ]
 
 
+func _eased_arc(t: float) -> float:
+	var half := fposmod(t - 0.25, 1.0) * 2.0
+	var base := floorf(half)
+	var u := half - base - 0.5
+	var eased := lerpf(u, 4.0 * u * u * u, 0.82)
+	return (base + eased + 0.5) * 0.5
+
+
 func _update_sky() -> void:
 	var t := time_of_day
 	var a: Array = SKY_KEYS[0]
@@ -480,7 +536,9 @@ func _update_sky() -> void:
 	var energy: float = lerpf(a[4], b[4], k)
 	var amb: float = lerpf(a[5], b[5], k)
 	# sun path; at night the same light becomes the moon
-	var ang := (t - 0.25) * TAU
+	# the sun barely moves around noon (and the moon around midnight) so shadows
+	# stay still while you build; it only sweeps visibly at dawn and dusk
+	var ang := _eased_arc(t) * TAU
 	var sun_dir := Vector3(cos(ang), sin(ang), 0.35).normalized()
 	var is_day := sun_dir.y > -0.02
 	var light_dir := sun_dir if is_day else Vector3(-sun_dir.x, -sun_dir.y, 0.5).normalized()
@@ -667,6 +725,7 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 				_paint_at(t)
 		else:
 			_painting = false
+			Game.end_stroke()
 			_gesture_prev = {}
 	else:
 		_touches.erase(e.index)
@@ -675,6 +734,7 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 				tile_tapped.emit(rig.pick_tile(e.position))
 			_painting = false
 			_paint_last = Vector2i(-1, -1)
+			Game.end_stroke()
 		_gesture_prev = {}
 
 
@@ -700,7 +760,7 @@ func _on_drag(e: InputEventScreenDrag) -> void:
 			rig.pan_screen(mid - _gesture_prev.mid)
 			if dist > 1.0 and _gesture_prev.dist > 1.0:
 				rig.zoom(_gesture_prev.dist / dist)
-			rig.rotate_by(-wrapf(ang - _gesture_prev.ang, -PI, PI))
+			rig.rotate_by(wrapf(ang - _gesture_prev.ang, -PI, PI))
 		_gesture_prev = {"mid": mid, "dist": dist, "ang": ang}
 
 
@@ -724,6 +784,7 @@ func _on_mouse_button(e: InputEventMouseButton) -> void:
 					tile_tapped.emit(rig.pick_tile(e.position))
 				_painting = false
 				_paint_last = Vector2i(-1, -1)
+				Game.end_stroke()
 	if e.pressed:
 		_mouse_buttons |= 1 << e.button_index
 	else:
