@@ -124,9 +124,34 @@ func _ready() -> void:
 	var after_doze := Game.coins
 	Game.undo()
 	check(Game.knd(31, 30) == Game.K.ROAD and Game.coins < after_doze, "undo bulldoze restores road and takes back the refund")
+	_goals()
 	await _tri_budget()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+## Goals: always three, finishing one pays out and draws a fresh one, and they survive a save.
+func _goals() -> void:
+	Game.new_world(4321)
+	check(Game.goals.size() == 3, "a new island starts with three goals")
+	var g: Dictionary = Game.goals[0]
+	check(not g.get("ready", false) and Game.claim_goal(0) == 0.0, "an unfinished goal pays nothing")
+	g["target"] = Game.goal_value(g)
+	Game._recount()
+	check(g.get("ready", false), "a goal is ready once its target is met")
+	var before := Game.coins
+	var paid := Game.claim_goal(0)
+	check(paid > 0.0 and absf(Game.coins - before - paid) < 0.01 and Game.goals_done == 1, "collecting pays %d coins" % int(paid))
+	check(Game.goals.size() == 3 and not Game.goals[0].get("ready", false), "a fresh goal replaces it")
+	var keys := {}
+	for gg in Game.goals:
+		keys[str(gg.type) + str(gg.get("key", ""))] = true
+	check(keys.size() == 3, "goals never repeat each other")
+	var d: Dictionary = JSON.parse_string(JSON.stringify(Game.to_dict()))
+	var text := str(Game.goals[1].text)
+	Game.new_world(5)
+	Game.from_dict(d)
+	check(Game.goals.size() == 3 and str(Game.goals[1].text) == text and Game.goals_done == 1, "goals survive a save")
 
 
 ## Frame budget: a town the size players have now with every sub-type mixed in,

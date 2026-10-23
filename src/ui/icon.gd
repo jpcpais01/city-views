@@ -305,6 +305,17 @@ func _draw() -> void:
 		"people":
 			_circle(P.call(0.5, 0.3), 0.16 * s, c)
 			_rr(Rect2(P.call(0.22, 0.52), Vector2(0.56, 0.38) * s), 0.2 * s, c)
+		"star":
+			var pts := PackedVector2Array()
+			for k in 10:
+				var r := 0.42 if k % 2 == 0 else 0.19
+				var ang := -PI * 0.5 + k * PI / 5.0
+				pts.append(P.call(0.5 + cos(ang) * r, 0.53 + sin(ang) * r))
+			draw_colored_polygon(pts, Color("ffc94d"))
+			var inner := PackedVector2Array()
+			for q in pts:
+				inner.append(P.call(0.5, 0.53).lerp(q, 0.55))
+			draw_colored_polygon(inner, Color("ffe08a"))
 		"coin":
 			_circle(P.call(0.5, 0.5), 0.4 * s, Color("f2b33d"))
 			_circle(P.call(0.5, 0.5), 0.3 * s, Color("ffd36e"))

@@ -85,6 +85,14 @@ func _ready() -> void:
 		var pp: Dictionary = world.people._people[int(OS.get_environment("CV_PERSON"))]
 		world.rig.focus((pp.xf as Transform3D).origin)
 		await get_tree().create_timer(4.0).timeout
+	if OS.get_environment("CV_GOALS") != "":
+		# tutorial done, one goal finished, and a few tip bubbles up
+		Game.tutorial_step = 3
+		Game.goals[1]["target"] = Game.goal_value(Game.goals[1])
+		Game._recount()
+		for k in 3:
+			world._spawn_bubble()
+		await get_tree().create_timer(1.5).timeout
 	if OS.get_environment("CV_CAT") != "":
 		# open a build category so its sub-type row shows
 		hud._on_cat_pressed(OS.get_environment("CV_CAT"))

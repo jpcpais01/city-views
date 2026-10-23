@@ -13,6 +13,8 @@ signal toast(text: String, kind: String)
 signal income_tick(amount: float)
 signal seabed_changed
 signal history_changed
+signal goals_changed
+signal goal_ready(i: int)
 
 const SAVE_VERSION := 2
 const N := 64
@@ -123,6 +125,12 @@ var settings := {"music": true, "sfx": true, "shadows": true, "fps": true}
 var tutorial_step := 0
 var play_time := 0.0
 
+# three city goals at a time; finished ones wait for the player to collect them
+var goals: Array = []
+var goals_done := 0
+var _counts := {}  # tool id -> tiles built with it
+var _grown := 0  # buildings at full growth
+var _seaside := 0  # cafés and hotels on the shore
 var _growth_timer := 0.0
 var _income_timer := 0.0
 var _autosave_timer := 0.0
@@ -273,9 +281,12 @@ func new_world(s: int) -> void:
 	unlocked.clear()
 	tutorial_step = 0
 	best_population = 0
+	goals.clear()
+	goals_done = 0
 	city_name = _random_city_name()
 	_recount()
 	_check_unlocks(true)
+	_fill_goals()
 	world_reset.emit()
 	stats_changed.emit()
 
@@ -638,7 +649,7 @@ func _process(delta: float) -> void:
 		_grow_step()
 	if _income_timer > 3.0:
 		_income_timer = 0.0
-		var income := (population * 0.16 + mini(jobs, population) * 0.22 + tourists * 1.2 + 1.0) * (0.6 + happiness * 0.8)
+		var income := income_per_tick()
 		add_coins(income)
 		income_tick.emit(income)
 	if _autosave_timer > 25.0:
@@ -646,6 +657,11 @@ func _process(delta: float) -> void:
 		save_local()
 		if Firebase.signed_in and not Net.in_room():
 			Firebase.save_city(to_dict())
+
+
+## Coins the town earns every 3 seconds.
+func income_per_tick() -> float:
+	return (population * 0.16 + mini(jobs, population) * 0.22 + tourists * 1.2 + 1.0) * (0.6 + happiness * 0.8)
 
 
 func target_growth(x: int, z: int) -> int:
@@ -759,9 +775,19 @@ func _recount() -> void:
 	var jb := 0
 	var green := 0.0
 	tourists = 0
+	_counts.clear()
+	_grown = 0
+	_seaside = 0
 	for i in kind.size():
 		var g := growth[i]
 		var st := sub_of(kind[i], param[i])
+		if kind[i] != K.EMPTY:
+			var id: String = _tool_id(kind[i], st)
+			_counts[id] = _counts.get(id, 0) + 1
+			if g >= 3 and is_building(kind[i]):
+				_grown += 1
+			if (id == "cafe" or id == "hotel") and _near_water(i % N, i / N, 1):
+				_seaside += 1
 		match kind[i]:
 			K.HOUSE:
 				pop += HOUSE_POP[st][g]
@@ -784,6 +810,7 @@ func _recount() -> void:
 	happiness = clampf(h, 0.0, 1.0)
 	best_population = max(best_population, population)
 	_check_unlocks(false)
+	_check_goals()
 	stats_changed.emit()
 
 
@@ -801,6 +828,141 @@ func _check_unlocks(silent: bool) -> void:
 		title = new_title
 		if not silent:
 			title_changed.emit(title)
+
+
+# ------------------------------------------------------------------ goals
+
+static var _ids_by_ks := {}
+
+
+func _tool_id(k: int, s: int) -> String:
+	if _ids_by_ks.is_empty():
+		for t in TOOLS:
+			if t.kind >= 0 and not _ids_by_ks.has(t.kind * 16 + t.sub):
+				_ids_by_ks[t.kind * 16 + t.sub] = t.id
+	return _ids_by_ks.get(k * 16 + s, "")
+
+
+## Rounds up to a number that reads well on a goal: 37 -> 40, 212 -> 220.
+static func _nice(n: float) -> int:
+	var step := 5.0 if n < 100 else (10.0 if n < 500 else (50.0 if n < 2000 else 100.0))
+	return int(ceilf(n / step) * step)
+
+
+func goal_value(g: Dictionary) -> int:
+	match str(g.type):
+		"pop": return population
+		"jobs": return jobs
+		"happy": return int(round(happiness * 100.0))
+		"grown": return _grown
+		"seaside": return _seaside
+		"count": return int(_counts.get(str(g.key), 0))
+	return 0
+
+
+## Progress toward a goal, 0..1.
+func goal_progress(g: Dictionary) -> float:
+	if g.get("ready", false):
+		return 1.0
+	var base := float(g.get("base", 0))
+	return clampf((goal_value(g) - base) / maxf(float(g.target) - base, 1.0), 0.0, 1.0)
+
+
+func _make_goal() -> Dictionary:
+	var taken := {}
+	for g in goals:
+		taken[str(g.type) + str(g.get("key", ""))] = true
+	var opts: Array = []
+	var pay := 30.0 + best_population * 0.5
+	var p := _nice(maxf(population + 12, population * 1.35))
+	opts.append([3.0, {"type": "pop", "target": p, "icon": "people", "text": "Grow to %d residents" % p, "reward": _nice(pay * 1.6)}])
+	if population >= 20:
+		var j := _nice(maxf(jobs + 10, jobs * 1.4))
+		opts.append([1.5, {"type": "jobs", "target": j, "icon": "office", "text": "Provide %d jobs" % j, "reward": _nice(pay * 1.3)}])
+	if population >= 10 and happiness < 0.88:
+		var h := mini(95, int(happiness * 20.0) * 5 + 10)
+		opts.append([1.5, {"type": "happy", "target": h, "icon": "smile", "text": "Make the town %d%% happy" % h, "reward": _nice(pay * 1.2)}])
+	if population >= 40:
+		var n := 1 + mini(goals_done / 4, 4)
+		opts.append([1.5, {"type": "grown", "base": _grown, "target": _grown + n, "icon": "apartments",
+			"text": "Grow %d more building%s to full size" % [n, "" if n == 1 else "s"], "reward": _nice(pay * (1.0 + n * 0.3))}])
+	if (is_unlocked("cafe") or is_unlocked("hotel")):
+		opts.append([1.0, {"type": "seaside", "base": _seaside, "target": _seaside + 1, "icon": "cafe",
+			"text": "Open a café or hotel on the seafront", "reward": _nice(pay * 1.4)}])
+	for t in TOOLS:
+		if t.kind < 0 or not is_unlocked(t.id):
+			continue
+		var have: int = _counts.get(t.id, 0)
+		var add := 1
+		match int(t.kind):
+			K.ROAD: add = 8
+			K.TREE: add = 6
+			K.LANDMARK: add = 1
+			_: add = 2 + mini(goals_done / 6, 2)
+		var cost: float = t.cost * add
+		# new and never-tried things come up more often
+		var w := 2.5 if have == 0 else 0.7
+		if t.kind == K.LANDMARK:
+			w = 1.2 if have == 0 and coins + pay > t.cost * 0.6 else 0.15
+		var text := ("Build a %s" % t.name) if add == 1 else ("Build %d more: %s" % [add, t.name])
+		if t.kind == K.ROAD:
+			text = "Lay %d tiles of %s" % [add, str(t.name).to_lower()]
+		elif t.kind == K.TREE:
+			text = "Plant %d tiles of %s" % [add, str(t.name).to_lower()]
+		opts.append([w, {"type": "count", "key": t.id, "base": have, "target": have + add, "icon": t.id,
+			"text": text, "reward": _nice(cost * 0.8 + pay * 0.6)}])
+	var pool: Array = []
+	var total := 0.0
+	for o in opts:
+		var g: Dictionary = o[1]
+		if taken.has(str(g.type) + str(g.get("key", ""))) or goal_value(g) >= int(g.target):
+			continue
+		pool.append(o)
+		total += o[0]
+	var r := _rng.randf() * total
+	for o in pool:
+		r -= o[0]
+		if r <= 0.0:
+			return o[1]
+	return pool[-1][1] if not pool.is_empty() else {}
+
+
+func _fill_goals() -> void:
+	var added := false
+	while goals.size() < 3:
+		var g := _make_goal()
+		if g.is_empty():
+			break
+		goals.append(g)
+		added = true
+	if added:
+		goals_changed.emit()
+
+
+func _check_goals() -> void:
+	if level.is_empty():
+		return
+	for i in goals.size():
+		var g: Dictionary = goals[i]
+		if not g.get("ready", false) and goal_value(g) >= int(g.target):
+			g["ready"] = true
+			goal_ready.emit(i)
+
+
+## Pays out a finished goal and draws a fresh one in its place. Returns the coins paid.
+func claim_goal(i: int) -> float:
+	if i < 0 or i >= goals.size() or not goals[i].get("ready", false):
+		return 0.0
+	var reward := float(goals[i].reward)
+	add_coins(reward)
+	goals_done += 1
+	goals.remove_at(i)
+	var g := _make_goal()
+	if not g.is_empty():
+		goals.insert(i, g)
+	_check_goals()
+	goals_changed.emit()
+	return reward
 
 
 func next_title_progress() -> Array:
@@ -838,6 +1000,7 @@ func to_dict() -> Dictionary:
 		"v": SAVE_VERSION, "seed": seed_value, "name": city_name, "coins": coins,
 		"best": best_population, "tut": tutorial_step, "edits": edits_dict(),
 		"time": Time.get_unix_time_from_system(), "play": play_time,
+		"goals": goals, "gdone": goals_done,
 	}
 
 
@@ -868,9 +1031,12 @@ func from_dict(d: Dictionary, keep_economy := false) -> void:
 		best_population = int(d.get("best", 0))
 		tutorial_step = int(d.get("tut", 3))
 		play_time = float(d.get("play", 0.0))
+		goals = (d.get("goals", []) as Array).duplicate(true)
+		goals_done = int(d.get("gdone", 0))
 	unlocked.clear()
 	_recount()
 	_check_unlocks(true)
+	_fill_goals()
 	world_reset.emit()
 
 
