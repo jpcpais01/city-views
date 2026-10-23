@@ -1,18 +1,21 @@
 class_name Landmarks
 extends Node3D
 ## The island's landmarks, which come up as the town grows: a windmill on the
-## highest hill once a village has formed, and a lighthouse on the headland
-## that reaches furthest into the sea once it is a proper town, its beam
-## sweeping the water at night. Where each one stands follows from the land
-## itself; once standing, the town leaves room around it.
+## highest hill once a village has formed, a wooden pier where the harbour
+## quarter meets deep water, and a lighthouse on the headland that reaches
+## furthest into the sea once it is a proper town, its beam sweeping the
+## water at night. Where the windmill and lighthouse stand follows from the
+## land itself; once standing, the town leaves room around each one.
 
-const NEED := {"windmill": 30, "lighthouse": 90}
-const NAMES := {"windmill": "A windmill now turns on the hilltop", "lighthouse": "A lighthouse now guards the headland"}
-const ROOM := {"windmill": 1.6, "lighthouse": 2.0}
+const NEED := {"windmill": 30, "pier": 55, "lighthouse": 90}
+const NAMES := {"windmill": "A windmill now turns on the hilltop", "pier": "A pier now reaches out from the harbour", "lighthouse": "A lighthouse now guards the headland"}
+const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0}
 const WHITE := Color(0.97, 0.96, 0.93)
 const RED := Color("d9534f")
 const STONE := Color(0.72, 0.7, 0.66)
 const TIMBER := Color(0.45, 0.33, 0.24)
+const PLANK := Color(0.72, 0.56, 0.38)
+const PIER_LEN := 7.0
 
 var world: IslandWorld
 var beam_mat: Material
@@ -86,6 +89,8 @@ func from_dict(d: Dictionary) -> void:
 func _fits(kind: String, p: Vector2, standing := false) -> bool:
 	var land := world.land
 	var h := land.height_at(p.x, p.y)
+	if kind == "pier":
+		return _pier_fits(p, standing)
 	if kind == "lighthouse" and (h < 0.3 or h > 6.0):
 		return false
 	if kind == "windmill" and h < 1.2:
@@ -106,8 +111,77 @@ func _fits(kind: String, p: Vector2, standing := false) -> bool:
 	return true
 
 
+## Which way is out to sea from a spot on the shore (zero if none is).
+func _seaward(p: Vector2) -> Vector2:
+	var d := Vector2.ZERO
+	for k in 16:
+		var dir := Vector2.from_angle(k * TAU / 16.0)
+		var q := p + dir * 4.0
+		if world.land.height_at(q.x, q.y) < -0.3:
+			d += dir
+	return d.normalized()
+
+
+## A pier starts on the shore just above the water and runs out into water
+## deep enough for boats, clear of houses and streets.
+func _pier_fits(p: Vector2, standing: bool) -> bool:
+	var land := world.land
+	var h := land.height_at(p.x, p.y)
+	if h < 0.02 or h > 1.0:
+		return false
+	var d := _seaward(p)
+	if d == Vector2.ZERO:
+		return false
+	for t in [2.5, 4.5, PIER_LEN]:
+		var q: Vector2 = p + d * t
+		if land.height_at(q.x, q.y) > (-0.2 if t < 3.0 else -0.7):
+			return false
+	var back := p - d * 1.0
+	if land.height_at(back.x, back.y) < h - 0.05:
+		return false
+	if not standing and (world.town.is_built(p) or world.town.is_built(back)):
+		return false
+	for s: Streets.Street in world.streets.streets:
+		if s.near_box(p, 3.0) and s.closest(p).x < s.reach() + 0.6:
+			return false
+	return true
+
+
+## The middle of the harbour quarter (or of the whole town), where the pier should be near.
+func _harbour_centre() -> Variant:
+	for pass_i in 2:
+		var sum := Vector2.ZERO
+		var n := 0
+		for l: Town.Lot in world.town.lots.values():
+			if l.type == "house" and (pass_i == 1 or l.kit == HouseGen.HARBOUR):
+				sum += l.origin
+				n += 1
+		if n > 0:
+			return sum / n
+	return null
+
+
 func _find(kind: String) -> Variant:
 	var land := world.land
+	if kind == "pier":
+		var c: Variant = _harbour_centre()
+		if c == null:
+			return null
+		var best_d := INF
+		var found: Variant = null
+		var gx := -30.0
+		while gx <= 30.0:
+			var gz := -30.0
+			while gz <= 30.0:
+				var p: Vector2 = c + Vector2(gx, gz)
+				var dd := Vector2(gx, gz).length()
+				if dd < best_d and absf(p.x) < Land.HALF - 8.0 and absf(p.y) < Land.HALF - 8.0 and _pier_fits(p, false):
+					best_d = dd
+					found = p
+				gz += 1.0
+			gx += 1.0
+		return found
+
 	var best := -INF
 	var at: Variant = null
 	var x := -Land.HALF + 6.0
@@ -156,6 +230,9 @@ func _place(kind: String, p: Vector2) -> void:
 	spots[kind] = p
 	world.town.reserve(kind, p, float(ROOM[kind]) + 0.6)
 	var land := world.land
+	if kind == "pier":
+		_place_pier(p)
+		return
 	# stand on the lowest ground under it, the plinth hides the rest of the slope
 	var y := land.height_at(p.x, p.y)
 	for k in 8:
@@ -173,6 +250,65 @@ func _place(kind: String, p: Vector2) -> void:
 		_lighthouse(mk, root)
 	else:
 		_windmill(mk, root, yaw)
+	mk.pop()
+	var body := MeshInstance3D.new()
+	body.mesh = mk.commit(world.city_mat)
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(body)
+	var sm := mk.commit_shadow(Palette.shadow_material())
+	if sm:
+		var sh := MeshInstance3D.new()
+		sh.mesh = sm
+		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		root.add_child(sh)
+
+
+func _place_pier(p: Vector2) -> void:
+	var land := world.land
+	var d := _seaward(p)
+	var root := Node3D.new()
+	root.position = Vector3(p.x, 0.0, p.y)
+	add_child(root)
+	_nodes["pier"] = root
+	var yaw := atan2(d.x, d.y)
+	var deck := maxf(land.height_at(p.x, p.y), 0.0) + 0.22
+	var side := Vector2(d.y, -d.x)
+	var mk := MeshKit.new(hash("pier"))
+	# local +Z runs out to sea
+	mk.push_at(Vector3.ZERO, yaw)
+	mk.box(Vector3(0, deck - 0.04, PIER_LEN * 0.5 - 0.6), Vector3(0.9, 0.08, PIER_LEN + 1.2), PLANK, null, false, MeshKit.SIDING)
+	mk.box(Vector3(0, deck - 0.04, PIER_LEN + 0.4), Vector3(2.6, 0.08, 1.4), PLANK, null, false, MeshKit.SIDING)
+	# posts down to the sea bed, a pair every metre and a half
+	var z := 0.6
+	while z <= PIER_LEN + 1.0:
+		var wide := z > PIER_LEN - 0.3
+		for sx: float in ([-1.2, 1.2] if wide else [-0.4, 0.4]):
+			var w: Vector2 = p + d * z - side * sx
+			var bed := minf(land.height_at(w.x, w.y), -0.1)
+			mk.pole(Vector3(sx, bed, z), 0.05, deck - 0.06 - bed, 5, Color(0.42, 0.32, 0.24))
+		z += 1.5
+	# rails, and lamps and a bench out at the end
+	for sx: float in [-1.0, 1.0]:
+		mk.box(Vector3(sx * 0.43, deck + 0.22, PIER_LEN * 0.5 - 0.2), Vector3(0.03, 0.03, PIER_LEN - 0.6), WHITE)
+		mk.box(Vector3(sx * 1.28, deck + 0.22, PIER_LEN + 0.4), Vector3(0.03, 0.03, 1.3), WHITE)
+		var k := 0.4
+		while k < PIER_LEN - 0.4:
+			mk.box(Vector3(sx * 0.43, deck + 0.11, k), Vector3(0.03, 0.22, 0.03), WHITE)
+			k += 1.0
+		CivicGen._lamp(mk, Vector3(sx * 1.15, deck, PIER_LEN + 0.95))
+	mk.box(Vector3(0, deck + 0.22, PIER_LEN + 1.08), Vector3(2.56, 0.03, 0.03), WHITE)
+	CivicGen._bench(mk, Vector3(0.6, deck, PIER_LEN + 0.7), PI)
+	# a striped kiosk where the pier meets the shore
+	mk.rbox(Vector3(-0.75, deck + 0.22, 0.2), Vector3(0.5, 0.44, 0.44), 0.03, WHITE, null, false, MeshKit.SIDING)
+	mk.window(Vector3(-0.75, deck + 0.28, 0.43), Vector3.BACK, 0.34, 0.16, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), true)
+	mk.cone(Vector3(-0.75, deck + 0.44, 0.2), 0.42, 0.24, 8, Color("e85d5d"))
+	# rowing boats tied up alongside
+	for b in [[1.1, 2.6, 0.2, Color("3d5f8f")], [-1.05, 4.6, -0.15, Color("c8553d")]]:
+		mk.push_at(Vector3(b[0], 0.04, b[1]), b[2])
+		mk.rbox(Vector3(0, 0.06, 0), Vector3(0.4, 0.14, 1.0), 0.07, b[3])
+		mk.box(Vector3(0, 0.11, 0), Vector3(0.32, 0.03, 0.86), Color(0.86, 0.74, 0.55))
+		mk.box(Vector3(0, 0.15, 0.05), Vector3(0.34, 0.03, 0.1), PLANK)
+		mk.pop()
 	mk.pop()
 	var body := MeshInstance3D.new()
 	body.mesh = mk.commit(world.city_mat)
