@@ -1,7 +1,7 @@
 extends Node
 ## Screenshot of the new tile-free island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_BRUSH=raise|lower|smooth|flatten
-## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets), CV_OUT.
+## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one), CV_GROW=radius (paints and grows the town), CV_OUT.
 
 
 func _ready() -> void:
@@ -37,9 +37,36 @@ func _ready() -> void:
 			lines[0].append(Vector2(f.x - 20.0 + 40.0 * t, f.z + sin(t * PI * 1.3) * 4.0))
 			lines[1].append(Vector2(f.x + 2.0 + sin(t * 2.0) * 2.0, f.z - 16.0 + 32.0 * t))
 			lines[2].append(Vector2(f.x - 12.0 + 3.0 * t, f.z + 3.0 + 13.0 * t))
+		if OS.get_environment("CV_STREETS") == "2":
+			# just one long main street
+			lines = [[]]
+			for k in 41:
+				lines[0].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z + sin(k / 40.0 * PI) * 3.0))
 		for l in lines:
 			island.streets.add_stroke(PackedVector2Array(l))
 		print("streets: ", island.streets.streets.size())
+	if OS.get_environment("CV_GROW") != "":
+		var r := float(OS.get_environment("CV_GROW"))
+		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 1.0)
+		island.land.paint_zone(Vector3(f.x, 0, f.z), r * 0.8, 1.0)
+		island.growth.focus = Vector2(f.x, f.z)
+		var t0 := Time.get_ticks_msec()
+		var made := island.growth.grow_all()
+		print("grew %d streets in %d ms" % [made, Time.get_ticks_msec() - t0])
+	if OS.get_environment("CV_LIVE") != "":
+		# paint and let the town grow in real time, watching the slowest frame
+		var r := float(OS.get_environment("CV_LIVE"))
+		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 2.0)
+		island.growth.wake(Vector2(f.x, f.z))
+		var worst := 0
+		var last := Time.get_ticks_usec()
+		var t_end := Time.get_ticks_msec() + 8000
+		while Time.get_ticks_msec() < t_end and island.growth.is_growing():
+			await get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			worst = maxi(worst, now - last)
+			last = now
+		print("live: %d streets, slowest frame %d ms grow %d us streets %d us" % [island.streets.streets.size(), worst / 1000, island.growth.slowest_us, island.streets.slowest_us])
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
 	print("prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	var img := get_viewport().get_texture().get_image()

@@ -155,6 +155,44 @@ func _streets() -> void:
 	var c: Streets.Street = st.add_stroke(cross)
 	check(c != null and absf(c.closest(mid).y - s.closest(mid).y) < 0.05, "crossing streets meet at one height")
 	check(st.erase_at(s.pts[s.pts.size() / 2 - 16], 1.0) and st.streets.size() == 3, "the eraser splits a street in two")
+	# growing a painted area around a main street lays out a network of side streets
+	st.clear()
+	land.generate(11)
+	var main := PackedVector2Array()
+	for k in 41:
+		main.append(Vector2(-32.0 + 48.0 * k / 40.0, 4.0 + sin(k / 40.0 * PI) * 3.0))
+	st.add_stroke(main)
+	land.paint_zone(Vector3(-8, 0, 4), 28.0, 2.0)
+	var g := Growth.new()
+	g.land = land
+	g.streets = st
+	add_child(g)
+	var t0 := Time.get_ticks_msec()
+	var made := g.grow_all()
+	print("grew %d side streets in %d ms" % [made, Time.get_ticks_msec() - t0])
+	check(made >= 8, "painting an area grows a network of side streets (%d)" % made)
+	var worst := 0.0
+	for a2 in st.streets:
+		for i in a2.pts.size() - 1:
+			worst = maxf(worst, absf(a2.ys[i + 1] - a2.ys[i]) / maxf(a2.pts[i].distance_to(a2.pts[i + 1]), 0.01))
+	check(worst <= Streets.MAX_GRADE + 0.02, "grown streets keep to the grade limit (%.3f)" % worst)
+	var joined := 0
+	for a2 in st.streets:
+		if a2.kind == "side":
+			for e in [0, a2.pts.size() - 1]:
+				for o in st.streets:
+					if o != a2 and o.closest(a2.pts[e]).x < o.w() + 0.3:
+						joined += 1
+						break
+	check(joined >= made, "side streets join the network (%d ends joined)" % joined)
+	g.queue_free()
+	st.clear()
+	land.generate(7)
+	st.add_stroke(raw)
+	var s2: Streets.Street = st.streets[0]
+	var mid2 := s2.pts[s2.pts.size() / 2]
+	st.add_stroke(PackedVector2Array([Vector2(mid2.x, mid2.y - 10.0), Vector2(mid2.x, mid2.y + 10.0)]))
+	st.erase_at(s2.pts[s2.pts.size() / 2 - 16], 1.0)
 	var data := st.to_data()
 	st.from_data(JSON.parse_string(JSON.stringify(data)))
 	check(st.streets.size() == 3 and st.to_data().size() == 3, "streets survive a save")

@@ -19,6 +19,15 @@ signal changed
 var material: Material
 var heights := PackedFloat32Array()
 var _base := PackedFloat32Array()
+# where the player has asked the town to grow, 0..1 per ground sample
+var zone := PackedFloat32Array()
+# tint the painted area strongly (while the Grow brush is in hand)
+var show_zone := false:
+	set(v):
+		if v != show_zone:
+			show_zone = v
+			for c in _chunks.keys():
+				_dirty[c] = true
 var _chunks := {}
 # a coarser copy of the ground drawn only into the shadow map, so hills cast
 # shadows across the valleys for a quarter of the triangles
@@ -35,9 +44,9 @@ func generate(seed_value: int) -> void:
 	_noise.seed = seed_value
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-	_noise.fractal_octaves = 4
-	_noise.fractal_gain = 0.42
-	_noise.frequency = 1.0 / 55.0
+	_noise.fractal_octaves = 3
+	_noise.fractal_gain = 0.36
+	_noise.frequency = 1.0 / 64.0
 	_warp.seed = seed_value + 17
 	_warp.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_warp.fractal_octaves = 3
@@ -51,6 +60,8 @@ func generate(seed_value: int) -> void:
 		for i in SIDE:
 			heights[j * SIDE + i] = _natural(_pos(i, j))
 	_base = heights.duplicate()
+	zone.resize(SIDE * SIDE)
+	zone.fill(0.0)
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
@@ -70,17 +81,18 @@ func _pos(i: int, j: int) -> Vector2:
 ## coast wanders, inland hills and ridges, broad beaches and a few cliffs.
 func _natural(p: Vector2) -> float:
 	var w := Vector2(_warp.get_noise_2d(p.x, p.y), _warp.get_noise_2d(p.x + 91.0, p.y - 37.0)) * 20.0
-	w += Vector2(_detail.get_noise_2d(p.x * 0.5, p.y * 0.5), _detail.get_noise_2d(p.x * 0.5 + 50.0, p.y * 0.5)) * 4.0
+	w += Vector2(_detail.get_noise_2d(p.x * 0.5, p.y * 0.5), _detail.get_noise_2d(p.x * 0.5 + 50.0, p.y * 0.5)) * 2.0
 	var q := p + w
 	var r := q.length() / HALF
 	# where the coast is cliffy the land rises sharply out of the sea
 	var cliff := smoothstep(0.3, 0.55, _warp.get_noise_2d(q.x * 0.6 - 200.0, q.y * 0.6))
 	var mask := 1.0 - smoothstep(lerpf(0.42, 0.62, cliff), lerpf(0.86, 0.72, cliff), r)
 	var hills := (_noise.get_noise_2d(q.x, q.y) * 0.5 + 0.5)
-	hills = pow(hills, 2.2) * 16.0
-	# a ridge line or two
+	# mostly broad, gentle land that a town can spread over, with a few real hills
+	hills = pow(hills, 2.7) * 17.0
+	# a ridge line here and there
 	var ridge := 1.0 - absf(_noise.get_noise_2d(q.x * 0.7 + 400.0, q.y * 0.7))
-	hills += pow(ridge, 5.0) * 3.5
+	hills += pow(ridge, 6.0) * 3.0 * smoothstep(0.0, 0.4, _warp.get_noise_2d(q.x * 0.5 + 300.0, q.y * 0.5))
 	var inland := smoothstep(0.2, 0.9, mask)
 	inland *= inland
 	var land := 0.8 + hills * inland + _detail.get_noise_2d(p.x, p.y) * 0.12 + cliff * 1.6 * smoothstep(0.0, 0.3, mask)
@@ -162,6 +174,24 @@ func smooth(centre: Vector3, radius: float, amount: float) -> void:
 		heights[k] = lerpf(src[k], avg, clampf(amount * w, 0.0, 1.0)))
 
 
+## Paint (amount > 0) or wipe where the town should grow.
+func paint_zone(centre: Vector3, radius: float, amount: float) -> void:
+	_each_in(centre, radius, func(k: int, w: float) -> void:
+		zone[k] = clampf(zone[k] + amount * minf(w * 2.0, 1.0), 0.0, 1.0))
+
+
+func zone_at(x: float, z: float) -> float:
+	var fx := (x + HALF) / STEP
+	var fz := (z + HALF) / STEP
+	if fx < 0.0 or fz < 0.0 or fx > CELLS or fz > CELLS:
+		return 0.0
+	var i := mini(int(fx), CELLS - 1)
+	var j := mini(int(fz), CELLS - 1)
+	var u := fx - i
+	var v := fz - j
+	return lerpf(lerpf(zone[j * SIDE + i], zone[j * SIDE + i + 1], u), lerpf(zone[(j + 1) * SIDE + i], zone[(j + 1) * SIDE + i + 1], u), v)
+
+
 ## Ease the ground towards a level (the height where the stroke started).
 func flatten(centre: Vector3, radius: float, level: float, amount: float) -> void:
 	_each_in(centre, radius, func(k: int, w: float) -> void:
@@ -197,7 +227,9 @@ func _mark(i0: int, j0: int, i1: int, j1: int) -> void:
 
 ## Cut and fill the ground to meet a street: flat at the street's height within
 ## `core` of its centre line, easing back into the natural slope over `blend`.
-func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend: float) -> void:
+## With `lower_only`, ground is only ever cut down to the street (where streets
+## meet, so neither street's ground pokes up through the other's asphalt).
+func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend: float, lower_only := false) -> void:
 	if pts.size() < 2:
 		return
 	var reach := core + blend
@@ -244,7 +276,8 @@ func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend
 				continue
 			var wt := 1.0 if d <= core else 1.0 - smoothstep(0.0, 1.0, (d - core) / maxf(blend, 0.01))
 			var g := j * SIDE + i
-			heights[g] = lerpf(heights[g], by[k] - 0.03, wt)
+			var target := lerpf(heights[g], by[k] - 0.03, wt)
+			heights[g] = minf(heights[g], target) if lower_only else target
 	_mark(i0, j0, i1, j1)
 
 
@@ -273,7 +306,12 @@ func rebuild_shadow() -> void:
 		for i in n:
 			var p := _pos(i * S, j * S)
 			# sunk a little so the real ground never shadows itself in stripes
-			verts[j * n + i] = Vector3(p.x, maxf(heights[index(i * S, j * S)], -0.6) - 0.12, p.y)
+			# and never above the real ground around it, so cuttings and streets stay lit
+			var h := heights[index(i * S, j * S)]
+			for dj in range(-1, 2):
+				for di in range(-1, 2):
+					h = minf(h, heights[index(i * S + di, j * S + dj)])
+			verts[j * n + i] = Vector3(p.x, maxf(h, -0.6) - 0.12, p.y)
 	for j in n - 1:
 		for i in n - 1:
 			var a := j * n + i
@@ -318,6 +356,9 @@ func _build_chunk(c: Vector2i) -> void:
 			# hollows a touch darker, crests a touch lighter: the land's shape reads from any angle
 			var lap := (heights[index(gi - 2, gj)] + heights[index(gi + 2, gj)] + heights[index(gi, gj - 2)] + heights[index(gi, gj + 2)] - 4.0 * h) / (4.0 * STEP * STEP)
 			var col := _colour(p, h, nrm.y)
+			var zn := zone[gj * SIDE + gi]
+			if zn > 0.0 and h > 0.0:
+				col = col.lerp(Color("f4e3b0"), zn * 0.45) if show_zone else col.lerp(Color("b5c97a"), zn * 0.18)
 			if h > -0.3:
 				col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
 			cols[k] = col
@@ -428,6 +469,23 @@ func edits() -> Dictionary:
 		if absf(dlt) > 0.01:
 			out[k] = snappedf(dlt, 0.01)
 	return out
+
+
+func zone_edits() -> Dictionary:
+	var out := {}
+	for k in zone.size():
+		if zone[k] > 0.01:
+			out[k] = snappedf(zone[k], 0.01)
+	return out
+
+
+func apply_zone(e: Dictionary) -> void:
+	for k in e:
+		var i := int(k)
+		if i >= 0 and i < zone.size():
+			zone[i] = clampf(float(e[k]), 0.0, 1.0)
+	for c in _chunks.keys():
+		_dirty[c] = true
 
 
 func apply_edits(e: Dictionary) -> void:
