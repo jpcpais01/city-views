@@ -1,0 +1,4 @@
+.godot/
+build/
+/config/firebase.json
+*.tmp
