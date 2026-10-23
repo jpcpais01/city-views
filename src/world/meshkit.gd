@@ -16,12 +16,29 @@ var dverts := PackedVector3Array()
 var dnorms := PackedVector3Array()
 var dcols := PackedColorArray()
 var duvs := PackedVector2Array()
+# cheap stand-in shapes drawn only into the shadow map (a box per rounded box,
+# a diamond per canopy...): soft shadows look the same at a fraction of the cost
+var shadow := true
+var sverts := PackedVector3Array()
+var snorms := PackedVector3Array()
+var _depth := 0
+# round blobs become sphere sprites (2 triangles, see blob.gdshader) unless this is off
+var impostors := true
+var bverts := PackedVector3Array()
+var bcols := PackedColorArray()
+var buvs := PackedVector2Array()
+var bradius := PackedVector2Array()
+static var _blob_mat: Material
+# material for the flush-detail surface (window rows need its shader)
+static var detail_material: Material
 var xf := Transform3D.IDENTITY
 var _stack: Array[Transform3D] = []
 var rng := RandomNumberGenerator.new()
 
 static var _ico_v: PackedVector3Array
 static var _ico_i: PackedInt32Array
+static var _octa_v: PackedVector3Array
+static var _octa_i: PackedInt32Array
 
 
 func _init(seed_value: int = 0) -> void:
@@ -41,8 +58,58 @@ func pop() -> void:
 	xf = _stack.pop_back()
 
 
+## Whether a primitive called now should write its own shadow stand-in.
+func _casts() -> bool:
+	return shadow and not detail and _depth == 0
+
+
+func _st(a: Vector3, b: Vector3, c: Vector3) -> void:
+	var pa := xf * a
+	var pb := xf * b
+	var pc := xf * c
+	var n := (pb - pa).cross(pc - pa).normalized()
+	sverts.append(pa)
+	sverts.append(pb)
+	sverts.append(pc)
+	snorms.append(n)
+	snorms.append(n)
+	snorms.append(n)
+
+
+## Shadow stand-in: box without a bottom (10 triangles).
+func _sbox(c: Vector3, h: Vector3) -> void:
+	var p := [c + Vector3(-h.x, -h.y, -h.z), c + Vector3(h.x, -h.y, -h.z), c + Vector3(h.x, -h.y, h.z), c + Vector3(-h.x, -h.y, h.z),
+		c + Vector3(-h.x, h.y, -h.z), c + Vector3(h.x, h.y, -h.z), c + Vector3(h.x, h.y, h.z), c + Vector3(-h.x, h.y, h.z)]
+	for f in [[4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]:
+		_st(p[f[0]], p[f[1]], p[f[2]])
+		_st(p[f[0]], p[f[2]], p[f[3]])
+
+
+## Shadow stand-in: octahedron (8 triangles) for round shapes.
+func _socta(c: Vector3, r: Vector3) -> void:
+	var t := c + Vector3(0, r.y, 0)
+	var b := c - Vector3(0, r.y, 0)
+	var ring := [c + Vector3(r.x, 0, 0), c + Vector3(0, 0, r.z), c - Vector3(r.x, 0, 0), c - Vector3(0, 0, r.z)]
+	for i in 4:
+		_st(ring[i], ring[(i + 1) % 4], t)
+		_st(ring[(i + 1) % 4], ring[i], b)
+
+
+## Thin sticks, plates and tiny bits cast shadows too faint to see once softened.
+static func _small(size: Vector3) -> bool:
+	var a := [size.x, size.y, size.z]
+	a.sort()
+	# thin plates (floor bands, doors, awnings) hug a bigger body whose shadow covers them
+	return a[0] < 0.06 or a[1] < 0.07 or a[2] < 0.12
+
+
+## Plates lying on the ground (lots, paths, plinths) have no shadow worth drawing.
+func _ground_slab(center: Vector3, size: Vector3) -> bool:
+	return size.y <= 0.17 and (xf * (center + Vector3(0, size.y * 0.5, 0))).y < 0.25
+
+
 func is_empty() -> bool:
-	return verts.is_empty() and dverts.is_empty()
+	return verts.is_empty() and dverts.is_empty() and bverts.is_empty()
 
 
 func _v(p: Vector3, nn: Vector3, col: Color, e: float, r: float) -> void:
@@ -64,6 +131,8 @@ func tri_n(a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vec
 	if (b - a).cross(c - a).dot(face) > 0.0:
 		var t := b; b = c; c = t
 		var tn := nb; nb = nc; nc = tn
+	if _casts():
+		_st(a, b, c)
 	_v(a, na, col, e, r)
 	_v(b, nb, col, e, r)
 	_v(c, nc, col, e, r)
@@ -112,6 +181,48 @@ func quad_n(a: Vector3, b: Vector3, c: Vector3, d: Vector3, na: Vector3, nb: Vec
 
 ## Axis-aligned flat box (no bottom by default).
 func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bottom := false, e := 0.0) -> void:
+	# posts and pickets this thin read the same as a round pole: 2 triangles
+	var thick := maxf(size.x, size.z)
+	if impostors and not detail and e == 0.0 and _depth == 0 and top_col == null and thick <= 0.06 \
+			and size.y >= thick * 2.5 and xf.basis.y.normalized().y > 0.999:
+		pole(center - Vector3(0, size.y * 0.5, 0), (size.x + size.z) * 0.28, size.y, 4, col)
+		return
+	if _casts() and not _small(size) and not _ground_slab(center, size):
+		_sbox(center, size * 0.5)
+	_depth += 1
+	_box_impl(center, size, col, top_col, bottom, e)
+	_depth -= 1
+
+
+const TOP := 1
+const FRONT := 2  # +Z
+const BACK := 4  # -Z
+const RIGHT := 8  # +X
+const LEFT := 16  # -X
+
+
+## A box drawing only the faces in `mask` (the rest are against a wall, under a
+## neighbour or too thin to ever cover a pixel). Casts the same shadow as box().
+func box_faces(center: Vector3, size: Vector3, col: Color, mask: int, e := 0.0) -> void:
+	if _casts() and not _small(size) and not _ground_slab(center, size):
+		_sbox(center, size * 0.5)
+	_depth += 1
+	var h := size * 0.5
+	var c := center
+	if mask & TOP:
+		quad(c + Vector3(-h.x, h.y, -h.z), c + Vector3(h.x, h.y, -h.z), c + Vector3(h.x, h.y, h.z), c + Vector3(-h.x, h.y, h.z), Vector3.UP, col, e)
+	if mask & FRONT:
+		quad(c + Vector3(-h.x, -h.y, h.z), c + Vector3(h.x, -h.y, h.z), c + Vector3(h.x, h.y, h.z), c + Vector3(-h.x, h.y, h.z), Vector3.BACK, col, e)
+	if mask & BACK:
+		quad(c + Vector3(-h.x, -h.y, -h.z), c + Vector3(h.x, -h.y, -h.z), c + Vector3(h.x, h.y, -h.z), c + Vector3(-h.x, h.y, -h.z), Vector3.FORWARD, col, e)
+	if mask & RIGHT:
+		quad(c + Vector3(h.x, -h.y, -h.z), c + Vector3(h.x, -h.y, h.z), c + Vector3(h.x, h.y, h.z), c + Vector3(h.x, h.y, -h.z), Vector3.RIGHT, col, e)
+	if mask & LEFT:
+		quad(c + Vector3(-h.x, -h.y, -h.z), c + Vector3(-h.x, -h.y, h.z), c + Vector3(-h.x, h.y, h.z), c + Vector3(-h.x, h.y, -h.z), Vector3.LEFT, col, e)
+	_depth -= 1
+
+
+func _box_impl(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bottom := false, e := 0.0) -> void:
 	var h := size * 0.5
 	var tc: Color = top_col if top_col != null else col
 	var c := center
@@ -135,6 +246,18 @@ func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bo
 ## Rounded (chamfered, smooth-shaded) box: the signature toy look. One bevel per
 ## edge with normals blended across it reads as rounded at a third of the triangles.
 func rbox(center: Vector3, size: Vector3, radius: float, col: Color, top_col: Variant = null, bottom := false, e := 0.0) -> void:
+	if _casts() and not _small(size) and not _ground_slab(center, size):
+		_sbox(center, size * 0.5)
+	_depth += 1
+	_rbox_impl(center, size, radius, col, top_col, bottom, e)
+	_depth -= 1
+
+
+func _rbox_impl(center: Vector3, size: Vector3, radius: float, col: Color, top_col: Variant = null, bottom := false, e := 0.0) -> void:
+	# a bevel on a small or thin part is under a pixel wide: draw it as a plain box
+	if minf(size.x, minf(size.y, size.z)) < 0.2 and radius < 0.05:
+		_box_impl(center, size, col, top_col, bottom, e)
+		return
 	var h := size * 0.5
 	var r: float = min(radius, min(h.x, min(h.y, h.z)) * 0.98)
 	if r <= 0.001:
@@ -183,6 +306,15 @@ func rbox(center: Vector3, size: Vector3, radius: float, col: Color, top_col: Va
 
 ## Vertical cylinder standing on `base`.
 func cylinder(base: Vector3, radius: float, height: float, sides: int, col: Color, cap := true, top_col: Variant = null, r_top := -1.0, e := 0.0) -> void:
+	if _casts() and not _small(Vector3(radius * 2.0, height, radius * 2.0)):
+		var rr := maxf(radius, r_top) * 0.9
+		_sbox(base + Vector3(0, height * 0.5, 0), Vector3(rr, height * 0.5, rr))
+	_depth += 1
+	_cylinder_impl(base, radius, height, sides, col, cap, top_col, r_top, e)
+	_depth -= 1
+
+
+func _cylinder_impl(base: Vector3, radius: float, height: float, sides: int, col: Color, cap := true, top_col: Variant = null, r_top := -1.0, e := 0.0) -> void:
 	var rt: float = radius if r_top < 0.0 else r_top
 	var tc: Color = top_col if top_col != null else col
 	var slope := (radius - rt) / maxf(height, 0.001)
@@ -200,6 +332,17 @@ func cylinder(base: Vector3, radius: float, height: float, sides: int, col: Colo
 
 
 func cone(base: Vector3, radius: float, height: float, sides: int, col: Color, e := 0.0) -> void:
+	if _casts() and not _small(Vector3(radius * 2.0, height, radius * 2.0)):
+		var tip := base + Vector3(0, height, 0)
+		var ring := [base + Vector3(radius, 0, 0), base + Vector3(0, 0, radius), base - Vector3(radius, 0, 0), base - Vector3(0, 0, radius)]
+		for i in 4:
+			_st(ring[i], ring[(i + 1) % 4], tip)
+	_depth += 1
+	_cone_impl(base, radius, height, sides, col, e)
+	_depth -= 1
+
+
+func _cone_impl(base: Vector3, radius: float, height: float, sides: int, col: Color, e := 0.0) -> void:
 	var tip := base + Vector3(0, height, 0)
 	for i in sides:
 		var a0 := TAU * i / sides
@@ -243,34 +386,107 @@ static func _build_ico() -> void:
 		out.append_array([a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca])
 	_ico_v = PackedVector3Array(vs)
 	_ico_i = out
+	# once-subdivided octahedron, rotated 22.5 degrees so its outline is a level octagon
+	var ov: Array[Vector3] = [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]
+	var of := [2, 4, 0, 2, 0, 5, 2, 5, 1, 2, 1, 4, 3, 0, 4, 3, 5, 0, 3, 1, 5, 3, 4, 1]
+	var ocache := {}
+	var omid := func(a: int, b: int) -> int:
+		var key := Vector2i(mini(a, b), maxi(a, b))
+		if ocache.has(key):
+			return ocache[key]
+		ov.append(((ov[a] + ov[b]) * 0.5).normalized())
+		ocache[key] = ov.size() - 1
+		return ov.size() - 1
+	var oi := PackedInt32Array()
+	for f in range(0, of.size(), 3):
+		var a: int = of[f]
+		var b: int = of[f + 1]
+		var c: int = of[f + 2]
+		var ab: int = omid.call(a, b)
+		var bc: int = omid.call(b, c)
+		var ca: int = omid.call(c, a)
+		oi.append_array([a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca])
+	var rot := Basis(Vector3.UP, PI / 8.0)
+	_octa_v = PackedVector3Array()
+	for p in ov:
+		_octa_v.append(rot * p)
+	_octa_i = oi
 
 
 ## Soft round blob (tree canopies, bushes, clouds).
 func blob(center: Vector3, radius: Vector3, col: Color, jitter := 0.0, e := 0.0) -> void:
+	if impostors and e == 0.0 and not detail:
+		# one camera-facing quad that the shader turns into a shaded sphere
+		var c := xf * center
+		var r := (radius.x + radius.y + radius.z) / 3.0 * xf.basis.get_scale().x
+		for k in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+			bverts.append(c)
+			bcols.append(col)
+			buvs.append(k)
+			bradius.append(Vector2(r, 0))
+		return
+	if _casts() and not _small(radius * 2.0):
+		_socta(center, radius)
+	_depth += 1
+	_blob_impl(center, radius, col, jitter, e)
+	_depth -= 1
+
+
+## Upright round pole (trunks, lamp posts, piles): one quad turned to the
+## camera that the blob shader shades as a cylinder. Falls back to a mesh.
+func pole(base: Vector3, radius: float, height: float, sides: int, col: Color, e := 0.0) -> void:
+	if impostors and e == 0.0 and not detail:
+		var c := xf * base
+		var sc := xf.basis.get_scale().x
+		for k in [Vector2(-1, 0), Vector2(1, 0), Vector2(1, 1), Vector2(-1, 0), Vector2(1, 1), Vector2(-1, 1)]:
+			bverts.append(c)
+			bcols.append(col)
+			buvs.append(k)
+			bradius.append(Vector2(radius * sc, height * sc))
+		return
+	cylinder(base, radius, height, sides, col, false, null, -1.0, e)
+
+
+func _blob_impl(center: Vector3, radius: Vector3, col: Color, jitter := 0.0, e := 0.0) -> void:
+	if maxf(radius.x, maxf(radius.y, radius.z)) < 0.1:
+		# flower and bush sized: 20 faces are already round at this size
+		_pebble_impl(center, radius, col, e)
+		return
 	if _ico_v.is_empty():
 		_build_ico()
+	# smooth normals make 32 faces (an octagon in outline) read as round
+	var sv := _octa_v
+	var si := _octa_i
 	var pts := PackedVector3Array()
-	pts.resize(_ico_v.size())
-	for i in _ico_v.size():
-		var u := _ico_v[i]
+	pts.resize(sv.size())
+	for i in sv.size():
+		var u := sv[i]
 		var k := 1.0
 		if jitter > 0.0:
 			k += sin(u.x * 7.1 + u.z * 5.3 + center.x) * jitter + cos(u.y * 6.7 + center.z) * jitter * 0.5
 		pts[i] = center + u * radius * k
-	for f in range(0, _ico_i.size(), 3):
-		var ia := _ico_i[f]
-		var ib := _ico_i[f + 1]
-		var ic := _ico_i[f + 2]
-		var na := (_ico_v[ia] / radius).normalized()
-		var nb := (_ico_v[ib] / radius).normalized()
-		var nc := (_ico_v[ic] / radius).normalized()
-		var shade := 0.88 + 0.12 * clampf((_ico_v[ia].y + 1.0) * 0.5, 0.0, 1.0)
+	for f in range(0, si.size(), 3):
+		var ia := si[f]
+		var ib := si[f + 1]
+		var ic := si[f + 2]
+		var na := (sv[ia] / radius).normalized()
+		var nb := (sv[ib] / radius).normalized()
+		var nc := (sv[ic] / radius).normalized()
+		var shade := 0.88 + 0.12 * clampf((sv[ia].y + 1.0) * 0.5, 0.0, 1.0)
 		var cc := Color(col.r * shade, col.g * shade, col.b * shade)
 		tri_n(pts[ia], pts[ib], pts[ic], na, nb, nc, (na + nb + nc), cc, e)
 
 
 ## Cheap 20-triangle blob for tiny details (flowers, pebbles).
 func pebble(center: Vector3, radius: Vector3, col: Color, e := 0.0) -> void:
+	if _casts() and not _small(radius * 2.0):
+		_socta(center, radius)
+	_depth += 1
+	_pebble_impl(center, radius, col, e)
+	_depth -= 1
+
+
+func _pebble_impl(center: Vector3, radius: Vector3, col: Color, e := 0.0) -> void:
 	var t := (1.0 + sqrt(5.0)) / 2.0
 	var pv: Array[Vector3] = [
 		Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0),
@@ -287,6 +503,21 @@ func pebble(center: Vector3, radius: Vector3, col: Color, e := 0.0) -> void:
 
 ## Gable roof whose ridge runs along local X. Sits on top of walls at height y0.
 func gable_roof(c: Vector3, w: float, d: float, h: float, over: float, col: Color, gable_col: Color, thick := 0.08) -> void:
+	if _casts():
+		var hx := w * 0.5 + over
+		var hz := d * 0.5 + over
+		var y0 := c.y - over * (h / (d * 0.5))
+		var r0 := Vector3(c.x - hx, c.y + h, c.z)
+		var r1 := Vector3(c.x + hx, c.y + h, c.z)
+		for zs in [hz, -hz]:
+			_st(Vector3(c.x - hx, y0, c.z + zs), Vector3(c.x + hx, y0, c.z + zs), r1)
+			_st(Vector3(c.x - hx, y0, c.z + zs), r1, r0)
+	_depth += 1
+	_gable_roof_impl(c, w, d, h, over, col, gable_col, thick)
+	_depth -= 1
+
+
+func _gable_roof_impl(c: Vector3, w: float, d: float, h: float, over: float, col: Color, gable_col: Color, thick := 0.08) -> void:
 	var x0 := c.x - w * 0.5 - over
 	var x1 := c.x + w * 0.5 + over
 	var zf := c.z + d * 0.5 + over
@@ -319,11 +550,24 @@ func gable_roof(c: Vector3, w: float, d: float, h: float, over: float, col: Colo
 		var side := Vector3.LEFT if gx == gx0 else Vector3.RIGHT
 		tri(Vector3(gx, c.y, c.z + d * 0.5), Vector3(gx, c.y, c.z - d * 0.5), Vector3(gx, yr - 0.02, c.z), gable_col, 0.0, 0.0, side)
 	# ridge cap
-	rbox(Vector3(c.x, yr + 0.01, c.z), Vector3(x1 - x0 + 0.04, 0.07, 0.12), 0.03, col.darkened(0.15))
+	box(Vector3(c.x, yr + 0.01, c.z), Vector3(x1 - x0 + 0.04, 0.07, 0.12), col.darkened(0.15))
 
 
 ## Hip / pyramid roof on a w x d footprint at height y.
 func hip_roof(c: Vector3, w: float, d: float, h: float, over: float, col: Color) -> void:
+	if _casts():
+		var hw := w * 0.5 + over
+		var hd := d * 0.5 + over
+		var top := Vector3(c.x, c.y + h, c.z)
+		var ring := [Vector3(c.x - hw, c.y, c.z + hd), Vector3(c.x + hw, c.y, c.z + hd), Vector3(c.x + hw, c.y, c.z - hd), Vector3(c.x - hw, c.y, c.z - hd)]
+		for i in 4:
+			_st(ring[i], ring[(i + 1) % 4], top)
+	_depth += 1
+	_hip_roof_impl(c, w, d, h, over, col)
+	_depth -= 1
+
+
+func _hip_roof_impl(c: Vector3, w: float, d: float, h: float, over: float, col: Color) -> void:
 	var hw := w * 0.5 + over
 	var hd := d * 0.5 + over
 	var y0 := c.y - 0.04
@@ -352,25 +596,146 @@ func window(center: Vector3, out: Vector3, w: float, h: float, glass: Color, fra
 	detail = true
 	var side := Vector3.UP.cross(out).normalized() * w * 0.5
 	var up := Vector3(0, h * 0.5, 0)
-	var p := center + out * 0.012
 	if frame.a > 0.0:
-		var fp := center + out * 0.006
-		var fs := side * (1.0 + 0.09 / maxf(w, 0.01))
-		var fu := up + Vector3(0, 0.045, 0)
-		quad(fp - fs - fu, fp + fs - fu, fp + fs + fu, fp - fs + fu, out, frame)
-		# sill
-		var sill_c := center - up - Vector3(0, 0.03, 0) + out * 0.03
-		# sill: just the top and front faces, the rest is never seen
-		var ss := side + side.normalized() * 0.04
-		var st := sill_c + Vector3(0, 0.02, 0)
-		quad(st - ss - out * 0.03, st + ss - out * 0.03, st + ss + out * 0.03, st - ss + out * 0.03, Vector3.UP, frame)
-		var sf := sill_c + out * 0.03
-		quad(sf - ss - Vector3(0, 0.02, 0), sf + ss - Vector3(0, 0.02, 0), sf + ss + Vector3(0, 0.02, 0), sf - ss + Vector3(0, 0.02, 0), out, frame)
-	quad(p - side - up, p + side - up, p + side + up, p - side + up, out, glass, 2.0 if lamp else 1.0, rng.randf())
+		# frame, glass and sill are painted by the city shader on one quad
+		var p := center + out * 0.01
+		var fs := side + side.normalized() * 0.045
+		var top := up + Vector3(0, 0.045, 0)
+		var bot := -up - Vector3(0, 0.095, 0)
+		var rr := floorf(rng.randf() * 100.0)
+		quad_uv(p - fs + bot, p + fs + bot, p + fs + top, p - fs + top, out, glass,
+			Vector2(4.0, rr), Vector2(4.98, rr), Vector2(4.98, rr + 0.98), Vector2(4.0, rr + 0.98))
+	else:
+		var p := center + out * 0.012
+		quad(p - side - up, p + side - up, p + side + up, p - side + up, out, glass, 2.0 if lamp else 1.0, rng.randf())
 	detail = was
 
 
-func commit(material: Material = null) -> ArrayMesh:
+## A row of `count` evenly spaced windows along a wall, as one quad that the
+## detail shader cuts into windows. `center` is the row's centre on the wall.
+func window_row(center: Vector3, out: Vector3, length: float, count: int, w: float, h: float, glass: Color, framed := true) -> void:
+	if count <= 0:
+		return
+	if count == 1:
+		window(center, out, w, h, glass, Color(1, 1, 1, 1) if framed else Color(0, 0, 0, 0))
+		return
+	var was := detail
+	detail = true
+	var side := Vector3.UP.cross(out).normalized() * length * 0.5
+	var p := center + out * (0.01 if framed else 0.012)
+	var top := Vector3(0, h * 0.5 + (0.045 if framed else 0.0), 0)
+	var bot := -Vector3(0, h * 0.5 + (0.095 if framed else 0.0), 0)
+	var cell := length / count
+	var fill := ((w + 0.09) if framed else w) / cell
+	var code := 20.0 + count + (0.0 if framed else 100.0)
+	var seed := floorf(rng.randf() * 100.0)
+	var col := Color(glass.r, glass.g, glass.b, clampf(fill, 0.02, 1.0))
+	quad_uv(p - side + bot, p + side + bot, p + side + top, p - side + top, out, col,
+		Vector2(code, seed), Vector2(code + 0.98, seed), Vector2(code + 0.98, seed + 0.98), Vector2(code, seed + 0.98))
+	detail = was
+
+
+## Thin trim lines running round a w x d block every `spacing` up from y0
+## (floor bands, mullions): one quad per wall, the gaps cut out by the shader.
+func bands(y0: float, w: float, d: float, spacing: float, count: int, thick: float, col: Color) -> void:
+	if count <= 0:
+		return
+	var was := detail
+	detail = true
+	var ht := thick * 0.5
+	var s0 := -ht / spacing
+	var s1 := count - 1 + ht / spacing
+	var c := Color(col.r, col.g, col.b, ht / spacing)
+	var lo := y0 - ht
+	var hi := y0 + (count - 1) * spacing + ht
+	for side in 4:
+		var out: Vector3 = [Vector3.BACK, Vector3.RIGHT, Vector3.FORWARD, Vector3.LEFT][side]
+		var half := (w if side % 2 == 0 else d) * 0.5 + 0.012
+		var dist := (d if side % 2 == 0 else w) * 0.5 + 0.012
+		var along := Vector3.UP.cross(out).normalized() * half
+		var p := out * dist
+		quad_uv(p - along + Vector3(0, lo, 0), p + along + Vector3(0, lo, 0), p + along + Vector3(0, hi, 0), p - along + Vector3(0, hi, 0), out, c,
+			Vector2(300, s0), Vector2(300.98, s0), Vector2(300.98, s1), Vector2(300, s1))
+	detail = was
+
+
+## Flat quad with its own UV per corner (a-b-c-d around the perimeter).
+func quad_uv(a: Vector3, b: Vector3, c: Vector3, d: Vector3, face: Vector3, col: Color, ua: Vector2, ub: Vector2, uc: Vector2, ud: Vector2) -> void:
+	var n := face.normalized()
+	for t in [[a, b, c, ua, ub, uc], [a, c, d, ua, uc, ud]]:
+		var p0: Vector3 = t[0]
+		var p1: Vector3 = t[1]
+		var p2: Vector3 = t[2]
+		var u0: Vector2 = t[3]
+		var u1: Vector2 = t[4]
+		var u2: Vector2 = t[5]
+		if (p1 - p0).cross(p2 - p0).dot(n) > 0.0:
+			var tp := p1; p1 = p2; p2 = tp
+			var tu := u1; u1 = u2; u2 = tu
+		_v(p0, n, col, u0.x, u0.y)
+		_v(p1, n, col, u1.x, u1.y)
+		_v(p2, n, col, u2.x, u2.y)
+
+
+static func blob_material() -> Material:
+	if _blob_mat == null:
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/blob.gdshader")
+		_blob_mat = m
+	return _blob_mat
+
+
+## The sphere sprites as their own mesh (null when there are none).
+func commit_blobs() -> ArrayMesh:
+	if bverts.is_empty():
+		return null
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, blob_arrays(bverts, bcols, buvs, bradius))
+	mesh.surface_set_material(0, blob_material())
+	# sprites grow past their centres; keep them from being culled early
+	mesh.custom_aabb = _blob_aabb(bverts, bradius)
+	return mesh
+
+
+static func blob_arrays(v: PackedVector3Array, c: PackedColorArray, uv: PackedVector2Array, r: PackedVector2Array) -> Array:
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = v
+	var n := PackedVector3Array()
+	n.resize(v.size())
+	n.fill(Vector3.UP)
+	arrays[Mesh.ARRAY_NORMAL] = n
+	arrays[Mesh.ARRAY_COLOR] = c
+	arrays[Mesh.ARRAY_TEX_UV] = uv
+	arrays[Mesh.ARRAY_TEX_UV2] = r
+	return arrays
+
+
+static func _blob_aabb(v: PackedVector3Array, r: PackedVector2Array) -> AABB:
+	var box := AABB(v[0], Vector3.ZERO)
+	var big := 0.0
+	for i in v.size():
+		box = box.expand(v[i])
+		big = maxf(big, maxf(r[i].x, r[i].y))
+	return box.grow(big * 1.2)
+
+
+## The shadow stand-ins as their own mesh (null when there are none).
+func commit_shadow(material: Material = null) -> ArrayMesh:
+	if sverts.is_empty():
+		return null
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = sverts
+	arrays[Mesh.ARRAY_NORMAL] = snorms
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if material:
+		mesh.surface_set_material(0, material)
+	return mesh
+
+
+func commit(material: Material = null, with_blobs := true) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	for set in [[verts, norms, cols, uvs], [dverts, dnorms, dcols, duvs]]:
 		if (set[0] as PackedVector3Array).is_empty():
@@ -383,5 +748,12 @@ func commit(material: Material = null) -> ArrayMesh:
 		arrays[Mesh.ARRAY_TEX_UV] = set[3]
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		if material:
-			mesh.surface_set_material(mesh.get_surface_count() - 1, material)
+			var m := material
+			if set[0] == dverts and detail_material:
+				m = detail_material
+			mesh.surface_set_material(mesh.get_surface_count() - 1, m)
+	if with_blobs and not bverts.is_empty():
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, blob_arrays(bverts, bcols, buvs, bradius))
+		mesh.surface_set_material(mesh.get_surface_count() - 1, blob_material())
+		mesh.custom_aabb = mesh.get_aabb().merge(_blob_aabb(bverts, bradius))
 	return mesh

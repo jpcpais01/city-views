@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-23 14:00 UTC
+- The whole island now draws in under 100k triangles (it was over 400k) and looks the same: trees, trunks, posts and clouds are perfectly round sprites, shadows use simple stand-in shapes, and each row of windows is a single piece.
+- Hills and coasts are reshaped as one smooth landscape: eroded slopes, rocky faces and soft grass lips between terraces, scree at the foot of big drops, and beaches that run down into the water. There are no more hard steps.
+- Townsfolk now stroll the sidewalks, cross at the corners and stop now and then to look around. There are more of them as your town grows.
+- The interface is lighter to draw too: rounded panels and icons use just enough detail to stay perfectly smooth.
+- The FPS counter's triangle count now has a test behind it, so future updates can't push the game back over 100k.
+
 ## 2026-10-23 13:00 UTC
 - Another big speed boost: rounded shapes use a third of the triangles with the same soft look, windows and road paint skip the shadow pass, and all the cars are drawn together.
 - The ground now flows: grass and sand blend smoothly from tile to tile instead of a checkerboard, and terrace corners are rounded off.

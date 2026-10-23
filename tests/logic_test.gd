@@ -124,5 +124,67 @@ func _ready() -> void:
 	var after_doze := Game.coins
 	Game.undo()
 	check(Game.knd(31, 30) == Game.K.ROAD and Game.coins < after_doze, "undo bulldoze restores road and takes back the refund")
+	await _tri_budget()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+## Frame budget: a town the size players have now, the whole island in view,
+## every car and pedestrian out, must draw under TriBudget.BUDGET triangles
+## (shadow pass included) with room left for the HUD.
+func _tri_budget() -> void:
+	Game.new_world(1234)
+	for z in range(24, 37):
+		for x in range(22, 39):
+			if Game.lvl(x, z) < 1:
+				continue
+			var k := Game.K.ROAD
+			if (x - 30) % 4 != 0 and (z - 30) % 4 != 0:
+				var r := Game.hashf(x, z, 500)
+				k = Game.K.OFFICE if Vector2(x - 30, z - 30).length() < 5 and r < 0.7 else (Game.K.PARK if r < 0.12 else (Game.K.SHOP if r < 0.3 else Game.K.HOUSE))
+			Game.set_tile(x, z, k, Game.lvl(x, z), Game.hash2(x, z, 7) % 250)
+	Game.set_tile(32, 32, Game.K.LANDMARK, Game.lvl(32, 32), Game.LM.FOUNTAIN)
+	for i in Game.kind.size():
+		if Game.is_building(Game.kind[i]):
+			Game.growth[i] = Game.target_growth(i % Game.N, i / Game.N)
+	var world := World.new()
+	add_child(world)
+	await get_tree().process_frame
+	while not world._build_queue.is_empty():
+		world._process(0.0)
+	# let the pop-in animations settle so every tile is merged into its block
+	await get_tree().create_timer(1.5).timeout
+	for b in world._batch_dirty.keys():
+		world._rebuild_batch(b)
+	# merged tiles are freed at the end of the frame
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var acc := TriBudget.count(world)
+	acc.erase("Traffic")
+	acc.erase("People")
+	var total := TriBudget.total(acc)
+	# moving things at their most: the biggest car / person mesh times the cap
+	var car := 0
+	for m in world.traffic._meshes:
+		car = maxi(car, TriBudget.tris(m))
+	var car_sh := 0
+	for m in world.traffic._shadow_meshes:
+		if m:
+			car_sh = maxi(car_sh, TriBudget.tris(m))
+	var person := 0
+	for mm in world.people._multi:
+		person = maxi(person, TriBudget.tris(mm.mesh))
+	# as many as this town can hold (the same caps the game uses), at a big population
+	world.traffic._rebuild_tiles()
+	world.people._rebuild_roads()
+	var cars := mini(world.traffic._road_tiles.size() / 3, Traffic.MAX_CARS - 8)
+	var people := mini(world.people._roads.size(), People.MAX_PEOPLE - 4)
+	print("  %d cars, %d people" % [cars, people])
+	total += (car + car_sh) * cars + person * people
+	for k in acc:
+		print("  tris %-24s %7d +shadow %7d" % [k, acc[k][0], acc[k][1]])
+	print("  car %d + %d, person %d" % [car, car_sh, person])
+	var hud := 8000
+	print("frame triangles, town of today + full traffic: %d (+%d HUD allowance)" % [total, hud])
+	check(total + hud < TriBudget.BUDGET, "frame stays under %d triangles (%d)" % [TriBudget.BUDGET, total + hud])
+	world.queue_free()

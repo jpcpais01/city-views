@@ -23,8 +23,22 @@ func _rr(r: Rect2, rad: float, c: Color) -> void:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = c
 	sb.set_corner_radius_all(int(rad))
+	# icon corners are a few pixels across: 3 segments draw them just as round
+	sb.corner_detail = 3
 	sb.anti_aliasing = true
 	draw_style_box(sb, r)
+
+
+## Filled circle with just enough sides to look round at its size on screen
+## (the built-in one always spends 64).
+func _circle(c: Vector2, r: float, col: Color) -> void:
+	var n := clampi(int(r * 1.3), 10, 40)
+	var pts := PackedVector2Array()
+	pts.resize(n)
+	for i in n:
+		var a := TAU * i / n
+		pts[i] = c + Vector2(cos(a), sin(a)) * r
+	draw_colored_polygon(pts, col)
 
 
 func _draw() -> void:
@@ -57,8 +71,8 @@ func _draw() -> void:
 				for xx in 2:
 					_rr(Rect2(P.call(0.35 + xx * 0.17, 0.17 + yy * 0.14), Vector2(0.12, 0.08) * s), 0.02 * s, Color("5b8db8"))
 		"park":
-			draw_circle(P.call(0.5, 0.42), 0.3 * s, Color("6fb35a"))
-			draw_circle(P.call(0.36, 0.5), 0.18 * s, Color("82c063"))
+			_circle(P.call(0.5, 0.42), 0.3 * s, Color("6fb35a"))
+			_circle(P.call(0.36, 0.5), 0.18 * s, Color("82c063"))
 			draw_rect(Rect2(P.call(0.46, 0.6), Vector2(0.08, 0.28) * s), Color("8b5a44"))
 			_rr(Rect2(P.call(0.1, 0.82), Vector2(0.8, 0.08) * s), 0.04 * s, Color("9fd37f"))
 		"tree":
@@ -69,9 +83,9 @@ func _draw() -> void:
 			_rr(Rect2(P.call(0.12, 0.66), Vector2(0.76, 0.2) * s), 0.08 * s, Color("e8e2d6"))
 			_rr(Rect2(P.call(0.18, 0.62), Vector2(0.64, 0.08) * s), 0.04 * s, Color("6fc3e8"))
 			draw_rect(Rect2(P.call(0.46, 0.36), Vector2(0.08, 0.3) * s), Color("e8e2d6"))
-			draw_circle(P.call(0.5, 0.26), 0.12 * s, Color("8fd6f5"))
-			draw_circle(P.call(0.34, 0.36), 0.06 * s, Color("8fd6f5"))
-			draw_circle(P.call(0.66, 0.36), 0.06 * s, Color("8fd6f5"))
+			_circle(P.call(0.5, 0.26), 0.12 * s, Color("8fd6f5"))
+			_circle(P.call(0.34, 0.36), 0.06 * s, Color("8fd6f5"))
+			_circle(P.call(0.66, 0.36), 0.06 * s, Color("8fd6f5"))
 		"windmill":
 			draw_colored_polygon(PackedVector2Array([P.call(0.38, 0.9), P.call(0.62, 0.9), P.call(0.57, 0.42), P.call(0.43, 0.42)]), Color("efe7d8"))
 			draw_colored_polygon(PackedVector2Array([P.call(0.4, 0.43), P.call(0.6, 0.43), P.call(0.5, 0.3)]), Color("8b5a44"))
@@ -79,7 +93,7 @@ func _draw() -> void:
 				var ang := PI * 0.25 + k * PI * 0.5
 				var d := Vector2(cos(ang), sin(ang))
 				draw_line(P.call(0.5, 0.38), P.call(0.5, 0.38) + d * 0.36 * s, Color("8b5a44"), 0.07 * s, true)
-			draw_circle(P.call(0.5, 0.38), 0.05 * s, Color("5b4a42"))
+			_circle(P.call(0.5, 0.38), 0.05 * s, Color("5b4a42"))
 		"lighthouse":
 			draw_colored_polygon(PackedVector2Array([P.call(0.36, 0.9), P.call(0.64, 0.9), P.call(0.58, 0.32), P.call(0.42, 0.32)]), Color.WHITE)
 			draw_colored_polygon(PackedVector2Array([P.call(0.38, 0.72), P.call(0.62, 0.72), P.call(0.61, 0.6), P.call(0.39, 0.6)]), Color("d9534f"))
@@ -89,7 +103,7 @@ func _draw() -> void:
 		"clocktower":
 			_rr(Rect2(P.call(0.36, 0.3), Vector2(0.28, 0.6) * s), 0.04 * s, Color("c97b5a"))
 			draw_colored_polygon(PackedVector2Array([P.call(0.32, 0.32), P.call(0.68, 0.32), P.call(0.5, 0.06)]), Color("4b5a70"))
-			draw_circle(P.call(0.5, 0.46), 0.1 * s, Color("fbf6ea"))
+			_circle(P.call(0.5, 0.46), 0.1 * s, Color("fbf6ea"))
 			draw_line(P.call(0.5, 0.46), P.call(0.5, 0.39), Color(0.2, 0.2, 0.2), 0.025 * s, true)
 			draw_line(P.call(0.5, 0.46), P.call(0.55, 0.46), Color(0.2, 0.2, 0.2), 0.025 * s, true)
 		"ferris":
@@ -98,7 +112,7 @@ func _draw() -> void:
 				var ang := k * TAU / 8.0
 				var d := Vector2(cos(ang), sin(ang))
 				draw_line(P.call(0.5, 0.44), P.call(0.5, 0.44) + d * 0.32 * s, Color("b7c4cf"), 0.025 * s, true)
-				draw_circle(P.call(0.5, 0.44) + d * 0.32 * s, 0.06 * s, [Color("e85d5d"), Color("4b86d6"), Color("f2b33d"), Color("3fae8c")][k % 4])
+				_circle(P.call(0.5, 0.44) + d * 0.32 * s, 0.06 * s, [Color("e85d5d"), Color("4b86d6"), Color("f2b33d"), Color("3fae8c")][k % 4])
 			draw_line(P.call(0.5, 0.44), P.call(0.32, 0.9), Color("8a96a3"), 0.05 * s, true)
 			draw_line(P.call(0.5, 0.44), P.call(0.68, 0.9), Color("8a96a3"), 0.05 * s, true)
 		"raise":
@@ -115,16 +129,16 @@ func _draw() -> void:
 			draw_colored_polygon(PackedVector2Array([P.call(0.7, 0.36), P.call(0.9, 0.3), P.call(0.9, 0.8), P.call(0.7, 0.74)]), Color("6c7a89"))
 			_rr(Rect2(P.call(0.14, 0.72), Vector2(0.58, 0.14) * s), 0.07 * s, Color("3a3f47"))
 		"people":
-			draw_circle(P.call(0.5, 0.3), 0.16 * s, c)
+			_circle(P.call(0.5, 0.3), 0.16 * s, c)
 			_rr(Rect2(P.call(0.22, 0.52), Vector2(0.56, 0.38) * s), 0.2 * s, c)
 		"coin":
-			draw_circle(P.call(0.5, 0.5), 0.4 * s, Color("f2b33d"))
-			draw_circle(P.call(0.5, 0.5), 0.3 * s, Color("ffd36e"))
+			_circle(P.call(0.5, 0.5), 0.4 * s, Color("f2b33d"))
+			_circle(P.call(0.5, 0.5), 0.3 * s, Color("ffd36e"))
 			_rr(Rect2(P.call(0.45, 0.32), Vector2(0.1, 0.36) * s), 0.04 * s, Color("e09a1f"))
 		"smile":
-			draw_circle(P.call(0.5, 0.5), 0.4 * s, Color("7be08f"))
-			draw_circle(P.call(0.37, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
-			draw_circle(P.call(0.63, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
+			_circle(P.call(0.5, 0.5), 0.4 * s, Color("7be08f"))
+			_circle(P.call(0.37, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
+			_circle(P.call(0.63, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
 			draw_arc(P.call(0.5, 0.52), 0.18 * s, 0.3, PI - 0.3, 12, Color(0.15, 0.3, 0.2), 0.05 * s, true)
 		"menu":
 			for i in 3:
@@ -140,7 +154,7 @@ func _draw() -> void:
 			draw_line(P.call(0.14, 0.5), P.call(0.86, 0.5), c, 0.06 * s, true)
 			draw_arc(P.call(0.5, 0.5), 0.36 * s, -PI * 0.5, PI * 0.5, 16, c, 0.05 * s, true)
 		"hand":
-			draw_circle(P.call(0.5, 0.56), 0.24 * s, c)
+			_circle(P.call(0.5, 0.56), 0.24 * s, c)
 			for i in 4:
 				_rr(Rect2(P.call(0.3 + i * 0.11, 0.16 + absf(i - 1.5) * 0.06), Vector2(0.09, 0.4) * s), 0.045 * s, c)
 		"undo", "redo":

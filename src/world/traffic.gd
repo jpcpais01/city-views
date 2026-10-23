@@ -9,8 +9,11 @@ const CAR_COLORS := [Color("ef5b5b"), Color("4b86d6"), Color("f2c14e"), Color("f
 var material: Material
 const MAX_CARS := 48
 var _meshes: Array[ArrayMesh] = []
+var _shadow_meshes: Array[ArrayMesh] = []
 # one MultiMesh per car style: every car of a colour is a single draw call
 var _multi: Array[MultiMesh] = []
+# a box or two per car for the shadow map instead of the whole car
+var _shadow_multi: Array[MultiMesh] = []
 var _cars: Array = []
 var _road_tiles: Array[Vector2i] = []
 var _dirty := true
@@ -27,8 +30,19 @@ func _ready() -> void:
 		mm.visible_instance_count = 0
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
 		_multi.append(mm)
+		var sm := MultiMesh.new()
+		sm.transform_format = MultiMesh.TRANSFORM_3D
+		sm.mesh = _shadow_meshes[i]
+		sm.instance_count = MAX_CARS
+		sm.visible_instance_count = 0
+		var smi := MultiMeshInstance3D.new()
+		smi.multimesh = sm
+		smi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		add_child(smi)
+		_shadow_multi.append(sm)
 
 
 func mark_dirty() -> void:
@@ -37,7 +51,7 @@ func mark_dirty() -> void:
 
 func clear() -> void:
 	_cars.clear()
-	for mm in _multi:
+	for mm in _multi + _shadow_multi:
 		mm.visible_instance_count = 0
 	_dirty = true
 
@@ -55,15 +69,19 @@ func _car_mesh(col: Color, variant: int) -> ArrayMesh:
 		mk.rbox(Vector3(0, 0.27, -0.03), Vector3(0.3, 0.14, len * 0.55), 0.06, Color(0.95, 0.96, 0.98))
 		mk.window(Vector3(0, 0.27, len * 0.25 - 0.02), Vector3.BACK, 0.24, 0.09, Color(0.25, 0.32, 0.4))
 		mk.window(Vector3(0, 0.27, -len * 0.31), Vector3.FORWARD, 0.24, 0.09, Color(0.25, 0.32, 0.4))
+	mk.shadow = false
 	for sx in [-0.17, 0.17]:
 		for sz in [-len * 0.3, len * 0.3]:
-			mk.push(Transform3D(Basis(Vector3.BACK, PI * 0.5), Vector3(sx, 0.07, sz)))
-			mk.cylinder(Vector3(0, -0.035, 0), 0.07, 0.07, 8, Color(0.18, 0.18, 0.2))
+			# hub cap on the outside only; the inner face is hidden under the car
+			mk.push(Transform3D(Basis(Vector3.BACK, PI * 0.5 * signf(-sx)), Vector3(sx, 0.07, sz)))
+			mk.cylinder(Vector3(0, -0.035, 0), 0.07, 0.07, 7, Color(0.18, 0.18, 0.2))
 			mk.pop()
-	# headlights (lit at night) and tail lights
+	# headlights (lit at night) and tail lights, flush with the body
 	for sx in [-0.11, 0.11]:
-		mk.box(Vector3(sx, 0.14, len * 0.5 + 0.005), Vector3(0.07, 0.04, 0.02), Color(1, 0.97, 0.85), null, false, 2.0)
-		mk.box(Vector3(sx, 0.14, -len * 0.5 - 0.005), Vector3(0.07, 0.04, 0.02), Color(0.9, 0.2, 0.2), null, false, 2.0)
+		var f := len * 0.5 + 0.015
+		mk.quad(Vector3(sx - 0.035, 0.12, f), Vector3(sx + 0.035, 0.12, f), Vector3(sx + 0.035, 0.16, f), Vector3(sx - 0.035, 0.16, f), Vector3.BACK, Color(1, 0.97, 0.85), 2.0)
+		mk.quad(Vector3(sx - 0.035, 0.12, -f), Vector3(sx + 0.035, 0.12, -f), Vector3(sx + 0.035, 0.16, -f), Vector3(sx - 0.035, 0.16, -f), Vector3.FORWARD, Color(0.9, 0.2, 0.2), 2.0)
+	_shadow_meshes.append(mk.commit_shadow(CityGen.shadow_material()))
 	return mk.commit(material)
 
 
@@ -120,9 +138,11 @@ func _process(delta: float) -> void:
 		if counts[v] >= MAX_CARS:
 			continue
 		_multi[v].set_instance_transform(counts[v], c.xf)
+		_shadow_multi[v].set_instance_transform(counts[v], c.xf)
 		counts[v] += 1
 	for v in _multi.size():
 		_multi[v].visible_instance_count = counts[v]
+		_shadow_multi[v].visible_instance_count = counts[v]
 
 
 func _spawn() -> void:

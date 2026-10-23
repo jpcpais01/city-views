@@ -13,6 +13,7 @@ var time_of_day := 0.3
 var night := 0.0
 
 var city_mat: ShaderMaterial
+var detail_mat: ShaderMaterial
 var water_mat: ShaderMaterial
 var beam_mat: StandardMaterial3D
 var sky_mat: ShaderMaterial
@@ -22,6 +23,7 @@ var rig: CameraRig
 var terrain: Terrain
 var traffic: Traffic
 var life: Life
+var people: People
 var _tiles := {}
 # settled tiles are merged into one mesh per BATCH x BATCH block (a handful of
 # draw calls instead of one per tile, which matters a lot for shadows on phones)
@@ -61,6 +63,9 @@ func _ready() -> void:
 	traffic = Traffic.new()
 	traffic.material = city_mat
 	add_child(traffic)
+	people = People.new()
+	people.material = city_mat
+	add_child(people)
 	rig = CameraRig.new()
 	add_child(rig)
 	life = Life.new()
@@ -85,6 +90,9 @@ func _ready() -> void:
 func _make_materials() -> void:
 	city_mat = ShaderMaterial.new()
 	city_mat.shader = load("res://shaders/city.gdshader")
+	detail_mat = ShaderMaterial.new()
+	detail_mat.shader = load("res://shaders/city_detail.gdshader")
+	MeshKit.detail_material = detail_mat
 	water_mat = ShaderMaterial.new()
 	water_mat.shader = load("res://shaders/water.gdshader")
 	var noise := FastNoiseLite.new()
@@ -160,7 +168,7 @@ func _make_environment() -> void:
 
 func _make_sea() -> void:
 	var water := MeshInstance3D.new()
-	water.mesh = _sea_mesh(150, 350.0)
+	water.mesh = _sea_mesh(40, 350.0)
 	water.extra_cull_margin = 2.0
 	water.material_override = water_mat
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -238,7 +246,11 @@ func _make_clouds() -> void:
 		for k in puffs:
 			var p := Vector3(rng.randf_range(-3.5, 3.5), rng.randf_range(-0.4, 0.6), rng.randf_range(-1.6, 1.6))
 			var r := rng.randf_range(1.4, 2.6)
-			mk.blob(p, Vector3(r, r * 0.7, r), Color(1, 1, 1))
+			# each puff is a big round sprite flanked by two lower, smaller ones,
+			# so the cloud keeps its flat-bottomed, spread-out shape
+			mk.blob(p, Vector3.ONE * r * 0.8, Color(1, 1, 1))
+			for sx in [-1.0, 1.0]:
+				mk.blob(p + Vector3(sx * r * 0.62, -r * 0.18, rng.randf_range(-0.3, 0.3) * r), Vector3.ONE * r * 0.58, Color(1, 1, 1))
 		var mi := MeshInstance3D.new()
 		var m := StandardMaterial3D.new()
 		m.vertex_color_use_as_albedo = true
@@ -287,6 +299,7 @@ func _on_world_reset() -> void:
 	_queued.clear()
 	terrain.build_all()
 	traffic.clear()
+	people.clear()
 	life.reset()
 	# populate from the centre outwards so the island "blooms" into view
 	var order: Array[Vector2i] = []
@@ -371,7 +384,7 @@ func _bake(t: Vector2i, node: Node3D) -> void:
 	if body == null or not body.has_meta("arrays"):
 		return
 	var arr: Array = body.get_meta("arrays")
-	if (arr[0] as PackedVector3Array).is_empty() and (arr[4] as PackedVector3Array).is_empty():
+	if (arr[0] as PackedVector3Array).is_empty() and (arr[4] as PackedVector3Array).is_empty() and (arr.size() < 11 or (arr[10] as PackedVector3Array).is_empty()):
 		return
 	_baked[t] = arr
 	_batch_dirty[_batch_of(t)] = true
@@ -382,7 +395,9 @@ func _rebuild_batch(b: Vector2i) -> void:
 	_batch_urgent.erase(b)
 	# slot 0: solid geometry (casts shadows); slot 1: flush details (no shadow pass)
 	var sets := [[PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array()],
-		[PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array()]]
+		[PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array()],
+		[PackedVector3Array(), PackedVector3Array()],
+		[PackedVector3Array(), PackedColorArray(), PackedVector2Array(), PackedVector2Array()]]
 	var merged: Array[Vector2i] = []
 	for z in range(b.y * BATCH, (b.y + 1) * BATCH):
 		for x in range(b.x * BATCH, (b.x + 1) * BATCH):
@@ -397,37 +412,57 @@ func _rebuild_batch(b: Vector2i) -> void:
 				sets[k][1].append_array(arr[o + 1])
 				sets[k][2].append_array(arr[o + 2])
 				sets[k][3].append_array(arr[o + 3])
+			if arr.size() > 8:
+				sets[2][0].append_array(xf * (arr[8] as PackedVector3Array))
+				sets[2][1].append_array(arr[9])
+			if arr.size() > 10:
+				sets[3][0].append_array(xf * (arr[10] as PackedVector3Array))
+				sets[3][1].append_array(arr[11])
+				sets[3][2].append_array(arr[12])
+				sets[3][3].append_array(arr[13])
 			merged.append(t)
-	var pair: Array = _batches.get(b, [])
-	if pair.is_empty():
-		for k in 2:
+	var quad: Array = _batches.get(b, [])
+	if quad.is_empty():
+		# 0: solid geometry, 1: flush details, 2: shadow stand-ins (shadow map only),
+		# 3: sphere sprites (draw and cast their own round shadows)
+		for k in 4:
 			var nmi := MeshInstance3D.new()
-			if k == 1:
-				nmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			nmi.set_meta("batch", k)
+			nmi.cast_shadow = [GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+				GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY, GeometryInstance3D.SHADOW_CASTING_SETTING_ON][k]
 			add_child(nmi)
-			pair.append(nmi)
-		_batches[b] = pair
-	for k in 2:
-		var mi: MeshInstance3D = pair[k]
+			quad.append(nmi)
+		_batches[b] = quad
+	for k in 4:
+		var mi: MeshInstance3D = quad[k]
 		var v: PackedVector3Array = sets[k][0]
 		if v.is_empty():
 			mi.mesh = null
+			continue
+		if k == 3:
+			var bm := ArrayMesh.new()
+			bm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, MeshKit.blob_arrays(v, sets[3][1], sets[3][2], sets[3][3]))
+			bm.surface_set_material(0, MeshKit.blob_material())
+			bm.custom_aabb = MeshKit._blob_aabb(v, sets[3][3])
+			mi.mesh = bm
 			continue
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = v
 		arrays[Mesh.ARRAY_NORMAL] = sets[k][1]
-		arrays[Mesh.ARRAY_COLOR] = sets[k][2]
-		arrays[Mesh.ARRAY_TEX_UV] = sets[k][3]
+		if k < 2:
+			arrays[Mesh.ARRAY_COLOR] = sets[k][2]
+			arrays[Mesh.ARRAY_TEX_UV] = sets[k][3]
 		var mesh := ArrayMesh.new()
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		mesh.surface_set_material(0, city_mat)
+		mesh.surface_set_material(0, [city_mat, detail_mat, CityGen.shadow_material()][k])
 		mi.mesh = mesh
 	# the merged copy is drawn now, so the per-tile bodies can go
 	for t in merged:
-		var body := (_tiles[t] as Node3D).get_node_or_null("Body")
-		if body:
-			body.queue_free()
+		for part in ["Body", "Shadow", "Blobs"]:
+			var n := (_tiles[t] as Node3D).get_node_or_null(part)
+			if n:
+				n.queue_free()
 
 
 func _collect_spinners(node: Node) -> void:
@@ -448,6 +483,7 @@ func _on_tile_changed(x: int, z: int) -> void:
 	var t := Vector2i(x, z)
 	terrain.tile_changed(x, z)
 	traffic.mark_dirty()
+	people.mark_dirty()
 	_rebuild(t, "pop")
 	_dust(t)
 	for dz in range(-1, 2):
@@ -675,10 +711,12 @@ func _update_sky() -> void:
 	sky_mat.set_shader_parameter("sun_col", scol)
 	sky_mat.set_shader_parameter("night", night)
 	city_mat.set_shader_parameter("night", night)
+	detail_mat.set_shader_parameter("night", night)
 	# fewer windows stay lit as the night gets later
 	var nt := fmod(t + 0.15, 1.0)
 	var late := clampf(nt / 0.3, 0.0, 1.0) if nt < 0.4 else 0.0
 	city_mat.set_shader_parameter("lit_ratio", lerpf(0.8, 0.35, late))
+	detail_mat.set_shader_parameter("lit_ratio", lerpf(0.8, 0.35, late))
 	water_mat.set_shader_parameter("night", night)
 	# bloom only matters for lit windows and lamps, so skip its passes by day
 	env.glow_enabled = night > 0.12 and OS.get_environment("CV_NOGLOW") == ""

@@ -12,6 +12,9 @@ const HULL_COLORS := [Color("f5f5f2"), Color("3d5f8f"), Color("c8553d"), Color("
 var material: Material
 var rig: CameraRig
 var _boat_mm: Array[MultiMesh] = []
+# boxy stand-ins that draw the boats into the shadow map
+var _boat_shadow_mm: Array[MultiMesh] = []
+var _shadow_mesh: ArrayMesh
 var _gull_mm: MultiMesh
 var _boats: Array = []
 var _gulls: Array = []
@@ -26,20 +29,27 @@ func _ready() -> void:
 		mm.mesh = _sailboat() if i == 0 else _fishing_boat()
 		mm.instance_count = BOATS
 		mm.visible_instance_count = 0
-		_add_mm(mm, true)
+		_add_mm(mm, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 		_boat_mm.append(mm)
+		var sm := MultiMesh.new()
+		sm.transform_format = MultiMesh.TRANSFORM_3D
+		sm.mesh = _shadow_mesh
+		sm.instance_count = BOATS
+		sm.visible_instance_count = 0
+		_add_mm(sm, GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY)
+		_boat_shadow_mm.append(sm)
 	_gull_mm = MultiMesh.new()
 	_gull_mm.transform_format = MultiMesh.TRANSFORM_3D
 	_gull_mm.mesh = _gull()
 	_gull_mm.instance_count = GULLS
 	_gull_mm.visible_instance_count = 0
-	_add_mm(_gull_mm, false)
+	_add_mm(_gull_mm, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 
 
-func _add_mm(mm: MultiMesh, shadow: bool) -> void:
+func _add_mm(mm: MultiMesh, shadow: GeometryInstance3D.ShadowCastingSetting) -> void:
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
-	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.cast_shadow = shadow
 	# instances roam far from the node origin
 	mmi.custom_aabb = AABB(Vector3(-200, -5, -200), Vector3(400, 40, 400))
 	add_child(mmi)
@@ -72,6 +82,7 @@ func _sailboat() -> ArrayMesh:
 	mk.tri(d, e, f, SAIL_COLORS[1], 0.0, 0.0, Vector3.LEFT)
 	# mast-top lantern for night sailing
 	mk.box(Vector3(0, 1.42, 0.12), Vector3(0.05, 0.05, 0.05), Color(1, 0.9, 0.6), null, false, 2.0)
+	_shadow_mesh = mk.commit_shadow(CityGen.shadow_material())
 	return mk.commit(material)
 
 
@@ -85,6 +96,7 @@ func _fishing_boat() -> ArrayMesh:
 	mk.cylinder(Vector3(0, 0.5, -0.28), 0.03, 0.18, 6, Color("2b2b30"))
 	mk.cylinder(Vector3(0, 0.2, 0.3), 0.015, 0.55, 5, Color("8a6a4a"))
 	mk.box(Vector3(0, 0.62, 0.3), Vector3(0.06, 0.06, 0.06), Color(1, 0.9, 0.6), null, false, 2.0)
+	_shadow_mesh = mk.commit_shadow(CityGen.shadow_material())
 	return mk.commit(material)
 
 
@@ -142,8 +154,8 @@ func reset() -> void:
 		_gulls.append({"c": c, "r": _rng.randf_range(3.0, 9.0), "a": _rng.randf() * TAU,
 			"w": _rng.randf_range(0.25, 0.45) * (1.0 if _rng.randf() < 0.5 else -1.0),
 			"y": _rng.randf_range(4.5, 9.0), "ph": _rng.randf() * TAU, "move": _rng.randf_range(8.0, 30.0)})
-	_boat_mm[0].visible_instance_count = 0
-	_boat_mm[1].visible_instance_count = 0
+	for mm in _boat_mm + _boat_shadow_mm:
+		mm.visible_instance_count = 0
 
 
 func _near_water(x: int, z: int) -> bool:
@@ -202,10 +214,13 @@ func _process(delta: float) -> void:
 		var pitch: float = sin(t * 0.9 + b.ph) * 0.04
 		var basis: Basis = Basis(Vector3.UP, b.h) * Basis(Vector3.FORWARD, roll) * Basis(Vector3.RIGHT, pitch)
 		var k: int = b.kind
-		_boat_mm[k].set_instance_transform(counts[k], Transform3D(basis * Basis.from_scale(Vector3.ONE * 1.5), b.p + Vector3(0, bob - 0.07, 0)))
+		var bx := Transform3D(basis * Basis.from_scale(Vector3.ONE * 1.5), b.p + Vector3(0, bob - 0.07, 0))
+		_boat_mm[k].set_instance_transform(counts[k], bx)
+		_boat_shadow_mm[k].set_instance_transform(counts[k], bx)
 		counts[k] += 1
-	_boat_mm[0].visible_instance_count = counts[0]
-	_boat_mm[1].visible_instance_count = counts[1]
+	for k in 2:
+		_boat_mm[k].visible_instance_count = counts[k]
+		_boat_shadow_mm[k].visible_instance_count = counts[k]
 
 	var focus := rig.target if rig else Vector3.ZERO
 	for i in _gulls.size():
@@ -227,7 +242,7 @@ func _process(delta: float) -> void:
 		var bank: float = -0.45 * signf(g.w)
 		# glide most of the time, with short bursts of flapping
 		var burst: float = smoothstep(0.55, 0.8, sin(t * 0.35 + g.ph * 3.0))
-		var flap: float = 1.0 + sin(t * 11.0 + g.ph) * 1.6 * burst
+		var flap: float = maxf(0.25, 1.0 + sin(t * 11.0 + g.ph) * 1.6 * burst)
 		var basis: Basis = Basis(Vector3.UP, head) * Basis(Vector3.BACK, bank)
 		_gull_mm.set_instance_transform(i, Transform3D(basis * Basis.from_scale(Vector3(1.6, 1.6 * flap, 1.6)), p))
 	_gull_mm.visible_instance_count = _gulls.size()
