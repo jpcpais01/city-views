@@ -29,6 +29,8 @@ var _meshes := {}
 var _next_id := 1
 var _links := {}
 var _links_dirty := true
+## this builder's mark on the streets it makes, so keys never clash in co-op
+static var tag := ""
 # streets being laid out along their length: id -> seconds since placed
 var _laying := {}
 const LAY_TIME := 0.8
@@ -38,6 +40,8 @@ var _pending := {}
 
 class Street:
 	var id := 0
+	## stable across saves and between co-op builders (ids are only this session's)
+	var key := ""
 	var kind := "main"
 	var pts := PackedVector2Array()
 	var ys := PackedFloat32Array()
@@ -93,9 +97,7 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	pts = _resample(pts, SAMPLE)
 	if pts.size() < 3:
 		return null
-	var s := Street.new()
-	s.id = _next_id
-	_next_id += 1
+	var s := _new_street()
 	s.kind = kind
 	s.pts = pts
 	s.update_bounds()
@@ -140,9 +142,7 @@ func erase_at(p: Vector2, radius: float) -> bool:
 		var touching := _touching(s)
 		_remove(s)
 		for pc in pieces:
-			var ns := Street.new()
-			ns.id = _next_id
-			_next_id += 1
+			var ns := _new_street()
 			ns.kind = s.kind
 			ns.pts = pc[0]
 			ns.ys = pc[1]
@@ -781,38 +781,88 @@ func _dash(buf: MeshBuf, s: Street, i: int, col: Color) -> void:
 func to_data() -> Array:
 	var out := []
 	for s in streets:
-		var p := []
-		for v in s.pts:
-			p.append_array([snappedf(v.x, 0.01), snappedf(v.y, 0.01)])
-		var y := []
-		for v in s.ys:
-			y.append(snappedf(v, 0.01))
-		out.append({"k": s.kind, "p": p, "y": y})
+		out.append(street_data(s))
 	return out
+
+
+func street_data(s: Street) -> Dictionary:
+	var p := []
+	for v in s.pts:
+		p.append_array([snappedf(v.x, 0.01), snappedf(v.y, 0.01)])
+	var y := []
+	for v in s.ys:
+		y.append(snappedf(v, 0.01))
+	return {"id": s.key, "k": s.kind, "p": p, "y": y}
 
 
 func from_data(data: Array) -> void:
 	clear()
 	for d in data:
-		if not d is Dictionary:
-			continue
-		var s := Street.new()
-		s.id = _next_id
-		_next_id += 1
-		s.kind = str(d.get("k", "main"))
-		if not KINDS.has(s.kind):
-			s.kind = "main"
-		var p: Array = d.get("p", [])
-		var y: Array = d.get("y", [])
-		for i in range(0, p.size() - 1, 2):
-			s.pts.append(Vector2(float(p[i]), float(p[i + 1])))
-		for v in y:
-			s.ys.append(float(v))
-		if s.pts.size() < 2 or s.ys.size() != s.pts.size():
-			continue
-		s.update_bounds()
-		streets.append(s)
+		var s := _from_dict(d)
+		if s:
+			streets.append(s)
 	for s in streets:
 		_build(s)
 	for s in streets:
 		added.emit(s)
+
+
+## Lays one street exactly as saved (from another builder, or an undo).
+func add_data(d: Dictionary) -> Street:
+	var s := _from_dict(d)
+	if s == null:
+		return null
+	streets.append(s)
+	_build(s)
+	for o in _touching(s):
+		_build_later(o)
+	added.emit(s)
+	changed.emit()
+	return s
+
+
+func remove_street(s: Street) -> void:
+	var touching := _touching(s)
+	_remove(s)
+	for o in touching:
+		if o in streets:
+			_build_later(o)
+	changed.emit()
+
+
+func by_key(k: String) -> Street:
+	for s in streets:
+		if s.key == k:
+			return s
+	return null
+
+
+func _new_street() -> Street:
+	var s := Street.new()
+	s.id = _next_id
+	_next_id += 1
+	if tag == "":
+		tag = "%04x" % (randi() % 65536)
+	s.key = "%s%d_%d" % [tag, Time.get_ticks_msec() % 100000, s.id]
+	return s
+
+
+func _from_dict(d: Variant) -> Street:
+	if not d is Dictionary:
+		return null
+	var s := _new_street()
+	if str(d.get("id", "")) != "":
+		s.key = str(d.id)
+	s.kind = str(d.get("k", "main"))
+	if not KINDS.has(s.kind):
+		s.kind = "main"
+	var p: Array = d.get("p", [])
+	var y: Array = d.get("y", [])
+	for i in range(0, p.size() - 1, 2):
+		s.pts.append(Vector2(float(p[i]), float(p[i + 1])))
+	for v in y:
+		s.ys.append(float(v))
+	if s.pts.size() < 2 or s.ys.size() != s.pts.size():
+		return null
+	s.update_bounds()
+	return s

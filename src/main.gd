@@ -1,6 +1,6 @@
 extends Node
 ## Entry point: shows the loader, then builds the 3D world and the interface behind it.
-## Two worlds for now: the classic tile town, and the new tile-free island (preview).
+## Two worlds for now: the new tile-free island, where the game opens, and the classic tile town.
 
 var _world: Node
 var _hud: Node
@@ -12,10 +12,10 @@ func _ready() -> void:
 	# let the loader paint before the heavy world build blocks a frame
 	await get_tree().process_frame
 	await get_tree().process_frame
-	if OS.get_environment("CV_ISLAND") != "":
-		_open_island()
-	else:
+	if OS.get_environment("CV_TOWN") != "":
 		_open_town()
+	else:
+		_open_island()
 	loader.set_progress(0.3)
 	loader.track(_world)
 	move_child(loader, -1)

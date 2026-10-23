@@ -52,6 +52,14 @@ func wake(at: Vector2) -> void:
 	_failed.clear()
 
 
+func stop() -> void:
+	_awake = false
+	_cands.clear()
+	_scan.clear()
+	_found.clear()
+	_scanning = false
+
+
 func is_growing() -> bool:
 	return _awake
 
