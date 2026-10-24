@@ -23,6 +23,10 @@ static func make(parent: Node3D) -> Array[Node3D]:
 	mat.shader = load("res://shaders/cloud.gdshader")
 	mat.set_shader_parameter("noise_tex", noise())
 	mat.set_shader_parameter("wrap", WRAP)
+	# see-through like the sea (priority 1): draw after it, or the water paints
+	# over the clouds above it; level with wakes and beams, which sort by depth,
+	# and under the brush ring (3)
+	mat.render_priority = 2
 	var smat := ShaderMaterial.new()
 	smat.shader = load("res://shaders/cloud_shadow.gdshader")
 	smat.set_shader_parameter("noise_tex", noise())
