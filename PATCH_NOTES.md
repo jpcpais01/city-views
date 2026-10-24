@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 02:44 UTC
+- Plots now take the shape of the space behind them, so houses fill odd corners, curved streets and narrow blocks instead of leaving them empty.
+- Houses adapt to their plot. A detached house slides over to the deeper side, and a terrace keeps its full front but squeezes its back to fit, with a flat roof.
+- Many houses grow a back extension where the plot runs deeper behind them.
+- Garden fences follow the real edge of each plot.
+- After loading or undoing, houses keep how far they had grown even if their plot shifted slightly.
+
 ## 2026-10-24 02:35 UTC
 - Street junctions are rebuilt: where streets meet or cross, the road now joins as one smooth piece with no seams, holes or grass poking through, even on hills.
 - Every corner gets a rounded kerb and pavement, whatever the angle, including sharp forks and wide bends that used to end in jagged edges.

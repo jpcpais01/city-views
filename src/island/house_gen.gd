@@ -107,11 +107,30 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var hd := clampf(l.depth * (lerpf(0.5, 0.68, rng.randf()) if dense else lerpf(0.36, 0.52, rng.randf())), 1.3, 2.8)
 	var gap := 0.0 if dense else lerpf(0.25, 0.5, rng.randf())
 	var hw := maxf(l.width - gap * 2.0, 1.2)
+	# fit the house to its plot: never deeper than the plot is behind it. A
+	# detached house slides over to the deeper side where the plot tapers; a
+	# terrace keeps its full front and squeezes its back to the plot's shape
+	var hx := 0.0
+	var fit := l.room(-hw * 0.5, hw * 0.5) - setback - 0.45
+	if not dense and fit < hd:
+		for cw: float in [hw, hw * 0.8, hw * 0.65]:
+			for sx: float in [-1.0, 1.0]:
+				var x := sx * (l.width * 0.5 - gap - cw * 0.5)
+				var r := l.room(x - cw * 0.5, x + cw * 0.5) - setback - 0.45
+				if cw >= 1.2 and minf(r, hd) * cw > minf(fit, hd) * hw + 0.05:
+					fit = r
+					hw = cw
+					hx = x
+	var squeeze := PackedVector2Array()
+	if dense and l.room(-hw * 0.5, hw * 0.5) - setback - 0.1 < hd:
+		squeeze = _squeezed(l, hw, hd, setback)
+	elif not dense:
+		hd = maxf(minf(hd, fit), 1.0)
 	var cz := -setback - hd * 0.5
 	# the ground under the house, from its four corners
 	var lo := INF
 	var hi := -INF
-	for c in [Vector2(-hw * 0.5, -setback), Vector2(hw * 0.5, -setback), Vector2(hw * 0.5, -setback - hd), Vector2(-hw * 0.5, -setback - hd)]:
+	for c in [Vector2(hx - hw * 0.5, -setback), Vector2(hx + hw * 0.5, -setback), Vector2(hx + hw * 0.5, -setback - hd), Vector2(hx - hw * 0.5, -setback - hd)]:
 		var p: Vector2 = l.origin + right * c.x + fwd * c.y
 		var g := land.height_at(p.x, p.y)
 		lo = minf(lo, g)
@@ -152,11 +171,20 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	# stone plinth where the ground falls away
 	if y0 - lo > 0.04:
 		var bottom := lo - y0 - 0.12
-		mk.box(Vector3(0, bottom * 0.5 + 0.02, cz), Vector3(hw + 0.04, 0.04 - bottom, hd + 0.04), STONE.darkened(0.08 * rng.randf()))
-	mk.push_at(Vector3(0, 0, cz))
-	# the roof covers the top
-	mk.box_faces(Vector3(0, hgt * 0.5, 0), Vector3(hw, hgt, hd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, we)
-	mk.bands(FH + 0.03, hw, hd, FH, floors - 1, 0.035, trim)
+		# its shadow falls inside the house's own
+		mk.shadow = false
+		mk.box(Vector3(hx, bottom * 0.5 + 0.02, cz), Vector3(hw + 0.04, 0.04 - bottom, hd + 0.04), STONE.darkened(0.08 * rng.randf()))
+		mk.shadow = true
+	mk.push_at(Vector3(hx, 0, cz))
+	if squeeze.is_empty():
+		# the roof covers the top, and casts the top's shadow
+		mk.shadow = false
+		mk.box_faces(Vector3(0, hgt * 0.5, 0), Vector3(hw, hgt, hd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, we)
+		mk.shadow = true
+		mk.shadow_faces(Vector3(0, hgt * 0.5, 0), Vector3(hw, hgt, hd), MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+		mk.bands(FH + 0.03, hw, hd, FH, floors - 1, 0.035, trim)
+	else:
+		_prism(mk, squeeze, hgt, wall, we, floors, trim)
 	if we == MeshKit.SIDING:
 		# painted corner boards
 		for cx: float in [-1.0, 1.0]:
@@ -192,7 +220,8 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 				_shutters(mk, 0.0, y, front, hw, count, shutters)
 			if boxes and fl == 1:
 				_window_boxes(mk, rng, y, front, hw, count)
-		mk.window_row(Vector3(0, y, -hd * 0.5), Vector3.FORWARD, hw, count, 0.24, 0.32, Palette.GLASS, true)
+		if squeeze.is_empty():
+			mk.window_row(Vector3(0, y, -hd * 0.5), Vector3.FORWARD, hw, count, 0.24, 0.32, Palette.GLASS, true)
 		if not dense and hd > 1.0:
 			for sx: float in [-1.0, 1.0]:
 				mk.window_row(Vector3(sx * hw * 0.5, y, 0), Vector3.RIGHT * sx, hd, side_count, 0.24, 0.32, Palette.GLASS, true)
@@ -209,12 +238,24 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 		mk.box_faces(Vector3(door_x, -0.02, front + 0.1), Vector3(0.44, 0.07, 0.2), STONE, MeshKit.FRONT | MeshKit.TOP | MeshKit.LEFT | MeshKit.RIGHT)
 		if rng.randf() < 0.4:
 			mk.box_faces(Vector3(door_x, 0.58, front + 0.1), Vector3(0.5, 0.04, 0.2), trim, MeshKit.FRONT | MeshKit.TOP | MeshKit.LEFT | MeshKit.RIGHT)
-	_roof(mk, rng, K, hw, hd, hgt, roof, wall, dense)
+	if squeeze.is_empty():
+		_roof(mk, rng, K, hw, hd, hgt, roof, wall, dense)
+	else:
+		_flat_roof(mk, squeeze, hgt, wall)
 	mk.pop()
+	# a back extension where the plot runs deeper behind one half of the house
+	var wing := Vector2.ZERO
+	if squeeze.is_empty() and hw > 1.4:
+		var behind_l := l.room(hx - hw * 0.5, hx) - setback - hd
+		var behind_r := l.room(hx, hx + hw * 0.5) - setback - hd
+		if maxf(behind_l, behind_r) > 1.3 and rng.randf() < (0.55 if dense else 0.4):
+			wing.x = -1.0 if behind_l > behind_r else 1.0
+			wing.y = minf(maxf(behind_l, behind_r) - 0.6, minf(hd * 0.9, 1.7))
+			_wing(mk, rng, K, hx + wing.x * hw * 0.25, -setback - hd, hw, wing, floors, dense, wall, we, roof)
 	if not dense:
-		_garden(mk, rng, l, hw, hd, setback, door_x, land, y0)
-	elif l.depth - setback - hd > 1.4 and rng.randf() < 0.5:
-		var tz := -setback - hd - (l.depth - setback - hd) * 0.5
+		_garden(mk, rng, l, hx, hw, hd, setback, door_x + hx, land, y0, wing)
+	elif l.depth - setback - hd - wing.y > 1.4 and rng.randf() < 0.5:
+		var tz := -setback - hd - wing.y - (l.depth - setback - hd - wing.y) * 0.5
 		_tree(mk, rng, Vector3(lerpf(-0.4, 0.4, rng.randf()) * l.width, 0.0, tz), land, l, y0)
 	# a street lamp on the pavement every few houses
 	if posmod(seed_value, 3) == 0:
@@ -319,7 +360,7 @@ static func _dormer(mk: MeshKit, x: float, hd: float, hgt: float, rh: float, roo
 	mk.pop()
 
 
-static func _garden(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hw: float, hd: float, setback: float, door_x: float, land: Land, y0: float) -> void:
+static func _garden(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hx: float, hw: float, hd: float, setback: float, door_x: float, land: Land, y0: float, wing: Vector2) -> void:
 	# a low hedge or picket fence along the front, open at the path
 	if setback > 0.35:
 		var hedge := rng.randf() < 0.6
@@ -338,13 +379,110 @@ static func _garden(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hw: fl
 		mk.box_faces(Vector3(door_x, 0.01, -setback * 0.5), Vector3(0.28, 0.02, setback), Color(0.84, 0.8, 0.74), MeshKit.TOP)
 		for k in 2:
 			mk.blob(Vector3(door_x + (0.5 + 0.3 * k) * (1.0 if k == 0 else -1.0), 0.1, -setback * 0.6), Vector3(0.1, 0.08, 0.1), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.03)
-	var back := l.depth - setback - hd
+	var back := l.depth - setback - hd - wing.y
 	var tree_x := 0.0
 	if back > 1.0:
 		tree_x = lerpf(-0.3, 0.3, rng.randf()) * l.width
-		_tree(mk, rng, Vector3(tree_x, 0.0, -setback - hd - back * 0.55), land, l, y0)
+		if wing.y > 0.0:
+			# on the open side, away from the extension
+			tree_x = -wing.x * lerpf(0.15, 0.3, rng.randf()) * l.width
+		_tree(mk, rng, Vector3(tree_x, 0.0, -setback - hd - wing.y - back * 0.55), land, l, y0)
 	if back > 0.8:
-		_backyard(mk, rng, l, -setback - hd, tree_x, land, y0)
+		_backyard(mk, rng, l, -setback - hd - wing.y, tree_x, land, y0)
+
+
+## A one or two storey extension behind half of the house, on its `wing.x`
+## side, `wing.y` deep: a gabled outshot behind a house, a flat-roofed one
+## behind a terrace.
+static func _wing(mk: MeshKit, rng: RandomNumberGenerator, K: Dictionary, x: float, z0: float, hw: float, wing: Vector2, floors: int, dense: bool,
+		wall: Color, we: float, roof: Color) -> void:
+	var ww := hw * 0.5
+	var wf := 1 if floors <= 2 else 2
+	var wh := wf * FH + 0.04
+	var wz := z0 - wing.y * 0.5
+	mk.box_faces(Vector3(x, wh * 0.5, wz), Vector3(ww, wh, wing.y), wall, MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, we)
+	for fl in wf:
+		mk.window_row(Vector3(x, fl * FH + FH * 0.55, z0 - wing.y), Vector3.FORWARD, ww, maxi(1, int(ww / 0.6)), 0.24, 0.3, Palette.GLASS, true)
+	if dense:
+		mk.ledge(Vector3(x, wh + 0.03, wz), Vector3(ww + 0.04, 0.06, wing.y + 0.02), 0.015, wall.lightened(0.3))
+		mk.box_faces(Vector3(x, wh + 0.05, wz), Vector3(ww - 0.06, 0.02, wing.y - 0.04), Color(0.55, 0.55, 0.57), MeshKit.TOP)
+	else:
+		# its ridge runs back from the house
+		var pitch := lerpf(K.pitch.x, K.pitch.y, rng.randf()) * 0.8
+		mk.push_at(Vector3(x, wh, wz), PI * 0.5)
+		mk.gable_roof(Vector3.ZERO, wing.y, ww, ww * 0.5 * pitch, 0.05, roof, wall)
+		mk.pop()
+
+
+## The outline of a terrace whose plot is too shallow at one end for a full
+## rectangle (house-local, centred on the house): a straight front, and a back
+## that follows the plot's back line where it cuts in.
+static func _squeezed(l: Town.Lot, hw: float, hd: float, setback: float) -> PackedVector2Array:
+	var front := hd * 0.5
+	var xs: Array[float] = [-hw * 0.5]
+	for p in l.back:
+		if p.x > -hw * 0.5 + 0.1 and p.x < hw * 0.5 - 0.1:
+			xs.append(p.x)
+	xs.append(hw * 0.5)
+	var pts := PackedVector2Array([Vector2(-hw * 0.5, front), Vector2(hw * 0.5, front)])
+	for k in range(xs.size() - 1, -1, -1):
+		var d := clampf(l.depth_at(xs[k]) - setback - 0.1, 0.6, hd)
+		pts.append(Vector2(xs[k], front - d))
+	return pts
+
+
+## Walls round an outline (house-local, front edge first), with floor bands and
+## windows on every wall but the front, which the house dresses itself.
+static func _prism(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color, we: float, floors: int, trim: Color) -> void:
+	var cw := Geometry2D.is_polygon_clockwise(pts)
+	for k in pts.size():
+		var a := pts[k]
+		var b := pts[(k + 1) % pts.size()]
+		var run := a.distance_to(b)
+		if run < 0.02:
+			continue
+		var t := (b - a) / run
+		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var o3 := Vector3(out.x, 0, out.y)
+		mk.quad(Vector3(a.x, 0, a.y), Vector3(b.x, 0, b.y), Vector3(b.x, hgt, b.y), Vector3(a.x, hgt, a.y), o3, wall, we)
+		if k == 0 or run < 0.5:
+			continue
+		var m := (a + b) * 0.5
+		for fl in floors:
+			mk.window_row(Vector3(m.x, fl * FH + FH * 0.55, m.y), o3, run, maxi(1, int(run / 0.6)), 0.24, 0.32, Palette.GLASS, true)
+		# floor bands as thin strips standing just proud of the wall
+		for fl in range(1, floors):
+			var y := fl * FH + 0.03
+			var a2 := a + out * 0.012
+			var b2 := b + out * 0.012
+			mk.detail = true
+			mk.quad(Vector3(a2.x, y - 0.018, a2.y), Vector3(b2.x, y - 0.018, b2.y), Vector3(b2.x, y + 0.018, b2.y), Vector3(a2.x, y + 0.018, a2.y), o3, trim)
+			mk.detail = false
+
+
+## A flat roof over an outline, behind a low parapet.
+static func _flat_roof(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color) -> void:
+	var tris := Geometry2D.triangulate_polygon(pts)
+	var top := Color(0.55, 0.55, 0.57)
+	for k in range(0, tris.size(), 3):
+		var a := pts[tris[k]]
+		var b := pts[tris[k + 1]]
+		var c := pts[tris[k + 2]]
+		mk.tri(Vector3(a.x, hgt + 0.02, a.y), Vector3(b.x, hgt + 0.02, b.y), Vector3(c.x, hgt + 0.02, c.y), top, 0.0, 0.0, Vector3.UP)
+	var cw := Geometry2D.is_polygon_clockwise(pts)
+	var lip := wall.lightened(0.35)
+	for k in pts.size():
+		var a := pts[k]
+		var b := pts[(k + 1) % pts.size()]
+		if a.distance_to(b) < 0.02:
+			continue
+		var t := (b - a).normalized()
+		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var a2 := a + out * 0.03
+		var b2 := b + out * 0.03
+		var o3 := Vector3(out.x, 0, out.y)
+		mk.quad(Vector3(a2.x, hgt, a2.y), Vector3(b2.x, hgt, b2.y), Vector3(b2.x, hgt + 0.12, b2.y), Vector3(a2.x, hgt + 0.12, a2.y), o3, lip)
+		mk.quad(Vector3(a2.x, hgt + 0.12, a2.y), Vector3(b2.x, hgt + 0.12, b2.y), Vector3(b.x - out.x * 0.05, hgt + 0.12, b.y - out.y * 0.05), Vector3(a.x - out.x * 0.05, hgt + 0.12, a.y - out.y * 0.05), Vector3.UP, lip)
 
 
 ## The back garden behind a house (from z = `z0` to the back of the lot): a
@@ -360,20 +498,22 @@ static func _backyard(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, z0: 
 	var col: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()].darkened(0.2) if hedge else [Color(0.97, 0.97, 0.95), Color(0.62, 0.46, 0.33)][rng.randi() % 2]
 	var hh := 0.18 if hedge else 0.13
 	var th := 0.12 if hedge else 0.04
-	var zb := -l.depth + 0.06
 	var hw := l.width * 0.5
 	mk.shadow = false
-	# along the back and down the right-hand side (the neighbour's fence
-	# closes the left), following the ground
-	var run := z0 - zb
+	# along the back of the plot, whatever its shape, and down the right-hand
+	# side (the neighbour's fence closes the left), following the ground
 	var pts: Array[Vector3] = []
 	for x: float in _steps(-hw, hw):
-		pts.append(Vector3(x, ground.call(x, zb), zb))
-	for z: float in _steps(zb, z0).slice(1):
+		var z := -l.depth_at(x) + 0.06
+		pts.append(Vector3(x, ground.call(x, z), z))
+	for z: float in _steps(-l.depth_at(hw - 0.03) + 0.06, z0).slice(1):
 		pts.append(Vector3(hw - 0.03, ground.call(hw - 0.03, z), z))
 	_fence(mk, pts, hh, th, col)
 	mk.shadow = true
 	var side := -1.0 if tree_x > 0.0 else 1.0
+	# the far corner on that side, wherever the back runs
+	var zb := -l.room(side * hw * 0.2, side * hw) + 0.06
+	var run := z0 - zb
 	var roll := rng.randf()
 	if roll < 0.3 and run > 0.75:
 		# a garden shed in the far corner, away from the tree
@@ -425,6 +565,16 @@ static func _steps(a: float, b: float) -> Array[float]:
 ## A low fence or hedge through ground points `pts`: two sides and a top per
 ## stretch, its foot tucked a little into the ground so slopes never show a gap.
 static func _fence(mk: MeshKit, pts: Array[Vector3], hh: float, th: float, col: Color) -> void:
+	# stops where the ground or the line turns; straight even runs are one piece
+	var keep: Array[Vector3] = [pts[0]]
+	for k in range(1, pts.size() - 1):
+		var a := keep[keep.size() - 1]
+		var c := pts[k + 1]
+		var t := clampf((pts[k] - a).dot(c - a) / maxf((c - a).length_squared(), 1e-6), 0.0, 1.0)
+		if pts[k].distance_to(a.lerp(c, t)) > 0.025:
+			keep.append(pts[k])
+	keep.append(pts[pts.size() - 1])
+	pts = keep
 	for k in pts.size() - 1:
 		var a := pts[k]
 		var b := pts[k + 1]
