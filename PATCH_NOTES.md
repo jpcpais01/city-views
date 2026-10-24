@@ -1,6 +1,7 @@
 # City Views patch notes
 
 ## 2026-10-24 23:02 UTC
+- Clouds no longer slip behind rivers, lakes and the sea when they drift over water.
 - Dead-end streets now finish in a rounded turning head, with the kerb and pavement carried round, instead of stopping square.
 - Tapping a building picks the one you see under your finger: the tap follows the buildings' real walls and roofs instead of the plots on the ground, so a low house in front or a yard no longer gets in the way. The building you picked glows while its card is up.
 
