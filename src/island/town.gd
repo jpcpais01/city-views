@@ -953,7 +953,7 @@ func _kept_public(s: Streets.Street, f: float, side: float) -> String:
 		var kind := str(_kept_stages[k])
 		if not CIVIC_WIDTH.has(kind):
 			continue
-		if _public_mid(s, f, side, kind).distance_to(_key_point(k.substr(2))) < Streets.SAMPLE * 0.6 + 0.3:
+		if _public_mid(s, f, side, kind).distance_to(_key_point(k.substr(2))) < maxf(Streets.SAMPLE * 0.6 + 0.3, float(CIVIC_WIDTH[kind]) * 0.35):
 			_kept_stages.erase(k)
 			return kind
 	return ""

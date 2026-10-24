@@ -59,7 +59,7 @@ func generate(seed_value: int) -> void:
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
 	_noise.fractal_octaves = 3
-	_noise.fractal_gain = 0.36
+	_noise.fractal_gain = 0.3
 	_noise.frequency = 1.0 / 64.0
 	_warp.seed = seed_value + 17
 	_warp.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -107,13 +107,13 @@ func _natural(p: Vector2) -> float:
 	var mask := 1.0 - smoothstep(lerpf(0.42, 0.62, cliff), lerpf(0.86, 0.72, cliff), r)
 	var hills := (_noise.get_noise_2d(q.x, q.y) * 0.5 + 0.5)
 	# mostly broad, gentle land that a town can spread over, with a few real hills
-	hills = pow(hills, 2.7) * 17.0
+	hills = pow(hills, 2.7) * 8.5
 	# a ridge line here and there
 	var ridge := 1.0 - absf(_noise.get_noise_2d(q.x * 0.7 + 400.0, q.y * 0.7))
-	hills += pow(ridge, 6.0) * 3.0 * smoothstep(0.0, 0.4, _warp.get_noise_2d(q.x * 0.5 + 300.0, q.y * 0.5))
+	hills += pow(ridge, 6.0) * 1.5 * smoothstep(0.0, 0.4, _warp.get_noise_2d(q.x * 0.5 + 300.0, q.y * 0.5))
 	var inland := smoothstep(0.2, 0.9, mask)
 	inland *= inland
-	var land := 0.8 + hills * inland + _detail.get_noise_2d(p.x, p.y) * 0.12 + cliff * 1.6 * smoothstep(0.0, 0.3, mask)
+	var land := 0.8 + hills * inland + _detail.get_noise_2d(p.x, p.y) * 0.06 + cliff * 1.2 * smoothstep(0.0, 0.3, mask)
 	var h := lerpf(LOW, land, mask)
 	return _beach(h)
 
