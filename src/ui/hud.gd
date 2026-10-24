@@ -1739,6 +1739,30 @@ func _build_menu() -> void:
 			Game.settings["time"] = key[0]
 			Game.save_settings())
 		times.add_child(b)
+	# which way the sun's daily arc runs across the city, swung round the compass
+	var sun_title := _label("", 16, true, SOFT)
+	st.add_child(sun_title)
+	var sun_slider := HSlider.new()
+	sun_slider.min_value = 0
+	sun_slider.max_value = 360
+	sun_slider.step = 5
+	sun_slider.custom_minimum_size.y = 44
+	var track := _box(Color(1, 1, 1, 0.85), 6, 0, false)
+	track.content_margin_top = 5
+	track.content_margin_bottom = 5
+	var fill := _box(ACCENT, 6, 0, false)
+	fill.content_margin_top = 5
+	fill.content_margin_bottom = 5
+	sun_slider.add_theme_stylebox_override("slider", track)
+	sun_slider.add_theme_stylebox_override("grabber_area", fill)
+	sun_slider.add_theme_stylebox_override("grabber_area_highlight", fill)
+	sun_slider.value = float(Game.settings.get("sun_angle", 0.0))
+	sun_title.text = "Sun direction  %d°" % int(sun_slider.value)
+	sun_slider.value_changed.connect(func(v: float):
+		Game.settings["sun_angle"] = v
+		sun_title.text = "Sun direction  %d°" % int(v))
+	sun_slider.drag_ended.connect(func(_changed: bool): Game.save_settings())
+	st.add_child(sun_slider)
 	# updates: look for a new version now, not only at start
 	st.add_child(_label("Version %s" % Updater.current, 16, true, SOFT))
 	var upd := Button.new()
