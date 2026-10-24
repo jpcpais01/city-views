@@ -65,8 +65,10 @@ func _ready() -> void:
 			for k in 41:
 				lines[0].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z - 12.0))
 				lines[1].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z + 12.0 + sin(k / 40.0 * PI) * 2.0))
-		for l in lines:
-			island.streets.add_stroke(PackedVector2Array(l))
+		# CV_ROADS: kinds for the first lines, e.g. "avenue,highway"
+		var kinds := OS.get_environment("CV_ROADS").split(",", false)
+		for li in lines.size():
+			island.streets.add_stroke(PackedVector2Array(lines[li]), kinds[li] if li < kinds.size() else "main")
 		print("streets: ", island.streets.streets.size())
 	if OS.get_environment("CV_GROW") != "":
 		var r := float(OS.get_environment("CV_GROW"))

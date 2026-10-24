@@ -706,7 +706,7 @@ static func _plot_key(p: Vector2) -> String:
 func _cap_at(s: Streets.Street, p: Vector2, side: float) -> int:
 	var lv := land.level_at(p.x, p.y)
 	var j := (_hash(roundi(p.x * 7.0), p.y, side * 5.0) - 0.5) * 1.3 + (_wobble(p) - 0.5) * 0.4
-	if s.kind == "main":
+	if s.major():
 		j += 0.35
 	return clampi(roundi(lv - 0.45 + j), 0, TOP_STAGE)
 
@@ -754,7 +754,8 @@ func _fill(s: Streets.Street) -> void:
 ## Stops early (false) when the clock passes `until` (in usec; -1 runs to the end).
 func _step(job: Dictionary, until: int) -> bool:
 	var s: Streets.Street = job.s
-	if not s in streets.streets:
+	# nobody lives along a highway
+	if not s in streets.streets or s.kind == "highway":
 		return true
 	var n := s.pts.size()
 	var off := s.reach() + FRONT_GAP
@@ -925,13 +926,13 @@ func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float
 	var back := _kept_public(s, f, side)
 	if back != "":
 		return back
-	if s.kind == "main" and dense > 0.7 and h < 0.25 and _public_free(q, "square", 48.0) and not _grown_on(s, f, side, "square"):
+	if s.major() and dense > 0.7 and h < 0.25 and _public_free(q, "square", 48.0) and not _grown_on(s, f, side, "square"):
 		return "square"
 	if dense > 0.5 and h > 0.88 and _public_free(q, "church", 60.0) and _civic_near(q, "square", 14.0) == null and not _grown_on(s, f, side, "church"):
 		return "church"
 	# one town hall in the heart of town, schools out among the homes, market
 	# halls where the streets are busy
-	if s.kind == "main" and dense > 0.7 and h > 0.28 and h < 0.42 and _public_free(q, "hall", 90.0) and _civic_near(q, "square", 10.0) == null and not _grown_on(s, f, side, "hall"):
+	if s.major() and dense > 0.7 and h > 0.28 and h < 0.42 and _public_free(q, "hall", 90.0) and _civic_near(q, "square", 10.0) == null and not _grown_on(s, f, side, "hall"):
 		return "hall"
 	if dense > 0.3 and dense < 0.8 and h > 0.42 and h < 0.48 and _public_free(q, "school", 70.0) and not _grown_on(s, f, side, "school"):
 		return "school"
@@ -1005,7 +1006,7 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 	# side lines square to the street, so neighbouring lots share them exactly
 	var na := streets._sidef(s, f0) * side
 	var nb := streets._sidef(s, f1) * side
-	var deepest := MAX_DEPTH if s.kind == "main" else MAX_DEPTH - 0.8
+	var deepest := MAX_DEPTH if s.major() else MAX_DEPTH - 0.8
 	var ds := _depths(s, a, b, na, nb, deepest)
 	var n := ds.size()
 	var least := MIN_DEPTH
@@ -1137,13 +1138,13 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 	var sd := int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663
 	l.sd = sd
 	l.street_y = street_y
-	l.main = s.kind == "main"
+	l.main = s.major()
 	l.cap = cap
 	# a new house starts as a cottage, unless this plot had grown before
 	l.stage = mini(_take_kept(l.origin, l.width), cap)
 	l.next_up = _clock + _delay(l, Vector2.ZERO)
 	if kind == "house":
-		l.arrays = HouseGen.build(l, land, street_y, sd, s.kind == "main")
+		l.arrays = HouseGen.build(l, land, street_y, sd, s.major())
 	else:
 		l.arrays = CivicGen.build(l, land, street_y, sd)
 	reshaped.emit()

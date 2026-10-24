@@ -68,7 +68,8 @@ func _process(delta: float) -> void:
 	if _people.size() < wanted and _spawn_timer <= 0.0:
 		_spawn_timer = 0.25
 		var m := StreetWalk.spawn(streets, _rng)
-		if not m.is_empty():
+		# (no pavements along a highway)
+		if not m.is_empty() and m.s.kind != "highway":
 			m.merge({"v": _rng.randi() % SHIRTS.size(), "xf": Transform3D(), "speed": _rng.randf_range(0.32, 0.5),
 				"side": 1.0 if _rng.randf() < 0.5 else -1.0, "ph": _rng.randf() * TAU, "grow": 0.0, "pause": 0.0})
 			_people.append(m)

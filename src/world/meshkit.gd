@@ -206,6 +206,10 @@ func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bo
 const ASPHALT := 0.1
 # asphalt with a dashed centre line painted on (see Streets.MeshBuf.road)
 const ASPHALT_DASHED := 0.12
+# one side of an avenue / a highway: two lanes with edge lines and a dashed
+# line between them, painted on (see Streets.MeshBuf.road)
+const ASPHALT_AVENUE := 0.124
+const ASPHALT_HIGHWAY := 0.128
 const SLABS := 0.16
 const ROOF_TILES := 0.25
 const COBBLE := 0.33

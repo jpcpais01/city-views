@@ -33,6 +33,8 @@ var brush := ""
 var brush_radius := 5.0
 ## how far the Grow brush lets the town grow up: 1 village .. 4 centre
 var grow_level := 2
+## what the Street brush lays: "main", "avenue" or "highway" (Streets.DRAWN)
+var street_kind := "main"
 var island_seed := 0
 ## what the player calls this island (empty: the default name)
 var island_name := ""
@@ -507,7 +509,7 @@ func _draw_ring() -> void:
 	var w := 0.12 + rig.dist * 0.004
 	if brush == "street" and _path.size() >= 2:
 		# the line being drawn, as a soft ribbon the width of the street
-		var hw: float = Streets.KINDS.main.w
+		var hw: float = Streets.KINDS[street_kind].w
 		_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 		for i in _path.size():
 			var a := _path[maxi(i - 1, 0)]
@@ -590,11 +592,11 @@ func _end_stroke() -> void:
 		return
 	_stroke = false
 	if brush == "street":
-		var cost := _path_length(_path) * IslandProgress.STREET_COST
+		var cost := _path_length(_path) * IslandProgress.STREET_COST * float(Streets.DRAWN[street_kind])
 		if progress.coins < cost:
-			note.emit("Not enough coins for that street (%d)" % ceili(cost), "warn")
+			note.emit("Not enough coins for that %s (%d)" % ["street" if street_kind == "main" else street_kind, ceili(cost)], "warn")
 			Sfx.play("error", 1.0, -6.0)
-		elif streets.add_stroke(_path) != null:
+		elif streets.add_stroke(_path, street_kind) != null:
 			progress.spend(cost)
 			Sfx.play("road", 1.0, -4.0)
 			_stroke_did = true
