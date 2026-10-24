@@ -155,9 +155,9 @@ func _ready() -> void:
 		island.rig.focus(Vector3(m.x, 0, m.y))
 		await get_tree().create_timer(1.5).timeout
 	if OS.get_environment("CV_TRADE") != "":
-		# then look at a shop of that trade from across its street
+		# then look at a shop of that trade (or a lot of that type) from across its street
 		for l: Town.Lot in island.town.lots.values():
-			if l.trade == OS.get_environment("CV_TRADE"):
+			if l.trade == OS.get_environment("CV_TRADE") or l.type == OS.get_environment("CV_TRADE"):
 				print("trade at ", l.origin)
 				island.rig.focus(Vector3(l.origin.x, 0, l.origin.y))
 				island.rig._t_yaw = l.yaw + (PI if OS.get_environment("CV_FLIP") != "" else 0.0)

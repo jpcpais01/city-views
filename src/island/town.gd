@@ -29,6 +29,9 @@ const FRONTAGE := 2.6
 const MAX_DEPTH := 6.0
 ## how deep a plot must be across the middle of its frontage; its ends may taper
 const MIN_DEPTH := 1.8
+## the frontage and least depth each square and public building needs
+const CIVIC_WIDTH := {"square": 6.0, "church": 4.4, "hall": 4.6, "school": 5.2, "market": 4.0}
+const CIVIC_DEPTH := {"square": 3.0, "church": 3.5, "hall": 3.2, "school": 3.8, "market": 2.8}
 const FH := 0.62
 ## how built-up each stage is (terraced from stage 2 up)
 const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0]
@@ -82,7 +85,7 @@ class Lot:
 	var dense := 0.0
 	## the style kit of its quarter (HouseGen.KITS)
 	var kit := 0
-	## house, park, square or church
+	## house, park, square, church, hall (town hall), school or market (market hall)
 	var type := "house"
 	## floors and a shop on the ground floor, for houses
 	var floors := 0
@@ -567,6 +570,9 @@ func stages() -> Dictionary:
 	for l: Lot in lots.values():
 		if l.type == "house" and l.stage > 0:
 			out[_plot_key(l.origin)] = l.stage
+		elif CIVIC_WIDTH.has(l.type):
+			# public buildings come back where they stood
+			out["c:" + _plot_key(l.origin)] = l.type
 	return out
 
 
@@ -586,8 +592,9 @@ func _take_kept(p: Vector2, width: float) -> int:
 		key = ""
 		var best := minf(width * 0.5, 1.2)
 		for k: String in _kept_stages:
-			var xz := k.split("_")
-			var d := p.distance_to(Vector2(float(xz[0]) * 0.1, float(xz[1]) * 0.1))
+			if k.begins_with("c:"):
+				continue
+			var d := p.distance_to(_key_point(k))
 			if d < best:
 				best = d
 				key = k
@@ -682,10 +689,8 @@ func _step(job: Dictionary, until: int) -> bool:
 			for attempt in 2:
 				# terraced rows are narrow; detached houses take wider plots
 				var width := lerpf(1.7, 2.4, h) if dense > 0.6 else lerpf(2.2, 3.2, h)
-				if kind == "square":
-					width = 6.0
-				elif kind == "church":
-					width = 4.4
+				if kind in CIVIC_WIDTH:
+					width = CIVIC_WIDTH[kind]
 				f1 = f + width / Streets.SAMPLE
 				var blocked := f1 > n - 1.5
 				for c in cuts:
@@ -813,7 +818,8 @@ func _inner_lot(s: Streets.Street, f: float, c: Vector2, park: bool) -> bool:
 
 
 ## What a new lot here should hold: green where the player painted parks, now
-## and then a square on a busy main street or a church, spaced well apart.
+## and then a square on a busy main street, a church, a town hall, a school or
+## a market hall, each spaced well apart from the next of its kind.
 func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float) -> String:
 	var q := p + streets._sidef(s, f) * side * (s.reach() + 2.5)
 	if land.green_at(q.x, q.y) > 0.5:
@@ -821,11 +827,73 @@ func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float
 	var h := _hash(s.id, f, side * 7.0)
 	# squares and churches go by the area's level, not one plot's own luck
 	dense = maxf(dense, STAGE_DENSE[clampi(roundi(land.level_at(q.x, q.y)), 0, 4)])
-	if s.kind == "main" and dense > 0.7 and h < 0.25 and _civic_near(q, "square", 48.0) == null:
+	# a square or public building that stood here before the island was reloaded comes back
+	var back := _kept_public(s, f, side)
+	if back != "":
+		return back
+	if s.kind == "main" and dense > 0.7 and h < 0.25 and _public_free(q, "square", 48.0) and not _grown_on(s, f, side, "square"):
 		return "square"
-	if dense > 0.5 and h > 0.88 and _civic_near(q, "church", 60.0) == null and _civic_near(q, "square", 14.0) == null:
+	if dense > 0.5 and h > 0.88 and _public_free(q, "church", 60.0) and _civic_near(q, "square", 14.0) == null and not _grown_on(s, f, side, "church"):
 		return "church"
+	# one town hall in the heart of town, schools out among the homes, market
+	# halls where the streets are busy
+	if s.kind == "main" and dense > 0.7 and h > 0.28 and h < 0.42 and _public_free(q, "hall", 90.0) and _civic_near(q, "square", 10.0) == null and not _grown_on(s, f, side, "hall"):
+		return "hall"
+	if dense > 0.3 and dense < 0.8 and h > 0.42 and h < 0.48 and _public_free(q, "school", 70.0) and not _grown_on(s, f, side, "school"):
+		return "school"
+	if dense > 0.6 and h > 0.48 and h < 0.6 and _public_free(q, "market", 70.0) and _civic_near(q, "square", 12.0) == null and not _grown_on(s, f, side, "market"):
+		return "market"
 	return "house"
+
+
+## Where a public building of `kind` would have its middle, starting at f.
+func _public_mid(s: Streets.Street, f: float, side: float, kind: String) -> Vector2:
+	var fm: float = f + CIVIC_WIDTH[kind] * 0.5 / Streets.SAMPLE
+	return streets._ptf(s, fm) + streets._sidef(s, fm) * side * (s.reach() + FRONT_GAP)
+
+
+## The kind of public building saved with the island whose plot starts about
+## here, taken off the list as it is found ("" for none).
+func _kept_public(s: Streets.Street, f: float, side: float) -> String:
+	for k: String in _kept_stages:
+		if not k.begins_with("c:"):
+			continue
+		var kind := str(_kept_stages[k])
+		if not CIVIC_WIDTH.has(kind):
+			continue
+		if _public_mid(s, f, side, kind).distance_to(_key_point(k.substr(2))) < Streets.SAMPLE * 0.6 + 0.3:
+			_kept_stages.erase(k)
+			return kind
+	return ""
+
+
+## Whether a new public building of `kind` may go up near q: none stands
+## within r, and none saved with the island is still waiting to come back there.
+func _public_free(q: Vector2, kind: String, r: float) -> bool:
+	if _civic_near(q, kind, r) != null:
+		return false
+	for k: String in _kept_stages:
+		if k.begins_with("c:") and str(_kept_stages[k]) == kind and _key_point(k.substr(2)).distance_to(q) < r:
+			return false
+	return true
+
+
+## Whether a house that had grown stood on the plot a public building of
+## `kind` would take here, before the island was reloaded: the building keeps
+## off it, so the town comes back as it was.
+func _grown_on(s: Streets.Street, f: float, side: float, kind: String) -> bool:
+	if _kept_stages.is_empty():
+		return false
+	var mid := _public_mid(s, f, side, kind)
+	for k: String in _kept_stages:
+		if not k.begins_with("c:") and mid.distance_to(_key_point(k)) < float(CIVIC_WIDTH[kind]) * 0.5 - 0.4:
+			return true
+	return false
+
+
+static func _key_point(k: String) -> Vector2:
+	var xz := k.split("_")
+	return Vector2(float(xz[0]) * 0.1, float(xz[1]) * 0.1)
 
 
 func _civic_near(p: Vector2, type: String, r: float) -> Variant:
@@ -847,10 +915,8 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 	var ds := _depths(s, a, b, na, nb, deepest)
 	var n := ds.size()
 	var least := MIN_DEPTH
-	if kind == "church":
-		least = 3.5
-	elif kind == "square":
-		least = 3.0
+	if kind in CIVIC_DEPTH:
+		least = CIVIC_DEPTH[kind]
 	# squares, churches and parks are laid out square; houses take the shape
 	# of the block behind them, tapering where it narrows
 	if kind != "house":
@@ -962,8 +1028,8 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 	elif kind == "park" and _green(l) <= 0.5:
 		kind = "house"
 	l.type = kind
-	# squares and churches stand on a level plot all the way back; parks keep their slopes
-	var front := depth if kind == "square" or kind == "church" else minf(depth * 0.72, 4.2)
+	# squares and public buildings stand on a level plot all the way back; parks keep their slopes
+	var front := depth if kind != "house" else minf(depth * 0.72, 4.2)
 	if kind != "park":
 		land.pad(PackedVector2Array([a, b, b + nb * front, a + na * front]), level, 1.4, _near_street)
 	l.kit = HouseGen.kit_at(land, l.origin)

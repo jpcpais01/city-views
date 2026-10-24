@@ -275,9 +275,12 @@ func _island_levels() -> void:
 			low += 1 if l.origin.x < 0.0 else 0
 	check(joined >= 2 and low == 0, "tall neighbours in the centre join into wider buildings (%d buildings over %d plots)" % [joined, spans])
 	var before := island.town.stages()
+	var civic_before := _civic_kinds(island)
 	island._apply_save(JSON.parse_string(JSON.stringify(island.to_dict())))
 	island.town.fill_all()
 	var after := island.town.stages()
+	var civic_after := _civic_kinds(island)
+	check(civic_before.size() > 0 and civic_before == civic_after, "squares and public buildings come back with the island (%s, %s)" % [civic_before, civic_after])
 	# plots may shift a little on ground levelled the first time round
 	var sum_before := 0
 	var sum_after := 0
@@ -523,6 +526,12 @@ func _island_budget() -> void:
 		if l.type == "square" or l.type == "church":
 			civic += 1
 	check(civic >= 1, "the town grows a square or a church (%d)" % civic)
+	var public := {}
+	for l: Town.Lot in island.town.lots.values():
+		if l.type in ["hall", "school", "market"]:
+			public[l.type] = public.get(l.type, 0) + 1
+	check(public.size() >= 2, "the town grows public buildings: a town hall, schools, market halls (%s)" % str(public))
+	check(public.get("hall", 0) <= 1, "there is only one town hall in the middle of town")
 	# painting green turns the houses there into parks
 	var at: Vector2 = some.origin
 	island.land.paint_green(Vector3(at.x, 0, at.y), 8.0, 1.0)
@@ -581,3 +590,13 @@ func _gulls(life: Life) -> void:
 	check(sane, "gulls stay between the sea and the sky")
 	check(seen.has(Life.PERCH) and seen.has(Life.TAKEOFF), "gulls come down to perch and take off again")
 	check(seen.has(Life.DIVE), "gulls dive for fish")
+
+
+## The squares, churches and public buildings standing, sorted by kind.
+func _civic_kinds(island: IslandWorld) -> Array:
+	var out := []
+	for l: Town.Lot in island.town.lots.values():
+		if l.type in Town.CIVIC_WIDTH:
+			out.append(l.type)
+	out.sort()
+	return out

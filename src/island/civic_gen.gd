@@ -1,8 +1,9 @@
 class_name CivicGen
 extends RefCounted
 ## The lots of the new island that are not houses: parks where the player
-## painted green, paved squares with a fountain on busy main streets, and a
-## church for each part of town, built in the style of its quarter. Built in
+## painted green, paved squares with a fountain on busy main streets, a
+## church for each part of town, a town hall in the heart of it, schools among
+## the homes and market halls where it is busy, built in the style of its quarter. Built in
 ## the lot's frame like HouseGen (local +Z faces the street, the lot runs back
 ## to -depth) and returned as the same raw arrays.
 
@@ -28,6 +29,12 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int) -> 
 			_square(mk, l, land, y0)
 		"church":
 			_church(mk, l)
+		"hall":
+			_town_hall(mk, l)
+		"school":
+			_school(mk, l)
+		"market":
+			_market(mk, l)
 	mk.pop()
 	return [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,
 		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]
@@ -223,3 +230,183 @@ static func _church(mk: MeshKit, l: Town.Lot) -> void:
 	for sx: float in [-1.0, 1.0]:
 		if rng.randf() < 0.6:
 			_tree(mk, rng, Vector3(sx * (l.width * 0.5 - 0.45), 0.0, nz - nd * 0.3))
+
+
+# ------------------------------------------------------------------ public buildings
+
+## The quarter's wall, roof and trim colours for a public building, and the
+## wall's surface pattern: dressed stone, or the quarter's brick or siding.
+static func _civic_colours(l: Town.Lot, rng: RandomNumberGenerator) -> Array:
+	var K: Dictionary = HouseGen.KITS[l.kit]
+	var wall: Color = K.walls[rng.randi() % K.walls.size()]
+	var roof: Color = K.roofs[rng.randi() % K.roofs.size()]
+	var trim: Color = K.trim if K.trim != null else wall.lightened(0.45)
+	var we := 0.0
+	if l.kit == HouseGen.BRICK:
+		we = MeshKit.BRICKS
+		trim = Color(0.95, 0.92, 0.86)
+	elif l.kit == HouseGen.NORDIC:
+		we = MeshKit.SIDING
+	else:
+		wall = wall.lerp(Color(0.9, 0.86, 0.78), 0.5)
+	return [wall, roof, trim, we]
+
+
+## A town hall: two tall floors behind a columned portico, a clock tower on
+## the roof and a flag flying over the forecourt.
+static func _town_hall(mk: MeshKit, l: Town.Lot) -> void:
+	var c := _civic_colours(l, mk.rng)
+	var wall: Color = c[0]
+	var roof: Color = c[1]
+	var trim: Color = c[2]
+	var bw := minf(l.width - 0.8, 4.2)
+	var bd := minf(l.depth - 1.1, 2.6)
+	var bh := 1.7
+	var bz := -1.0 - bd * 0.5
+	var zf := bz + bd * 0.5
+	mk.shadow = false
+	mk.box_faces(Vector3(0, 0.0, -0.5), Vector3(l.width, 0.05, 1.0), PAVING, MeshKit.TOP)
+	mk.shadow = true
+	mk.box_faces(Vector3(0, bh * 0.5, bz), Vector3(bw, bh, bd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, c[3])
+	mk.ledge(Vector3(0, bh + 0.04, bz), Vector3(bw + 0.1, 0.08, bd + 0.1), 0.02, trim)
+	mk.hip_roof(Vector3(0, bh + 0.08, bz), bw, bd, 0.5, 0.06, roof)
+	# tall windows on both floors all round
+	for fl in 2:
+		var y := 0.45 + fl * 0.82
+		mk.window_row(Vector3(0, y, zf), Vector3.BACK, bw - 0.3, int(bw / 0.5), 0.2, 0.42, Palette.GLASS_LIGHT, true)
+		mk.window_row(Vector3(0, y, bz - bd * 0.5), Vector3.FORWARD, bw - 0.3, int(bw / 0.5), 0.2, 0.42, Palette.GLASS_LIGHT, true)
+		for sx: float in [-1.0, 1.0]:
+			mk.window_row(Vector3(sx * bw * 0.5, y, bz), Vector3.RIGHT * sx, bd - 0.3, int(bd / 0.5), 0.2, 0.42, Palette.GLASS_LIGHT, true)
+	# the portico: steps, four columns, an entablature and a pediment
+	var pz := zf + 0.36
+	mk.box_faces(Vector3(0, 0.05, pz), Vector3(1.7, 0.1, 0.72), PAVING.darkened(0.06), MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+	for x: float in [-0.66, -0.22, 0.22, 0.66]:
+		mk.pole(Vector3(x, 0.1, pz + 0.24), 0.05, 0.96, 6, trim)
+	mk.box_faces(Vector3(0, 1.12, pz), Vector3(1.66, 0.14, 0.72), trim, MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.push_at(Vector3(0, 1.19, pz), PI * 0.5)
+	mk.gable_roof(Vector3.ZERO, 0.72, 1.66, 0.32, 0.04, roof, trim)
+	mk.pop()
+	mk.box_faces(Vector3(0, 0.42, zf + 0.012), Vector3(0.42, 0.64, 0.02), Color(0.42, 0.28, 0.2), MeshKit.FRONT)
+	# the clock tower rising from the middle of the roof
+	var tw := 0.72
+	var ty := bh + 0.08
+	mk.push_at(Vector3(0, ty, bz))
+	mk.box_faces(Vector3(0, 0.55, 0), Vector3(tw, 1.1, tw), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, c[3])
+	mk.ledge(Vector3(0, 1.13, 0), Vector3(tw + 0.08, 0.06, tw + 0.08), 0.02, trim)
+	for k in 4:
+		var out: Vector3 = [Vector3.BACK, Vector3.RIGHT, Vector3.FORWARD, Vector3.LEFT][k]
+		mk.window(out * tw * 0.5 + Vector3(0, 0.78, 0), out, 0.32, 0.32, Color(0.98, 0.96, 0.9), Color(0, 0, 0, 0), true)
+	mk.hip_roof(Vector3(0, 1.16, 0), tw, tw, 0.42, 0.04, roof)
+	mk.pole(Vector3(0, 1.56, 0), 0.015, 0.22, 4, Color(0.9, 0.8, 0.4))
+	mk.pop()
+	# a flag over the forecourt and lamps either side
+	var fx := l.width * 0.5 - 0.4
+	mk.pole(Vector3(-fx, 0.0, -0.3), 0.02, 1.9, 4, Color(0.9, 0.9, 0.88))
+	mk.box_faces(Vector3(-fx + 0.24, 1.72, -0.3), Vector3(0.44, 0.28, 0.01), Color("c8553d"), MeshKit.FRONT | MeshKit.BACK)
+	_lamp(mk, Vector3(fx, 0.0, -0.3))
+	_bench(mk, Vector3(fx - 0.6, 0.0, -0.75), 0.0)
+
+
+## A school: a long two-storey block at the back of a playground marked out
+## for games, a bell cupola over the door and railings along the street.
+static func _school(mk: MeshKit, l: Town.Lot) -> void:
+	var rng := mk.rng
+	var c := _civic_colours(l, rng)
+	var wall: Color = c[0]
+	var roof: Color = c[1]
+	var trim: Color = c[2]
+	var bw := l.width - 0.8
+	var bd := 1.6
+	var bh := HouseGen.FH * 2.0
+	var bz := -l.depth + 0.4 + bd * 0.5
+	var zf := bz + bd * 0.5
+	# the playground, with a court painted on it
+	var yd := zf + 0.1
+	mk.shadow = false
+	mk.box_faces(Vector3(0, 0.0, yd * 0.5), Vector3(l.width - 0.3, 0.05, -yd), Color(0.6, 0.6, 0.6), MeshKit.TOP)
+	var cw := minf(bw - 0.6, 3.2)
+	var cd := minf(-yd - 0.8, 1.8)
+	var cz := yd * 0.5
+	var line := Color(0.96, 0.96, 0.94)
+	for sz: float in [-1.0, 1.0]:
+		mk.box_faces(Vector3(0, 0.03, cz + sz * cd * 0.5), Vector3(cw, 0.01, 0.04), line, MeshKit.TOP)
+	for sx: float in [-1.0, 0.0, 1.0]:
+		mk.box_faces(Vector3(sx * cw * 0.5, 0.03, cz), Vector3(0.04, 0.01, cd), line, MeshKit.TOP)
+	mk.shadow = true
+	# a hoop at each end of the court
+	for sx: float in [-1.0, 1.0]:
+		var hx := sx * (cw * 0.5 + 0.15)
+		mk.pole(Vector3(hx, 0.0, cz), 0.02, 0.62, 4, IRON)
+		mk.box_faces(Vector3(hx - sx * 0.03, 0.62, cz), Vector3(0.02, 0.2, 0.3), Color(0.96, 0.96, 0.94), MeshKit.LEFT | MeshKit.RIGHT | MeshKit.TOP)
+	# the school building, gable ends to the sides
+	mk.box_faces(Vector3(0, bh * 0.5, bz), Vector3(bw, bh, bd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, c[3])
+	mk.push_at(Vector3(0, 0, bz))
+	mk.bands(HouseGen.FH, bw, bd, 1.0, 1, 0.04, trim)
+	mk.pop()
+	mk.gable_roof(Vector3(0, bh, bz), bw, bd, 0.42, 0.08, roof, wall)
+	# big classroom windows on both floors, a canopy over the door
+	for fl in 2:
+		var y := HouseGen.FH * (fl + 0.55)
+		mk.window_row(Vector3(0, y, zf), Vector3.BACK, bw - 0.5, int(bw / 0.45), 0.32, 0.34, Palette.GLASS_LIGHT, true)
+		mk.window_row(Vector3(0, y, bz - bd * 0.5), Vector3.FORWARD, bw - 0.5, int(bw / 0.45), 0.32, 0.34, Palette.GLASS_LIGHT, true)
+	mk.box_faces(Vector3(0, 0.3, zf + 0.015), Vector3(0.5, 0.56, 0.03), Color("2f6f8f"), MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.box_faces(Vector3(0, 0.64, zf + 0.22), Vector3(0.9, 0.04, 0.44), trim, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+	# a little bell cupola on the ridge
+	var ry := bh + 0.42
+	mk.box_faces(Vector3(0, ry + 0.12, bz), Vector3(0.26, 0.26, 0.26), trim, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.cone(Vector3(0, ry + 0.25, bz), 0.24, 0.26, 4, roof)
+	# railings along the street, with the gate in the middle
+	for sx: float in [-1.0, 1.0]:
+		var run := l.width * 0.5 - 0.7
+		mk.box_faces(Vector3(sx * (0.5 + run * 0.5), 0.14, -0.12), Vector3(run, 0.28, 0.02), IRON, MeshKit.FRONT | MeshKit.BACK | MeshKit.TOP)
+	for sx: float in [-1.0, 1.0]:
+		if rng.randf() < 0.75:
+			_tree(mk, rng, Vector3(sx * (l.width * 0.5 - 0.4), 0.0, -0.55))
+
+
+## A market hall: a big gabled hall end-on to the street, a glazed lantern
+## along its ridge, a great round window over the doors and stalls outside.
+static func _market(mk: MeshKit, l: Town.Lot) -> void:
+	var rng := mk.rng
+	var c := _civic_colours(l, rng)
+	var wall: Color = c[0]
+	var roof: Color = c[1].lerp(Color(0.38, 0.42, 0.46), 0.5)
+	var trim: Color = c[2]
+	var hw := l.width - 0.6
+	var hd := minf(l.depth - 0.9, 3.6)
+	var wh := 1.15
+	var hz := -0.8 - hd * 0.5
+	var zf := hz + hd * 0.5
+	var rise := hw * 0.36
+	mk.shadow = false
+	mk.box_faces(Vector3(0, 0.0, -0.4), Vector3(l.width, 0.05, 0.8), COBBLES, MeshKit.TOP)
+	mk.shadow = true
+	mk.box_faces(Vector3(0, wh * 0.5, hz), Vector3(hw, wh, hd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, c[3])
+	mk.push_at(Vector3(0, wh, hz), PI * 0.5)
+	mk.gable_roof(Vector3.ZERO, hd, hw, rise, 0.1, roof, wall)
+	mk.pop()
+	# the glazed lantern letting light down the middle of the hall
+	mk.box_faces(Vector3(0, wh + rise + 0.04, hz), Vector3(0.36, 0.14, hd * 0.8), Color(0.72, 0.84, 0.9), MeshKit.TOP | MeshKit.LEFT | MeshKit.RIGHT | MeshKit.FRONT | MeshKit.BACK)
+	# tall arched windows down the sides, a big round one in the gable
+	for sx: float in [-1.0, 1.0]:
+		mk.window_row(Vector3(sx * hw * 0.5, wh * 0.55, hz), Vector3.RIGHT * sx, hd - 0.4, int(hd / 0.6), 0.26, 0.62, Palette.GLASS_LIGHT, true)
+	mk.window(Vector3(0, wh + rise * 0.42, zf), Vector3.BACK, rise * 0.75, rise * 0.75, Color(1.0, 0.9, 0.7), Color(1, 1, 1, 1), true)
+	# wide doors under a sign
+	mk.box_faces(Vector3(0, 0.38, zf + 0.012), Vector3(0.9, 0.72, 0.02), Color(0.36, 0.24, 0.18), MeshKit.FRONT)
+	mk.box_faces(Vector3(0, 0.86, zf + 0.03), Vector3(1.3, 0.16, 0.05), trim, MeshKit.FRONT | MeshKit.TOP)
+	for sx: float in [-1.0, 1.0]:
+		mk.window(Vector3(sx * hw * 0.32, 0.42, zf), Vector3.BACK, 0.4, 0.5, Palette.GLASS_LIGHT, Color(1, 1, 1, 1), true)
+	# market stalls out front under striped canopies, with produce on show
+	var fruit := [Color("e8503a"), Color("f2b33d"), Color("6fb35a"), Color("f08a24"), Color("8c5aa8")]
+	for sx: float in [-1.0, 1.0]:
+		var x := sx * (l.width * 0.5 - 0.75)
+		var awn: Color = Palette.AWNINGS[rng.randi() % Palette.AWNINGS.size()]
+		mk.box_faces(Vector3(x, 0.17, -0.45), Vector3(0.8, 0.06, 0.4), Color(0.62, 0.45, 0.3), MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+		for k in 3:
+			mk.box_faces(Vector3(x + (k - 1) * 0.25, 0.215, -0.45), Vector3(0.2, 0.03, 0.3), fruit[rng.randi() % fruit.size()], MeshKit.TOP)
+		for px: float in [-0.38, 0.38]:
+			mk.pole(Vector3(x + px, 0.0, -0.27), 0.012, 0.5, 4, IRON)
+		for k in 2:
+			mk.push(Transform3D(Basis(Vector3.RIGHT, 0.3), Vector3(x, 0.5, -0.45)))
+			mk.box_faces(Vector3((k - 0.5) * 0.43, 0, 0), Vector3(0.43, 0.02, 0.5), awn if k == 0 else Color(0.98, 0.97, 0.94), MeshKit.TOP | MeshKit.FRONT)
+			mk.pop()

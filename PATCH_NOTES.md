@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 09:57 UTC
+- A town hall now rises in the heart of a big town: a columned portico, a clock tower on the roof and a flag over the forecourt.
+- Schools go up among the homes, with a playground marked out for games, hoops and railings along the street.
+- Market halls appear where the streets are busy: a big gabled hall with a glazed roof lantern and fruit stalls outside.
+- Public buildings take on the style of their quarter: brick, stone or painted siding.
+- Squares, churches and public buildings now come back in the same places when you load your island.
+
 ## 2026-10-24 07:42 UTC
 - Shops now have a trade you can see from the street: cafés, bakeries, grocers and pharmacies alongside the general stores.
 - Cafés set tables with parasols out on the pavement.
