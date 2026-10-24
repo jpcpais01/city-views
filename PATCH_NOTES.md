@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 19:00 UTC
+- Undo and Redo are instant: they only put back what your last stroke changed instead of reloading the whole city.
+- Taking up a street is much quicker too.
+- Time of day in Settings: leave it on Auto, or hold your city at Sunrise, Day, Sunset or Night.
+- On PC, hold the right mouse button and slide up or down to tilt the camera; left and right still turns it.
+
 ## 2026-10-24 18:10 UTC
 - Smoke curls up from the chimney stacks of the big works in industrial districts and drifts away on the wind.
 - Airliners now cross high over your city every minute or so, with glowing cabin windows and red and green wingtip lights at night.

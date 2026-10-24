@@ -1274,6 +1274,26 @@ func from_data(data: Array) -> void:
 		added.emit(s)
 
 
+## Brings the streets back to `data` (as to_data() gave it), taking up and
+## laying only the streets that differ. Returns whether any did.
+func restore_data(data: Array) -> bool:
+	var want := {}
+	for d in data:
+		want[d.id] = d
+	var gone: Array[Street] = []
+	for st: Street in streets:
+		if not want.has(st.key) or street_data(st) != want[st.key]:
+			gone.append(st)
+		else:
+			want.erase(st.key)
+	for st in gone:
+		remove_street(st)
+	for d in data:
+		if want.has(d.id):
+			add_data(d)
+	return not gone.is_empty() or not want.is_empty()
+
+
 ## Lays one street exactly as saved (from another builder, or an undo).
 func add_data(d: Dictionary) -> Street:
 	var s := _from_dict(d)

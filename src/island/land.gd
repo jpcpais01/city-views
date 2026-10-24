@@ -1403,17 +1403,49 @@ func snapshot() -> Array:
 	return [heights.duplicate(), zone.duplicate(), green.duplicate(), level.duplicate()]
 
 
-func restore(snap: Array) -> void:
+## Puts the ground back as snapshot() took it, redrawing only the rows and
+## columns that differ. Returns the box of samples that changed as
+## [lo, hi, heights_changed], or an empty array if nothing did.
+func restore(snap: Array) -> Array:
+	var layers := [heights, zone, green, level]
+	var lo := Vector2i(SIDE, SIDE)
+	var hi := Vector2i(-1, -1)
+	var shaped := false
+	for n in mini(snap.size(), layers.size()):
+		var now: PackedFloat32Array = layers[n]
+		var was: PackedFloat32Array = snap[n]
+		if now == was:
+			continue
+		for j in SIDE:
+			var a := j * SIDE
+			if now.slice(a, a + SIDE) == was.slice(a, a + SIDE):
+				continue
+			# the first and last samples along the row that differ
+			var i0 := 0
+			while now[a + i0] == was[a + i0]:
+				i0 += 1
+			var i1 := SIDE - 1
+			while now[a + i1] == was[a + i1]:
+				i1 -= 1
+			lo = lo.min(Vector2i(i0, j))
+			hi = hi.max(Vector2i(i1, j))
+		shaped = shaped or n == 0
+	if hi.x < 0:
+		return []
 	farm_rev += 1
 	heights = snap[0].duplicate()
 	zone = snap[1].duplicate()
 	green = snap[2].duplicate()
 	if snap.size() > 3:
 		level = snap[3].duplicate()
-	_mark(0, 0, CELLS, CELLS)
-	for c in _chunks.keys():
-		_dirty[c] = true
+	_mark(lo.x, lo.y, hi.x, hi.y)
 	changed.emit()
+	return [lo, hi, shaped]
+
+
+## The middle of sample (i, j) on the ground.
+func sample_pos(i: int, j: int) -> Vector2:
+	return _pos(i, j)
 
 
 ## Where sample k of a version 1 (128 m) island lies on this map.

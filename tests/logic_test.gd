@@ -29,6 +29,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "undo":
+		await _island_undo()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "roads":
 		await _road_kinds()
 		print("FAILURES: %d" % failures)
@@ -196,6 +201,39 @@ func _island_undo() -> void:
 	var data := island.streets.to_data()
 	island.streets.from_data(data)
 	check(island.streets.streets[0].key == key, "streets keep their keys through a save")
+	# undo only takes back what the stroke changed: the town elsewhere stands
+	island.land.paint_zone(Vector3(0, 0, 2), 14.0, 2.0)
+	island.town.fill_all()
+	var standing := island.town.lots.keys()
+	island._undo.append(island.snapshot())
+	var far := PackedVector2Array()
+	for k in 20:
+		far.append(Vector2(40 + k, -40 + k * 0.3))
+	island.streets.add_stroke(far)
+	island.land.paint_zone(Vector3(50, 0, -36), 6.0, 2.0)
+	var t0 := Time.get_ticks_msec()
+	island.undo()
+	var took := Time.get_ticks_msec() - t0
+	var kept := 0
+	for id in standing:
+		kept += int(island.town.lots.has(id))
+	check(standing.size() > 3 and kept == standing.size() and island.streets.streets.size() == 1, "undo leaves the rest of the town standing (%d of %d houses)" % [kept, standing.size()])
+	check(took < 50, "undo is quick (%d ms)" % took)
+	island.redo()
+	check(island.streets.streets.size() == 2 and island.land.zone_at(50, -36) > 0.5, "redo lays the far street and its town again")
+	# the clock can be held at a time of day, or left to run
+	Game.settings["time"] = "night"
+	island.time_of_day = 0.4
+	for k in 60:
+		island.advance_time(0.1)
+	check(absf(island.time_of_day - World.TIMES.night) < 0.01, "the clock settles on the time picked (%.3f)" % island.time_of_day)
+	Game.settings["time"] = "auto"
+	var t1 := island.time_of_day
+	island.advance_time(1.0)
+	check(island.time_of_day != t1, "on Auto the day goes round by itself")
+	island.rig.tilt_by(10.0)
+	check(is_equal_approx(island.rig._t_tilt, CameraRig.MAX_TILT), "the view tilts only so far")
+	island.rig.tilt_by(-10.0)
 	island.queue_free()
 	await get_tree().process_frame
 
@@ -644,17 +682,18 @@ func _busiest_view(island: IslandWorld, focuses: Array) -> Array:
 	var total := 0
 	var worst := {}
 	var d := CameraRig.MAX_D
-	var pitch := island.rig.pitch_for(d)
 	for yaw_deg in [0, 35, 80, 135, 200, 290]:
-		for focus: Vector2 in focuses:
-			var yaw := deg_to_rad(yaw_deg)
-			var at := Vector3(focus.x, maxf(island.land.height_at(focus.x, focus.y), 0.0) * 0.8, focus.y)
-			var eye := at + Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * d
-			var acc := TriBudget.count_view(island, eye, at)
-			var t := TriBudget.total(acc)
-			if t > total:
-				total = t
-				worst = acc
+		# as the zoom tilts it, and tilted out as far as the player can
+		for pitch in [island.rig.pitch_for(d), island.rig.pitch_for(d) - CameraRig.MAX_TILT]:
+			for focus: Vector2 in focuses:
+				var yaw := deg_to_rad(yaw_deg)
+				var at := Vector3(focus.x, maxf(island.land.height_at(focus.x, focus.y), 0.0) * 0.8, focus.y)
+				var eye := at + Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * d
+				var acc := TriBudget.count_view(island, eye, at)
+				var t := TriBudget.total(acc)
+				if t > total:
+					total = t
+					worst = acc
 	return [total, worst]
 
 

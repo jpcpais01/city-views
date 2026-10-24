@@ -252,6 +252,25 @@ func zone_changed(c: Vector2, r: float) -> void:
 						_set_stage(l, cap)
 
 
+## The ground under the box lo..hi was reshaped (an undo): the houses on it
+## are laid out again, keeping how far they had grown.
+func reground(lo: Vector2, hi: Vector2) -> void:
+	var box := Rect2(lo, hi - lo).grow(MAX_DEPTH)
+	var kept := stages()
+	for id in lots.keys():
+		var l: Lot = lots[id]
+		if box.has_point(l.origin):
+			_drop(l)
+	# only the houses taken down keep their stages, so the list stays short
+	for k: String in kept:
+		var at := _key_point(k.trim_prefix("c:"))
+		if box.has_point(at):
+			_kept_stages[k] = kept[k]
+	for s: Streets.Street in streets.streets:
+		if s.near_box((lo + hi) * 0.5, (hi - lo).length() * 0.5 + MAX_DEPTH):
+			_todo[s.id] = s
+
+
 ## Whether anything stands at p: a lot, a street or its pavement.
 func is_built(p: Vector2) -> bool:
 	var c := _cell(p)
@@ -364,12 +383,17 @@ func _on_removed(s: Streets.Street) -> void:
 	for id in lots.keys():
 		if lots[id].street == s.id:
 			_drop(lots[id])
-	for k in _occ.size():
-		if _occ[k] == -s.id:
-			_occ[k] = 0
-		if _front[k] == s.id:
-			_front[k] = 0
-			_front_d[k] = INF
+	# its cells all lie within reach of its own box
+	var pad := s.reach() + FRONTAGE + 1.0
+	var c0 := _cell(s.lo - Vector2(pad, pad)).max(Vector2i.ZERO)
+	var c1 := _cell(s.hi + Vector2(pad, pad)).min(Vector2i(RES - 1, RES - 1))
+	for cz in range(c0.y, c1.y + 1):
+		for k in range(cz * RES + c0.x, cz * RES + c1.x + 1):
+			if _occ[k] == -s.id:
+				_occ[k] = 0
+			if _front[k] == s.id:
+				_front[k] = 0
+				_front_d[k] = INF
 	# streets that crossed it may have lost cells they share with it, and gain room
 	for o in streets._touching(s):
 		_mark_street(o)

@@ -1669,6 +1669,35 @@ func _build_menu() -> void:
 				"fps": _fps_label.visible = on
 			Game.save_settings())
 		st.add_child(cb)
+	# the time of day: round the clock by itself, or held where the player likes it
+	st.add_child(_label("Time of day", 16, true, SOFT))
+	var times := HBoxContainer.new()
+	times.add_theme_constant_override("separation", 6)
+	st.add_child(times)
+	var time_group := ButtonGroup.new()
+	for key in [["auto", "Auto"], ["sunrise", "Sunrise"], ["day", "Day"], ["sunset", "Sunset"], ["night", "Night"]]:
+		var b := Button.new()
+		b.text = key[1]
+		b.toggle_mode = true
+		b.button_group = time_group
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size.y = 48
+		b.add_theme_font_size_override("font_size", 16)
+		b.add_theme_stylebox_override("normal", _box(Color(1, 1, 1, 0.85), 18, 6, false))
+		b.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.95), 18, 6, false))
+		b.add_theme_stylebox_override("pressed", _box(ACCENT, 18, 6, false))
+		b.add_theme_stylebox_override("hover_pressed", _box(ACCENT, 18, 6, false))
+		b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		for c in ["font_color", "font_hover_color"]:
+			b.add_theme_color_override(c, INK)
+		for c in ["font_pressed_color", "font_hover_pressed_color"]:
+			b.add_theme_color_override(c, Color.WHITE)
+		b.button_pressed = Game.settings.get("time", "auto") == key[0]
+		b.pressed.connect(func():
+			Sfx.play("click")
+			Game.settings["time"] = key[0]
+			Game.save_settings())
+		times.add_child(b)
 
 	# ---- what's new
 	var notes := _page_box("notes")

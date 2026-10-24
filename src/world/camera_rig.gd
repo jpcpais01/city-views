@@ -8,6 +8,9 @@ var dist := 38.0
 var _t_target := Vector3.ZERO
 var _t_yaw := deg_to_rad(35.0)
 var _t_dist := 38.0
+## how far the player has tilted the view from the zoom's own tilt
+var tilt := 0.0
+var _t_tilt := 0.0
 var cam: Camera3D
 var idle_spin := false
 ## Ground height under a point.
@@ -16,6 +19,8 @@ var ground_fn: Callable
 var limit := 64.0
 
 const MIN_D := 9.0
+## how far the player may tilt the view either way from the zoom's own tilt
+const MAX_TILT := deg_to_rad(15.0)
 const MAX_D := 92.0
 
 
@@ -51,6 +56,11 @@ func rotate_by(a: float) -> void:
 	_t_yaw += a
 
 
+## Tilts the view up or down from the tilt the zoom gives it (right-drag on PC).
+func tilt_by(a: float) -> void:
+	_t_tilt = clampf(_t_tilt + a, -MAX_TILT, MAX_TILT)
+
+
 func focus(p: Vector3) -> void:
 	_t_target = Vector3(p.x, 0, p.z)
 
@@ -63,7 +73,8 @@ func _process(delta: float) -> void:
 	target = target.lerp(_t_target, k)
 	yaw = lerp_angle(yaw, _t_yaw, k)
 	dist = lerpf(dist, _t_dist, k)
-	var pitch := pitch_for(dist)
+	tilt = lerpf(tilt, _t_tilt, k)
+	var pitch := clampf(pitch_for(dist) + tilt, deg_to_rad(12.0), deg_to_rad(86.0))
 	var ground := _ground_height(target)
 	var focus_p := Vector3(target.x, ground, target.z)
 	var off := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * dist
