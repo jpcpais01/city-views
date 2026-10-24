@@ -156,6 +156,14 @@ func _ready() -> void:
 			print("%s bridge: %s" % [kinds[q], str(st.spans) if st else "none"])
 		island.streets.flush()
 		island.rig.focus(Vector3(rv[mid].x, 0, rv[mid].y))
+	if OS.get_environment("CV_STOP") != "":
+		# look at the first bus stop
+		for st: Streets.Street in island.streets.streets:
+			if not st.stops.is_empty():
+				var p := island.streets._ptf(st, st.stops[0].x)
+				print("bus stop at ", p, " of ", st.stops.size(), " on ", st.kind)
+				island.rig.focus(Vector3(p.x, 0, p.y))
+				break
 	if OS.get_environment("CV_BRIDGE") != "":
 		# look at the first bridge
 		for st: Streets.Street in island.streets.streets:

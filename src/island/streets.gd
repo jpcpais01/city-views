@@ -78,6 +78,8 @@ class Street:
 	var spans := PackedVector2Array()
 	## per sample, which sides run along the water on a stone quay (1 left, 2 right)
 	var quay := PackedByteArray()
+	## its bus stops: (sample index, side), set once it is built (see BusStops)
+	var stops := PackedVector2Array()
 
 	func w() -> float:
 		return Streets.KINDS[kind].w
@@ -834,6 +836,10 @@ func _build(s: Street) -> void:
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE - 0.09), CURB + 0.16, side * (w + PAVE - 0.09), CURB + 0.19, HouseGen.IRON, 0.0, out3)
 				continue
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
+	# bus stops, once the street is laid out and knows its junctions
+	if not _laying.has(s.id):
+		s.stops = BusStops.place(s, skip, cuts)
+		BusStops.build(self, s, buf, s.stops)
 	# what carries the bridges: arches, piers, pylons and cables
 	var sup := MeshBuf.new()
 	BridgeGen.build(self, s, buf, sup, upto, styles)
