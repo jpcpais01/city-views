@@ -803,6 +803,23 @@ func _districts() -> void:
 		if l.type == "house" and absf(l.origin.x + 10) < 3.0 and absf(l.origin.y - 3.0) < 8.0:
 			left += int(l.use == "industry" and island.land.use_at(l.origin.x, l.origin.y) == HouseGen.HOMES)
 	check(left == 0, "repainting works as homes turns them into houses (%d left)" % left)
+	# milestones pay out and open up the city; demand steers what grows
+	var pr := island.progress
+	var before := pr.coins
+	pr.title = "Hamlet"
+	pr.best = maxi(pr.best, 1300)
+	pr.recount(false)
+	check(pr.title == "Big City" and pr.coins >= before + pr.milestone_reward("Big City") - 0.01, "a milestone gives a title and coins (%s, +%d)" % [pr.title, int(pr.coins - before)])
+	check(pr.can_use("level6") and pr.can_use("industry") and pr.can_use("offices"), "milestones open the Skyline level and the districts")
+	var sane := true
+	for d in pr.demand:
+		sane = sane and d >= 0.0 and d <= 1.0
+	check(sane and island.town.demand == pr.demand, "demand is worked out for every district (%s)" % str(pr.demand))
+	var any: Town.Lot = island.town.lots.values()[0]
+	island.town.demand = [1.0, 1.0, 1.0, 1.0]
+	var quick := island.town._delay(any, Vector2.ZERO)
+	island.town.demand = [0.0, 0.0, 0.0, 0.0]
+	check(island.town._delay(any, Vector2.ZERO) > quick * 2.0, "a district in demand grows faster")
 	island.queue_free()
 	await get_tree().process_frame
 

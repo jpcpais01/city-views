@@ -12,9 +12,14 @@ signal goal_ready(i: int)
 signal unlocked(brush: String)
 signal title_changed(title: String)
 
-const TITLES := [[0, "Hamlet"], [30, "Village"], [120, "Town"], [300, "City"], [600, "Big City"], [1000, "Metropolis"]]
-## residents needed before a brush can be used
-const UNLOCK := {"green": 12, "smooth": 30, "flatten": 60, "avenue": 150, "highway": 400}
+## milestones: residents, title, and the coins the city is given on reaching it
+const TITLES := [[0, "Hamlet", 0], [30, "Village", 60], [120, "Town", 150], [300, "Small City", 300], [600, "City", 500],
+	[1200, "Big City", 900], [2500, "Large City", 1500], [5000, "Metropolis", 2500], [10000, "Megalopolis", 4000]]
+## residents needed before a brush, road, district or Grow level can be used
+const UNLOCK := {"green": 12, "smooth": 30, "flatten": 60, "shops": 60, "industry": 120, "avenue": 150,
+	"offices": 300, "highway": 400, "level5": 600, "level6": 1200}
+## the districts, in Land.USES order, and what unlocks each (homes always open)
+const USE_KEYS := ["homes", "shops", "offices", "industry"]
 const START_COINS := 300.0
 const STREET_COST := 0.5 # per metre
 const SHAPE_COST := 4.0 # per second of sculpting
@@ -25,6 +30,10 @@ var coins := START_COINS
 var residents := 0
 ## workplaces: offices and industry
 var jobs := 0
+var office_jobs := 0
+var works := 0
+## how much the city wants more of each district (Land.USES order), 0..1
+var demand: Array[float] = [0.6, 0.4, 0.0, 0.0]
 var homes := 0
 var shops := 0
 var parks := 0
@@ -102,6 +111,8 @@ func recount(silent: bool) -> void:
 		return
 	var r := 0
 	var j := 0
+	var oj := 0
+	var wk := 0
 	var h := 0
 	var sh := 0
 	var pk := 0
@@ -116,6 +127,10 @@ func recount(silent: bool) -> void:
 				# offices and industry bring jobs rather than residents
 				if l.use == "office" or l.use == "industry":
 					j += Town.workers(l)
+					if l.use == "office":
+						oj += Town.workers(l)
+					else:
+						wk += 1
 				else:
 					r += maxi(1, l.floors * 2 - int(l.shop))
 				sh += int(l.shop)
@@ -130,6 +145,8 @@ func recount(silent: bool) -> void:
 	var changed := r != residents or j != jobs or h != homes or pk != parks or sq != squares or ch != churches or absf(m - street_m) > 0.5
 	residents = r
 	jobs = j
+	office_jobs = oj
+	works = wk
 	homes = h
 	shops = sh
 	parks = pk
@@ -138,6 +155,7 @@ func recount(silent: bool) -> void:
 	styles = kits.size()
 	harbour = hb
 	street_m = m
+	_work_out_demand()
 	best = maxi(best, residents)
 	for b in UNLOCK:
 		if not opened.has(b) and best >= int(UNLOCK[b]):
@@ -148,6 +166,7 @@ func recount(silent: bool) -> void:
 	if t != title:
 		title = t
 		if not silent:
+			add_coins(milestone_reward(t))
 			title_changed.emit(t)
 	# new goals wait while the town is still laying out, so they start from what is really there
 	if not world.town.is_busy():
@@ -155,6 +174,45 @@ func recount(silent: bool) -> void:
 	_check_goals()
 	if changed:
 		stats_changed.emit()
+
+
+## What the city wants: homes when there are more jobs than workers, shops
+## for its residents, offices and industry to employ them. A district in
+## demand grows faster (Town._delay).
+func _work_out_demand() -> void:
+	var workers := residents * 0.55
+	var ind_jobs := jobs - office_jobs
+	demand[0] = clampf(0.45 + (jobs - workers) / maxf(workers, 30.0), 0.1, 1.0)
+	var want_shops := residents * 0.06
+	demand[1] = clampf(0.3 + (want_shops - shops) / maxf(want_shops, 4.0), 0.0, 1.0) if can_use("shops") else 0.0
+	var want_off := workers * 0.45
+	demand[2] = clampf(0.25 + (want_off - office_jobs) / maxf(want_off, 15.0), 0.0, 1.0) if can_use("offices") else 0.0
+	var want_ind := workers * 0.35
+	demand[3] = clampf(0.25 + (want_ind - ind_jobs) / maxf(want_ind, 15.0), 0.0, 1.0) if can_use("industry") else 0.0
+	if world and world.town:
+		world.town.demand = demand
+
+
+## People out of work: workers the city's jobs don't cover, 0..1.
+func unemployment() -> float:
+	var workers := residents * 0.55
+	return clampf((workers - jobs) / maxf(workers, 1.0), 0.0, 1.0)
+
+
+func milestone_reward(t: String) -> float:
+	for e in TITLES:
+		if e[1] == t:
+			return float(e[2])
+	return 0.0
+
+
+## What reaching `n` residents opens up, for the stats panel.
+static func unlocks_at(n: int) -> Array:
+	var out: Array = []
+	for k in UNLOCK:
+		if int(UNLOCK[k]) == n:
+			out.append(k)
+	return out
 
 
 func _title_for(n: int) -> String:
@@ -170,8 +228,8 @@ func next_title() -> Array:
 	for i in TITLES.size():
 		if best < int(TITLES[i][0]):
 			var lo := float(TITLES[i - 1][0])
-			return [TITLES[i][1], clampf((best - lo) / (float(TITLES[i][0]) - lo), 0.0, 1.0)]
-	return ["", 1.0]
+			return [TITLES[i][1], clampf((best - lo) / (float(TITLES[i][0]) - lo), 0.0, 1.0), int(TITLES[i][0])]
+	return ["", 1.0, 0]
 
 
 # ------------------------------------------------------------------ goals

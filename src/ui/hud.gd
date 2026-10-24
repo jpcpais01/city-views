@@ -242,6 +242,7 @@ func _ready() -> void:
 	_build_fps()
 	_build_toasts()
 	_build_info()
+	_build_stats_panel()
 	_build_goals()
 	_build_menu()
 	_build_photo_exit()
@@ -325,6 +326,15 @@ func _build_island_top() -> void:
 	stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(stats)
 	_pop_label = _pill(stats, "people")
+	# tap the population for the city's stats
+	var pop_tap := Button.new()
+	pop_tap.flat = true
+	pop_tap.focus_mode = Control.FOCUS_NONE
+	pop_tap.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	pop_tap.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+	pop_tap.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+	pop_tap.pressed.connect(_toggle_stats)
+	_pop_label.get_parent().get_parent().add_child(pop_tap)
 	_coin_label = _pill(stats, "coin")
 	var photo_btn := _glass_button(58, "camera")
 	photo_btn.pressed.connect(func(): set_photo(true))
@@ -407,11 +417,12 @@ func _refresh_island_name() -> void:
 
 func _world_summary() -> String:
 	var pr := island.progress
-	return "%d residents in %d homes  ·  %d shops  ·  %d parks  ·  %d m of streets\nThe town pays %s coins every few seconds" % [
-		pr.residents, pr.homes, pr.shops, pr.parks, int(pr.street_m), str(pr.income())]
+	return "%d residents in %d homes  ·  %d jobs  ·  %d shops  ·  %d parks  ·  %d m of streets\nThe city pays %s coins every few seconds" % [
+		pr.residents, pr.homes, pr.jobs, pr.shops, pr.parks, int(pr.street_m), str(pr.income())]
 
 
 func _refresh_stats() -> void:
+	_refresh_stats_panel()
 	var pr := island.progress
 	_pop_label.text = _short(pr.residents)
 	_title_chip.text = pr.title
@@ -419,18 +430,33 @@ func _refresh_stats() -> void:
 	_refresh_locks()
 
 
+## How an unlock reads on a toast or in the stats panel.
+func unlock_name(id: String) -> String:
+	if ROADS.has(id):
+		return "New road: %s" % ROADS[id][0]
+	if id.begins_with("level"):
+		return "New level: %s" % LEVELS[clampi(int(id.substr(5)) - 1, 0, LEVELS.size() - 1)]
+	var u := IslandProgress.USE_KEYS.find(id)
+	if u >= 0:
+		return "New district: %s" % USES[u][0]
+	return "New brush: %s" % BRUSH_INFO[id][0] if BRUSH_INFO.has(id) else id.capitalize()
+
+
 func _on_title(title: String) -> void:
-	show_toast("Your city is now a %s!" % title, "title")
+	var reward := island.progress.milestone_reward(title)
+	show_toast("Your city is now a %s!%s" % [title, "  +%d coins" % int(reward) if reward > 0.0 else ""], "title")
 	Sfx.play("unlock", 0.8)
 	_confetti()
 
 
 func _on_brush_unlocked(id: String) -> void:
-	if ROADS.has(id):
-		show_toast("New road: %s" % ROADS[id][0], "unlock")
+	var what := unlock_name(id)
+	if not BRUSH_INFO.has(id):
+		show_toast(what, "unlock")
 		Sfx.play("unlock")
 		_confetti()
 		_refresh_brushes()
+		_refresh_stats_panel()
 		return
 	show_toast("New brush: %s" % BRUSH_INFO[id][0], "unlock")
 	Sfx.play("unlock")
@@ -667,6 +693,12 @@ func _build_levels() -> void:
 		h.add_child(ic)
 		h.add_child(_label(LEVELS[i], 14, true, INK))
 		b.pressed.connect(func():
+			var key := "level%d" % (i + 1)
+			if not island.progress.can_use(key):
+				show_toast(island.progress.unlock_text(key), "warn")
+				Sfx.play("error", 1.0, -6.0)
+				_refresh_brushes()
+				return
 			Sfx.play("click", 0.85 + i * 0.12, -4.0)
 			island.grow_level = i + 1
 			_refresh_brushes())
@@ -697,6 +729,12 @@ func _build_levels() -> void:
 		h.add_child(ic)
 		h.add_child(_label(USES[i][0], 14, true, INK))
 		b.pressed.connect(func():
+			var key: String = IslandProgress.USE_KEYS[i]
+			if not island.progress.can_use(key):
+				show_toast(island.progress.unlock_text(key), "warn")
+				Sfx.play("error", 1.0, -6.0)
+				_refresh_brushes()
+				return
 			Sfx.play("click", 0.9 + i * 0.1, -4.0)
 			island.grow_use = i
 			_refresh_brushes())
@@ -740,9 +778,11 @@ func _refresh_brushes() -> void:
 		_level_bar.visible = island.brush == "grow" and not _photo
 		for i in _level_keys.size():
 			_level_keys[i].set_pressed_no_signal(island.grow_level == i + 1)
+			_level_keys[i].modulate.a = 1.0 if island.progress.can_use("level%d" % (i + 1)) else 0.5
 		_use_bar.visible = _level_bar.visible
 		for i in _use_keys.size():
 			_use_keys[i].set_pressed_no_signal(island.grow_use == i)
+			_use_keys[i].modulate.a = 1.0 if island.progress.can_use(IslandProgress.USE_KEYS[i]) else 0.5
 	if island.brush != "":
 		_help.text = BRUSH_INFO[island.brush][1]
 		if island.brush == "street":
@@ -935,6 +975,104 @@ func _hide_info() -> void:
 	if _info_tw:
 		_info_tw.kill()
 	_info.visible = false
+
+
+# ------------------------------------------------------------------ city stats
+
+const DEMAND_COLS := [Color("59b84a"), Color("3f8cff"), Color("22b5b5"), Color("e8a21a")]
+var _stats_panel: PanelContainer
+var _stats_title: Label
+var _stats_next: Label
+var _stats_bar: ProgressBar
+var _stats_lines: Label
+var _demand_bars: Array[ProgressBar] = []
+
+
+## The city at a glance, under the population: its milestone and the next
+## one, people and jobs, what it has built, and what it wants more of.
+func _build_stats_panel() -> void:
+	_stats_panel = PanelContainer.new()
+	_stats_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_stats_panel.offset_left = -340
+	_stats_panel.offset_right = -18
+	_stats_panel.offset_top = 96
+	_stats_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_stats_panel.material = _glass_light
+	_stats_panel.add_theme_stylebox_override("panel", _glass_box(GLASS, 20, 14))
+	_root.add_child(_stats_panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	_stats_panel.add_child(v)
+	_stats_title = _label("", 20, true, INK)
+	v.add_child(_stats_title)
+	_stats_bar = ProgressBar.new()
+	_stats_bar.custom_minimum_size = Vector2(290, 7)
+	_stats_bar.show_percentage = false
+	_stats_bar.max_value = 1.0
+	_stats_bar.step = 0.0
+	v.add_child(_stats_bar)
+	_stats_next = _wrap_label("", 13, false, SOFT)
+	_stats_next.custom_minimum_size.x = 290
+	v.add_child(_stats_next)
+	_stats_lines = _label("", 14, false, INK)
+	v.add_child(_stats_lines)
+	v.add_child(_label("Demand", 15, true, INK))
+	for i in USES.size():
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 8)
+		v.add_child(h)
+		var ic := _icon(USES[i][1], 22)
+		ic.custom_minimum_size = Vector2(22, 22)
+		h.add_child(ic)
+		var nl := _label(USES[i][0], 13, true, INK)
+		nl.custom_minimum_size.x = 70
+		h.add_child(nl)
+		var bar := ProgressBar.new()
+		bar.custom_minimum_size = Vector2(170, 10)
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar.show_percentage = false
+		bar.max_value = 1.0
+		bar.step = 0.0
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = DEMAND_COLS[i]
+		fill.set_corner_radius_all(5)
+		bar.add_theme_stylebox_override("fill", fill)
+		h.add_child(bar)
+		_demand_bars.append(bar)
+	_stats_panel.visible = false
+
+
+func _toggle_stats() -> void:
+	Sfx.play("click", 1.1, -4.0)
+	_stats_panel.visible = not _stats_panel.visible
+	_refresh_stats_panel()
+
+
+func _refresh_stats_panel() -> void:
+	if _stats_panel == null or not _stats_panel.visible:
+		return
+	var pr := island.progress
+	_stats_title.text = pr.title
+	var nt := pr.next_title()
+	_stats_bar.value = nt[1]
+	if nt[0] == "":
+		_stats_next.text = "The biggest city there is"
+	else:
+		var opens: Array = []
+		for k in IslandProgress.unlocks_at(nt[2]):
+			opens.append(unlock_name(k).get_slice(": ", 1))
+		_stats_next.text = "Next: %s at %d residents (+%d coins)%s" % [nt[0], nt[2], int(pr.milestone_reward(nt[0])),
+			", opens " + ", ".join(opens) if not opens.is_empty() else ""]
+	var lines := [
+		"%d residents  ·  %d jobs  ·  %d%% out of work" % [pr.residents, pr.jobs, int(round(pr.unemployment() * 100.0))],
+		"%d homes  ·  %d shops  ·  %d works  ·  %d parks" % [pr.homes, pr.shops, pr.works, pr.parks],
+		"%.1f km of streets  ·  %d vehicles" % [pr.street_m / 1000.0, island.cars._cars.size()],
+		"Taxes: %s coins every few seconds" % str(pr.income()),
+	]
+	_stats_lines.text = "\n".join(lines)
+	for i in _demand_bars.size():
+		_demand_bars[i].value = pr.demand[i]
+		_demand_bars[i].modulate.a = 1.0 if pr.can_use(IslandProgress.USE_KEYS[i]) else 0.4
 
 
 # ------------------------------------------------------------------ toasts

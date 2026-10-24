@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 16:03 UTC
+- Milestones: your city climbs from Hamlet through Small City, City, Big City and Large City to Metropolis and Megalopolis, with coins paid out at every milestone.
+- Unlocks: Shops and Industry districts open at 60 and 120 residents, Offices at 300, the Downtown level at 600 and Skyline at 1,200. Bigger cities you already have keep everything they've reached.
+- City stats: tap your population for a panel with your milestone and what the next one opens, residents, jobs and how many are out of work, homes, shops, works, streets, traffic and taxes.
+- Demand: the panel shows what your city wants more of (homes, shops, offices or industry), and districts in demand grow faster, so a balanced city grows quickest.
+
 ## 2026-10-24 15:40 UTC
 - Much more traffic as your city grows, up to about 140 vehicles. Avenues and highways are driven two lanes each way, and traffic queues behind the car ahead.
 - Buses run along main streets and avenues and pull up at stops; lorries come and go from industrial districts and travel the highways.

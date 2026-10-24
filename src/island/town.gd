@@ -529,8 +529,14 @@ func _neighbours(l: Lot) -> Vector2:
 
 ## How long a house waits before its next stage: longer as it gets bigger,
 ## shorter on main streets and where it has fallen behind its neighbours.
+## how much the city wants more of each district (IslandProgress.demand)
+var demand: Array[float] = [0.6, 0.6, 0.6, 0.6]
+
+
 func _delay(l: Lot, around: Vector2) -> float:
 	var t := EVOLVE_TIME * lerpf(0.6, 1.6, _hash(l.id, l.stage, 3.3)) * (1.0 + l.stage * 0.4)
+	# a district the city is short of grows quicker, one it has plenty of slower
+	t *= lerpf(1.7, 0.6, demand[clampi(l.district, 0, demand.size() - 1)])
 	if l.main:
 		t *= 0.7
 	if around.y >= 3.0 and around.x > l.stage + 1.2:
