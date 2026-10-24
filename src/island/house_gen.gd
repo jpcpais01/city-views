@@ -678,6 +678,19 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			mk.push_at(Vector3(0, hgt, 0))
 			_prism(mk, crown[0], FH * 0.9, wall.darkened(0.12), 0.0, 0, trim, 0)
 			mk.pop()
+			# floodlit round the top of the shaft, seen across the city at night
+			mk.shadow = false
+			var lamp_col := Color(0.86, 0.93, 1.0) if office else Color(1.0, 0.86, 0.62)
+			for k in shaft.size():
+				var a2: Vector2 = shaft[k]
+				var b2: Vector2 = shaft[(k + 1) % shaft.size()]
+				var out := Vector2(b2.y - a2.y, a2.x - b2.x).normalized() * 0.012
+				if _area(shaft) < 0.0:
+					out = -out
+				var a3 := Vector3(a2.x + out.x, hgt - 0.16, a2.y + out.y)
+				var b3 := Vector3(b2.x + out.x, hgt - 0.16, b2.y + out.y)
+				mk.quad(a3, b3, b3 + Vector3(0, 0.1, 0), a3 + Vector3(0, 0.1, 0), Vector3(out.x, 0, out.y).normalized(), lamp_col, 2.7)
+			mk.shadow = true
 			hgt += FH * 0.9
 			shaft = crown[0]
 			var mc := Vector2.ZERO
@@ -688,9 +701,10 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 				# a spire, with a beacon on top
 				var tall := rng.randf_range(2.2, 4.0)
 				mk.cylinder(Vector3(mc.x, hgt, mc.y), 0.09, tall, 4, Color(0.82, 0.84, 0.86), false, null, 0.015)
-				mk.box(Vector3(mc.x, hgt + tall, mc.y), Vector3(0.08, 0.08, 0.08), Color(1.0, 0.35, 0.3), null, false, 2.0)
+				mk.box(Vector3(mc.x, hgt + tall, mc.y), Vector3(0.08, 0.08, 0.08), Color(1.0, 0.12, 0.08), null, false, 2.7)
 			elif rng.randf() < 0.4:
-				mk.cylinder(Vector3(mc.x, hgt + 0.9, mc.y), 0.03, 1.8, 4, IRON, false)
+				mk.cylinder(Vector3(mc.x, hgt, mc.y), 0.03, 1.8, 4, IRON, false)
+				mk.box(Vector3(mc.x, hgt + 1.8, mc.y), Vector3(0.07, 0.07, 0.07), Color(1.0, 0.12, 0.08), null, false, 2.7)
 		pts = shaft
 		backs = shaft
 	var attic := shaft.is_empty() and not office and (kit == BRICK or kit == STONE_SLATE or kit == NORDIC or kit == PASTEL) and rng.randf() < 0.7
@@ -722,6 +736,14 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	mk.pop()
 	return [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,
 		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]
+
+
+## Twice the signed area of an outline (its winding: > 0 one way, < 0 the other).
+static func _area(pts: PackedVector2Array) -> float:
+	var a := 0.0
+	for k in pts.size():
+		a += pts[k].cross(pts[(k + 1) % pts.size()])
+	return a
 
 
 ## The outline of a joined building, in its first plot's frame: the fronts

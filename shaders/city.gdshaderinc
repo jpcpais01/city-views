@@ -15,6 +15,13 @@ uniform float grid_size = 128.0;
 uniform vec2 height_range = vec2(2.5, 0.5);
 #endif
 
+#ifdef GROUND
+// which fields are farmed (Land.update_farm), sampled at each field's middle
+uniform sampler2D farm_tex : filter_linear, repeat_disable;
+uniform float farm_angle = 0.0;
+uniform float grid_size = 384.0;
+#endif
+
 varying float v_emit;
 varying float v_rand;
 varying vec3 v_world;
@@ -81,6 +88,52 @@ void fragment() {
 		vec3 dry = base * vec3(1.14, 1.07, 0.8);
 		base = mix(base, mix(lush, dry, smoothstep(0.36, 0.64, broad)), grass);
 		base *= 0.94 + 0.12 * broad * (1.0 - grass);
+		// farmland: a patchwork of fields (Land.FIELD, turned by farm_angle)
+		// of wheat, young crops, ploughed earth, rapeseed and hay, with
+		// hedges round them; past the map's edge they run on to the horizon
+		{
+			float ca = cos(farm_angle);
+			float sa = sin(farm_angle);
+			vec2 fr = vec2(ca * p.x + sa * p.y, -sa * p.x + ca * p.y);
+			vec2 q = fr / vec2(15.0, 10.0);
+			vec2 cell = floor(q);
+			vec2 mid = (cell + 0.5) * vec2(15.0, 10.0);
+			vec2 cw = vec2(ca * mid.x - sa * mid.y, sa * mid.x + ca * mid.y);
+			float half_map = grid_size * 0.5;
+			float farm;
+			if (abs(cw.x) < half_map && abs(cw.y) < half_map) {
+				vec2 n = vec2(textureSize(farm_tex, 0));
+				farm = step(0.5, texture(farm_tex, ((cw + half_map) / 4.0 + 0.5) / n).r);
+			} else {
+				// out in the country: by a broad noise, on gentle dry ground
+				farm = step(0.5, g_noise(cw * 0.011 + 7.3)) * step(0.9, v_world.y) * step(v_world.y, 8.0);
+			}
+			farm *= grass * smoothstep(0.955, 0.98, v_wnorm.y);
+			if (farm > 0.0) {
+				float h = g_hash(cell + 11.0);
+				vec3 crop;
+				if (h < 0.28) crop = vec3(0.74, 0.55, 0.17);
+				else if (h < 0.48) crop = vec3(0.25, 0.46, 0.09);
+				else if (h < 0.64) crop = vec3(0.3, 0.19, 0.1);
+				else if (h < 0.72) crop = vec3(0.86, 0.7, 0.08);
+				else if (h < 0.86) crop = vec3(0.6, 0.6, 0.27);
+				else crop = base * vec3(0.92, 1.0, 0.88);
+				crop *= 0.92 + 0.16 * g_hash(cell + 3.0) + (broad - 0.5) * 0.1;
+				// rows ploughed or sown along the field, fading before they shimmer
+				vec2 f = fract(q);
+				float along = g_hash(cell + 5.0) > 0.5 ? f.x * 15.0 : f.y * 10.0;
+				float rw = fwidth(along * 2.2);
+				float rows = sin(along * 2.2 * 6.2832) * (1.0 - smoothstep(0.2, 0.5, rw));
+				crop *= 1.0 + rows * (h < 0.86 ? 0.07 : 0.0);
+				// a hedge round the field
+				float edge = min(min(f.x, 1.0 - f.x) * 15.0, min(f.y, 1.0 - f.y) * 10.0);
+				float ew = fwidth(edge);
+				float hedge = 1.0 - smoothstep(0.22 - ew, 0.22 + ew, edge);
+				crop = mix(crop, vec3(0.1, 0.22, 0.06), hedge);
+				base = mix(base, crop, farm);
+				grass *= 1.0 - farm;
+			}
+		}
 		// fine grain: blades, sand grains and grit, fading out before it can shimmer
 		float fw = length(fwidth(p));
 		float grain = g_noise(p * 5.3) * 0.6 + g_noise(p * 13.0) * 0.4;
@@ -364,12 +417,20 @@ void fragment() {
 		} else if (emit < 2.5) {
 			lit = night;
 			glow = vec3(1.0, 0.82, 0.55);
+		} else if (emit > 2.6 && emit < 2.8) {
+			// a coloured light, its own colour: floodlit crowns, and red
+			// aircraft beacons that blink
+			lit = night;
+			glow = base * 1.8;
+			if (base.r > base.g * 3.0) {
+				lit *= step(0.4, fract(TIME * 0.6 + v_world.x * 0.037 + v_world.z * 0.051));
+			}
 		} else {
 			lit = 0.0;
 			ROUGHNESS = 0.05;
 		}
 		ALBEDO = mix(base, glow * 0.35, lit);
-		EMISSION = glow * lit * 2.4;
+		EMISSION = glow * lit * 2.7;
 	}
 	if (beam_count > 0) {
 		// a passing lighthouse beam lights whatever it sweeps over

@@ -364,11 +364,20 @@ func _local_time() -> float:
 	return float(d.get("t", 0.0)) if d is Dictionary else 0.0
 
 
+var _farm_rev := -1
+
+
 ## Ground maps for the shaders; the shoreline one only when the coast may have moved.
 func _update_maps(coast := true) -> void:
 	if coast:
 		water_mat.set_shader_parameter("shore_tex", ImageTexture.create_from_image(land.shore_image(16.0)))
 		water_mat.set_shader_parameter("grid_size", Land.SIZE)
+	if land.farm_rev != _farm_rev:
+		_farm_rev = land.farm_rev
+		land.update_farm()
+		ground_mat.set_shader_parameter("farm_tex", ImageTexture.create_from_image(land.farm_image()))
+		ground_mat.set_shader_parameter("farm_angle", land.farm_angle)
+		ground_mat.set_shader_parameter("grid_size", Land.SIZE)
 	var ht := ImageTexture.create_from_image(land.height_image())
 	for m in [city_mat, detail_mat]:
 		m.set_shader_parameter("height_tex", ht)

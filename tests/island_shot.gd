@@ -100,6 +100,7 @@ func _ready() -> void:
 		t0 = Time.get_ticks_msec()
 		island.town.fill_all()
 		island.town.evolve_all()
+		island._update_maps(false)
 		print("built %d houses in %d ms" % [island.town.house_count(), Time.get_ticks_msec() - t0])
 		var kits := {}
 		for l: Town.Lot in island.town.lots.values():
