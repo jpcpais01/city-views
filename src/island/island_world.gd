@@ -354,20 +354,8 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 			land.smooth(at, r, 6.0 * delta)
 		"flatten":
 			land.flatten(at, r, _stroke_level, 5.0 * delta)
-		"grow":
-			land.paint_zone(at, r, 2.5 * delta)
-			land.paint_green(at, r, -2.5 * delta)
-			growth.wake(c)
-			town.zone_changed(c, r)
-			_save_timer = 1.0
-			return
-		"green":
-			# parks and gardens: still part of the town, its streets run through
-			land.paint_zone(at, r, 2.5 * delta)
-			land.paint_green(at, r, 2.5 * delta)
-			growth.wake(c)
-			town.zone_changed(c, r)
-			_save_timer = 1.0
+		"grow", "green":
+			_paint_town(at, 4.0 * delta)
 			return
 		"clear":
 			land.paint_zone(at, r * 0.6, -4.0 * delta)
@@ -383,6 +371,35 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 	if _sculpt_sound <= 0.0:
 		_sculpt_sound = 0.16
 		Sfx.play("road" if brush == "smooth" or brush == "flatten" else "place", 0.7 if brush == "lower" else 1.0, -12.0, 0.15)
+
+
+## The Grow and Green brushes cover more ground than the shaping ones: enough
+## to reach past a street's pavements to where its houses and side streets go.
+func _zone_radius() -> float:
+	return brush_radius * 1.4 + 1.5
+
+
+## Paint where the town should grow (Green: as parks and gardens, which are
+## still town, its streets running through them).
+func _paint_town(at: Vector3, amount: float) -> void:
+	var r := _zone_radius()
+	var c := Vector2(at.x, at.z)
+	land.paint_zone(at, r, amount)
+	land.paint_green(at, r, amount if brush == "green" else -amount)
+	# keep the town growing towards the brush without restarting its search
+	growth.nudge(c)
+	town.zone_changed(c, r)
+	_save_timer = 1.0
+
+
+## Whether the town has a street to grow from within reach of the brush at
+## `c`: it only ever grows outwards from streets already there.
+func can_grow_at(c: Vector2) -> bool:
+	var r := _zone_radius() + 2.0
+	for st: Streets.Street in streets.streets:
+		if st.near_box(c, r) and st.closest(c).x < r:
+			return true
+	return false
 
 
 # ------------------------------------------------------------------ brush ring
@@ -422,6 +439,12 @@ func _draw_ring() -> void:
 	if brush == "" or _ring_at == null:
 		return
 	var at: Vector3 = _ring_at
+	# Grow and Green show green where the town can spread, amber where no
+	# street is near enough to grow from
+	var tint := Color(1, 1, 1, 0.8)
+	if brush == "grow" or brush == "green":
+		tint = Color(0.55, 1.0, 0.6, 0.9) if can_grow_at(Vector2(at.x, at.z)) else Color(1.0, 0.72, 0.35, 0.9)
+	(_ring.material_override as StandardMaterial3D).albedo_color = tint
 	var segs := 48
 	var radius := _ring_radius()
 	_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
@@ -441,6 +464,8 @@ func _ring_radius() -> float:
 			return Streets.KINDS.main.w + Streets.PAVE
 		"clear":
 			return brush_radius * 0.6
+		"grow", "green":
+			return _zone_radius()
 	return brush_radius
 
 
@@ -464,6 +489,12 @@ func _begin_stroke(screen: Vector2) -> void:
 	_path = PackedVector2Array()
 	if brush == "street":
 		_extend_path(_ring_at)
+	elif brush == "grow" or brush == "green":
+		# a single tap already marks the spot clearly enough to build on
+		_stroke_did = true
+		_stroke_lo = Vector2(_ring_at.x, _ring_at.z)
+		_stroke_hi = _stroke_lo
+		_paint_town(_ring_at, 0.55)
 
 
 func _end_stroke() -> void:
@@ -482,6 +513,14 @@ func _end_stroke() -> void:
 		_path = PackedVector2Array()
 	elif brush in SHAPE and _stroke_lo.x < _stroke_hi.x:
 		streets.regrade_in(_stroke_lo, _stroke_hi)
+	elif (brush == "grow" or brush == "green") and _stroke_lo.x <= _stroke_hi.x:
+		var c := (_stroke_lo + _stroke_hi) * 0.5
+		if _ring_at != null:
+			c = Vector2(_ring_at.x, _ring_at.z)
+		if not can_grow_at(c):
+			note.emit("The town grows out from streets: draw one through here with the Street brush", "warn")
+		# a fresh look over every street near where the stroke ended
+		growth.wake(c)
 	# a stroke that changed nothing leaves nothing to undo
 	if not _stroke_did:
 		_undo.pop_back()
