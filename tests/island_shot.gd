@@ -245,7 +245,19 @@ func _ready() -> void:
 	if OS.get_environment("CV_MENU") != "":
 		hud._page = OS.get_environment("CV_MENU")
 		hud._set_menu(true)
-	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
+	if OS.get_environment("CV_PIP") != "":
+		# Pip's look round, open with its tips on the map (CV_PIP=2: flown to the first)
+		island.progress.best = maxi(island.progress.best, int(OS.get_environment("CV_PIP_BEST")) if OS.get_environment("CV_PIP_BEST") != "" else 1300)
+		island.progress.recount(true)
+		var bot := AdvisorBot.attach(hud, island)
+		await get_tree().process_frame
+		bot._open_bubble()
+		bot._report = Advisor.analyse(island)
+		bot._show_report(bot._report)
+		await get_tree().process_frame
+		if OS.get_environment("CV_PIP") == "2":
+			bot._show_tip(0)
+		await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
 	print("prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	if OS.get_environment("CV_EST") != "":
 		var cam := island.rig.cam
