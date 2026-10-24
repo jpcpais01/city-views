@@ -147,6 +147,10 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	var pts := _resample(raw, 1.2)
 	if pts.size() < 2 or _length(pts) < 2.5:
 		return null
+	if SMOOTHING.has(kind):
+		# a hand-drawn line wobbles: fine for a street, but an avenue sweeps
+		# along it in easy curves and a highway in long, wide ones
+		pts = _relax(pts, SMOOTHING[kind])
 	pts = _chaikin(_chaikin(pts))
 	# ends that stop just short of another street join it
 	pts = _snap_ends(pts)
@@ -492,6 +496,23 @@ static func _length(pts: PackedVector2Array) -> float:
 	for i in pts.size() - 1:
 		l += pts[i].distance_to(pts[i + 1])
 	return l
+
+
+## How much drawn roads are evened out, by kind: passes of easing each point
+## (1.2 m apart) towards its neighbours; the wobbles smoothed away grow with
+## the square root (about 3 m for an avenue, 6 m for a highway).
+const SMOOTHING := {"avenue": 25, "highway": 90}
+
+
+## Eases each point but the ends towards the middle of its neighbours,
+## `passes` times: wobbles melt away, the overall line stays where it was drawn.
+static func _relax(pts: PackedVector2Array, passes: int) -> PackedVector2Array:
+	var out := pts.duplicate()
+	for k in passes:
+		var src := out.duplicate()
+		for i in range(1, src.size() - 1):
+			out[i] = src[i].lerp((src[i - 1] + src[i + 1]) * 0.5, 0.5)
+	return out
 
 
 ## Evenly spaced points along the line.
