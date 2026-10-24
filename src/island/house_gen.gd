@@ -241,10 +241,10 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	# the windows of every upper floor at the front, and every floor behind and at the sides
 	mk.window_grid(Vector3(0, FH, front), Vector3.BACK, hw, count, floors - 1, 0.24, Palette.GLASS)
 	if squeeze.is_empty():
-		mk.window_grid(Vector3(0, 0, -hd * 0.5), Vector3.FORWARD, hw, count, floors, 0.24, Palette.GLASS)
+		mk.window_grid(Vector3(0, 0, -hd * 0.5), Vector3.FORWARD, hw, count, floors, 0.24, Palette.GLASS, 1)
 	if not dense and hd > 1.0:
 		for sx: float in [-1.0, 1.0]:
-			mk.window_grid(Vector3(sx * hw * 0.5, 0, 0), Vector3.RIGHT * sx, hd, side_count, floors, 0.24, Palette.GLASS)
+			mk.window_grid(Vector3(sx * hw * 0.5, 0, 0), Vector3.RIGHT * sx, hd, side_count, floors, 0.24, Palette.GLASS, 1)
 	elif l.corner != 0.0 and squeeze.is_empty() and hd > 1.0:
 		# on a corner the end wall looks onto the other street: windows there too
 		mk.window_grid(Vector3(l.corner * hw * 0.5, 0, 0), Vector3.RIGHT * l.corner, hd, side_count, floors, 0.24, Palette.GLASS)
@@ -257,10 +257,11 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 		mk.box_faces(Vector3(bx, by + 0.11, front + 0.235), Vector3(0.46, 0.18, 0.012), IRON, MeshKit.FRONT)
 	# front door with a step, and on some a little canopy
 	if not shop:
-		mk.box_faces(Vector3(door_x, 0.27, front + 0.015), Vector3(0.3, 0.5, 0.03), door, MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT | MeshKit.TOP)
-		mk.box_faces(Vector3(door_x, -0.02, front + 0.1), Vector3(0.44, 0.07, 0.2), STONE, MeshKit.FRONT | MeshKit.TOP | MeshKit.LEFT | MeshKit.RIGHT)
+		# (their sides are too shallow to ever show)
+		mk.box_faces(Vector3(door_x, 0.27, front + 0.015), Vector3(0.3, 0.5, 0.03), door, MeshKit.FRONT)
+		mk.box_faces(Vector3(door_x, -0.02, front + 0.1), Vector3(0.44, 0.07, 0.2), STONE, MeshKit.FRONT | MeshKit.TOP)
 		if rng.randf() < 0.4:
-			mk.box_faces(Vector3(door_x, 0.58, front + 0.1), Vector3(0.5, 0.04, 0.2), trim, MeshKit.FRONT | MeshKit.TOP | MeshKit.LEFT | MeshKit.RIGHT)
+			mk.box_faces(Vector3(door_x, 0.58, front + 0.1), Vector3(0.5, 0.04, 0.2), trim, MeshKit.FRONT | MeshKit.TOP)
 	if squeeze.is_empty():
 		_roof(mk, rng, K, hw, hd, hgt, roof, wall, dense)
 	else:
@@ -299,7 +300,7 @@ static func _office_front(mk: MeshKit, rng: RandomNumberGenerator, run: float, f
 	mk.window_row(Vector3(0, FH * 0.5, 0.01), Vector3.BACK, run - 0.2, count, 0.5, 0.46, OFFICE_GLASS, false)
 	if entrance:
 		mk.box_faces(Vector3(0, FH * 0.92, 0.2), Vector3(minf(run * 0.6, 1.6), 0.04, 0.4), IRON, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
-	mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, run / count - 0.1, OFFICE_GLASS)
+	mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, run / count - 0.1, OFFICE_GLASS, 3)
 
 
 ## What a shop sells, by chance: each has its own front.
@@ -561,7 +562,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			if count > 2:
 				for sx: float in [-1.0, 1.0]:
 					mk.window_row(Vector3(sx * (run * 0.25 + 0.1), FH * 0.55, 0.0), Vector3.BACK, run * 0.5 - 0.3, maxi(1, (count - 1) / 2), 0.24, 0.32, Palette.GLASS, true)
-		mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, 0.24, Palette.GLASS)
+		mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, 0.24, Palette.GLASS, 3)
 		if rng.randf() < K.balcony + 0.25 and count >= 2:
 			# a stack of iron balconies up one bay
 			var bx := -run * 0.5 + (rng.randi() % count + 0.5) * run / count
@@ -697,7 +698,7 @@ static func _wing(mk: MeshKit, rng: RandomNumberGenerator, K: Dictionary, x: flo
 	var wh := wf * FH + 0.04
 	var wz := z0 - wing.y * 0.5
 	mk.box_faces(Vector3(x, wh * 0.5, wz), Vector3(ww, wh, wing.y), wall, MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, we)
-	mk.window_grid(Vector3(x, 0, z0 - wing.y), Vector3.FORWARD, ww, maxi(1, int(ww / 0.6)), wf, 0.24, Palette.GLASS)
+	mk.window_grid(Vector3(x, 0, z0 - wing.y), Vector3.FORWARD, ww, maxi(1, int(ww / 0.6)), wf, 0.24, Palette.GLASS, 1)
 	if dense:
 		_parapet(mk, Vector3(x, wh, wz), ww + 0.04, wing.y + 0.02, 0.08, wall.lightened(0.3))
 	else:

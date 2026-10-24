@@ -21,7 +21,7 @@ extends Node3D
 ## plots, shaped by them, the way a town's old plots fill with blocks.
 
 const CELL := 0.5
-const RES := 256
+const RES := int(Land.SIZE / CELL)
 const PATCH := 16.0
 const FRONT_GAP := 0.06
 # how deep the strip along a street is that only its own lots may use

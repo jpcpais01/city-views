@@ -16,6 +16,8 @@ const STONE := Color(0.72, 0.7, 0.66)
 const TIMBER := Color(0.45, 0.33, 0.24)
 const PLANK := Color(0.72, 0.56, 0.38)
 const PIER_LEN := 7.0
+# how far beyond the town's streets a landmark may stand
+const SEARCH := 60.0
 
 var world: IslandWorld
 var beam_mat: Material
@@ -25,6 +27,8 @@ var _nodes := {}
 var _spin: Array[MeshInstance3D] = []
 var _beam: MeshInstance3D
 var _check := 1.0
+# what the town was like when each missing landmark was last looked for
+var _looked := {}
 
 
 func _process(delta: float) -> void:
@@ -42,6 +46,11 @@ func _process(delta: float) -> void:
 		if spots.has(kind) and (not want or not _fits(kind, spots[kind], true)):
 			_remove(kind)
 		if want and not spots.has(kind):
+			# look again only once the town has changed since the last look
+			var sig := hash([world.town.lots.size(), world.streets.streets.size(), world.land.revision])
+			if _looked.get(kind, 0) == sig:
+				continue
+			_looked[kind] = sig
 			var at: Variant = _find(kind)
 			if at != null:
 				_place(kind, at)
@@ -61,6 +70,7 @@ func beams() -> PackedVector4Array:
 
 
 func reset() -> void:
+	_looked.clear()
 	for kind in spots.keys():
 		_remove(kind)
 
@@ -184,10 +194,20 @@ func _find(kind: String) -> Variant:
 
 	var best := -INF
 	var at: Variant = null
-	var x := -Land.HALF + 6.0
-	while x < Land.HALF - 6.0:
-		var z := -Land.HALF + 6.0
-		while z < Land.HALF - 6.0:
+	# only round the town: the map is far bigger than anyone would walk
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for st: Streets.Street in world.streets.streets:
+		lo = lo.min(st.lo)
+		hi = hi.max(st.hi)
+	if lo.x > hi.x:
+		return null
+	lo = (lo - Vector2(SEARCH, SEARCH)).max(Vector2(-Land.HALF + 6.0, -Land.HALF + 6.0))
+	hi = (hi + Vector2(SEARCH, SEARCH)).min(Vector2(Land.HALF - 6.0, Land.HALF - 6.0))
+	var x := snappedf(lo.x, 2.0)
+	while x < hi.x:
+		var z := snappedf(lo.y, 2.0)
+		while z < hi.y:
 			var p := Vector2(x, z)
 			var h := land.height_at(x, z)
 			var score := -INF

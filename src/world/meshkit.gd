@@ -204,6 +204,8 @@ func box(center: Vector3, size: Vector3, col: Color, top_col: Variant = null, bo
 
 # emission codes the city shader paints as surface patterns (no extra triangles)
 const ASPHALT := 0.1
+# asphalt with a dashed centre line painted on (see Streets.MeshBuf.road)
+const ASPHALT_DASHED := 0.12
 const SLABS := 0.16
 const ROOF_TILES := 0.25
 const COBBLE := 0.33
@@ -615,10 +617,6 @@ func _gable_roof_impl(c: Vector3, w: float, d: float, h: float, over: float, col
 		var side := Vector3.LEFT if xs == x0 else Vector3.RIGHT
 		quad(Vector3(xs, y0, zf), Vector3(xs, yr, c.z), Vector3(xs, yr, c.z) + dt, Vector3(xs, y0, zf) + dt, side, under)
 		quad(Vector3(xs, y0, zb), Vector3(xs, yr, c.z), Vector3(xs, yr, c.z) + dt, Vector3(xs, y0, zb) + dt, side, under)
-	if not small:
-		# soffit
-		quad(Vector3(x0, y0, zf) + dt, Vector3(x1, y0, zf) + dt, ridge1 + dt, ridge0 + dt, -nf, under)
-		quad(Vector3(x0, y0, zb) + dt, Vector3(x1, y0, zb) + dt, ridge1 + dt, ridge0 + dt, -nb, under)
 	# gable triangles on the wall plane
 	var gx0 := c.x - w * 0.5
 	var gx1 := c.x + w * 0.5
@@ -722,7 +720,10 @@ func window_row(center: Vector3, out: Vector3, length: float, count: int, w: flo
 ## (the wall's foot, centred) up `floors` storeys of 0.62, `count` across,
 ## each window placed in its storey as window_row places a row of 0.32 tall
 ## ones. The shader cuts out the gaps.
-func window_grid(foot: Vector3, out: Vector3, length: float, count: int, floors: int, w: float, glass: Color) -> void:
+## `sills`: 3 a sill and a hood at every window, 2 a sill at every window,
+## 1 one sill course along each floor (walls seen less, at a fraction of the
+## triangles), 0 none.
+func window_grid(foot: Vector3, out: Vector3, length: float, count: int, floors: int, w: float, glass: Color, sills := 2) -> void:
 	if count <= 0 or floors <= 0:
 		return
 	var was := detail
@@ -739,14 +740,25 @@ func window_grid(foot: Vector3, out: Vector3, length: float, count: int, floors:
 		Vector2(code, y), Vector2(code + 0.98, y), Vector2(code + 0.98, y + 0.98), Vector2(code, y + 0.98))
 	detail = was
 	# a real stone sill under each window and a hood over it, standing off
-	# the wall so the windows read with depth and catch the light
+	# the wall so the windows read with depth and catch the light (too thin
+	# to cast a shadow worth drawing)
 	var dir := side.normalized()
 	var half := minf((w + 0.09) * 0.5 + 0.025, cell * 0.5 - 0.01)
+	var casts := shadow
+	shadow = false
 	for f in floors:
+		if sills == 1:
+			var c := foot + Vector3(0, f * 0.62 + 0.091, 0)
+			_ledge(c, dir * (length * 0.5 - 0.02), out, 0.035, 0.045, SILL)
+			continue
+		if sills <= 0:
+			break
 		for i in count:
 			var c := foot + dir * (-length * 0.5 + (i + 0.5) * cell) + Vector3(0, f * 0.62 + 0.086, 0)
 			_ledge(c + Vector3(0, 0.005, 0), dir * half, out, 0.04, 0.055, SILL)
-			_ledge(c + Vector3(0, 0.428, 0), dir * (half - 0.01), out, 0.032, 0.035, SILL)
+			if sills >= 3:
+				_ledge(c + Vector3(0, 0.428, 0), dir * (half - 0.01), out, 0.032, 0.035, SILL)
+	shadow = casts
 
 
 ## A thin ledge along a wall: its top and front, from `at` (on the wall, at

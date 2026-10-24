@@ -146,6 +146,12 @@ func _ready() -> void:
 		hud._set_menu(true)
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
 	print("prims: ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+	if OS.get_environment("CV_EST") != "":
+		var cam := island.rig.cam
+		var acc := TriBudget.count_view(island, cam.global_position, cam.global_position - cam.global_basis.z * 10.0)
+		for k in acc:
+			print("  est %-16s %7d +shadow %7d" % [k, acc[k][0], acc[k][1]])
+		print("estimate: ", TriBudget.total(acc))
 	print("landmarks: ", island.landmarks.spots)
 	if island.landmarks.spots.has(OS.get_environment("CV_MARK")):
 		# then look at that landmark (a pier from out near its end)

@@ -77,7 +77,7 @@ func create_room() -> String:
 			break
 	my_color = COLORS[0]
 	var room := {
-		"meta": {"seed": island.island_seed, "kind": "island", "name": "Shared island", "host": Firebase.uid, "created": {".sv": "timestamp"}, "v": 2},
+		"meta": {"seed": island.island_seed, "kind": "island", "map": island.land.kind, "name": "Shared island", "host": Firebase.uid, "created": {".sv": "timestamp"}, "v": 3},
 		"island": island.sync.full_state(),
 		"players": {Firebase.uid: _me()},
 	}
@@ -108,6 +108,9 @@ func join_room(code: String) -> String:
 	if meta.data.get("kind", "") != "island":
 		_busy = false
 		return "That room was building a tile town, which is gone now: start a new room"
+	if int(meta.data.get("v", 2)) < 3:
+		_busy = false
+		return "That room was made before the big maps: start a new room"
 	var pl := await Firebase.db_get("rooms/%s/players" % code)
 	var taken := []
 	var count := 0
@@ -128,7 +131,7 @@ func join_room(code: String) -> String:
 		island._save()
 	if in_room():
 		_leave_quietly()
-	island.load_room(int(meta.data.get("seed", 1)), state.data)
+	island.load_room(int(meta.data.get("seed", 1)), state.data, str(meta.data.get("map", "island")))
 	await Firebase.db_patch("rooms/%s/players/%s" % [code, Firebase.uid], _me())
 	_busy = false
 	_enter(code)

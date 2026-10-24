@@ -14,6 +14,9 @@ signal name_changed
 signal inspected(lot: Variant)
 
 const SAVE_PATH := "user://island.json"
+## 2: the big maps (version 1 islands were 128 m across, and come back as an
+## island in the middle of one)
+const SAVE_VERSION := 2
 const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
 const SHAPE := ["raise", "lower", "smooth", "flatten"]
 const HISTORY := 25
@@ -139,7 +142,8 @@ func _ready() -> void:
 		if _save_timer <= 0.0:
 			_save_timer = 15.0)
 	_load()
-	rig.focus(Vector3.ZERO)
+	rig.limit = Land.HALF - 8.0
+	rig.focus(_home())
 	rig._t_dist = 70.0
 	rig.dist = 70.0
 
@@ -152,7 +156,7 @@ func _exit_tree() -> void:
 			Net.leave_room()
 
 
-func new_island(s: int) -> void:
+func new_island(s: int, map_kind := "island") -> void:
 	island_seed = s
 	island_name = ""
 	name_changed.emit()
@@ -163,11 +167,12 @@ func new_island(s: int) -> void:
 	landmarks.reset()
 	town.clear()
 	town.keep_stages({})
-	land.generate(s)
+	land.generate(s, map_kind)
 	_update_maps()
 	cars.clear()
 	folk.clear()
 	wildlife.reset()
+	rig.focus(_home())
 	_save()
 
 
@@ -181,6 +186,17 @@ func _load() -> void:
 		new_island(randi() % 1000000)
 
 
+## Where the camera starts: the middle of the town, or of the map.
+func _home() -> Vector3:
+	if streets.streets.is_empty():
+		return Vector3.ZERO
+	var c := Vector2.ZERO
+	for st: Streets.Street in streets.streets:
+		c += (st.lo + st.hi) * 0.5
+	c /= streets.streets.size()
+	return Vector3(c.x, 0, c.y)
+
+
 ## Your own island again (after leaving a co-op room).
 func load_own() -> void:
 	sync.end()
@@ -188,7 +204,7 @@ func load_own() -> void:
 
 
 func to_dict() -> Dictionary:
-	return {"v": 1, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
+	return {"v": SAVE_VERSION, "map": land.kind, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
 		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(), "level": land.level_edits(),
 		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name}
 
@@ -204,7 +220,16 @@ func _apply_save(data: Dictionary) -> void:
 	island_seed = int(data.seed)
 	island_name = str(data.get("name", "")).left(NAME_MAX)
 	name_changed.emit()
-	land.generate(island_seed)
+	var old := int(data.get("v", 1)) < 2
+	var map_kind := "legacy" if old else str(data.get("map", "island"))
+	if not map_kind in Land.KINDS and map_kind != "legacy":
+		map_kind = "island"
+	land.generate(island_seed, map_kind, false)
+	if old:
+		# the ground samples of a 128 m island, moved to where they lie now
+		for layer in ["land", "zone", "green", "level"]:
+			if data.get(layer) is Dictionary:
+				data[layer] = Land.legacy_cells(data[layer])
 	var ed: Variant = data.get("land", {})
 	land.apply_edits(ed if ed is Dictionary else {})
 	var st: Variant = data.get("streets", [])
@@ -215,6 +240,7 @@ func _apply_save(data: Dictionary) -> void:
 	land.apply_green(gn if gn is Dictionary else {})
 	var lv: Variant = data.get("level", {})
 	land.apply_level(lv if lv is Dictionary else {})
+	land.finish()
 	var mk: Variant = data.get("marks", {})
 	landmarks.from_dict(mk if mk is Dictionary else {})
 	var pr: Variant = data.get("progress")
@@ -225,11 +251,13 @@ func _apply_save(data: Dictionary) -> void:
 	cars.clear()
 	folk.clear()
 	wildlife.reset()
+	if rig:
+		rig.focus(_home())
 
 
 ## Opens a co-op room's island: its seed, with everything the builders made on it.
-func load_room(seed_value: int, state: Variant) -> void:
-	var d := {"seed": seed_value}
+func load_room(seed_value: int, state: Variant, map_kind := "island") -> void:
+	var d := {"seed": seed_value, "v": SAVE_VERSION, "map": map_kind}
 	if state is Dictionary:
 		for layer in ["land", "zone", "green", "level"]:
 			var cells := {}
@@ -377,9 +405,9 @@ func _process(delta: float) -> void:
 	_update_beams(PackedVector4Array())
 	for c in _clouds:
 		c.position.x += c.get_meta("speed") * delta
-		if c.position.x > 160.0:
-			c.position.x = -160.0
-	sun.directional_shadow_max_distance = clampf(rig.dist * 2.4, 32.0, 240.0)
+		if c.position.x > 300.0:
+			c.position.x = -300.0
+	sun.directional_shadow_max_distance = clampf(rig.dist * 2.4, 32.0, 380.0)
 	_draw_ring()
 
 
