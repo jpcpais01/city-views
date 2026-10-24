@@ -831,7 +831,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	if event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_F11 or (event.alt_pressed and event.keycode == KEY_ENTER)):
 		var w := get_window()
-		w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
+		var full := w.mode == Window.MODE_EXCLUSIVE_FULLSCREEN or w.mode == Window.MODE_FULLSCREEN
+		w.mode = Window.MODE_MAXIMIZED if full else Window.MODE_EXCLUSIVE_FULLSCREEN
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and (event.ctrl_pressed or event.meta_pressed) and event.keycode == KEY_Z:
