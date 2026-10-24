@@ -1,7 +1,7 @@
 extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
-## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one), CV_GROW=radius (paints and grows the town),
+## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one; 3: two 24 m apart), CV_GROW=radius (paints and grows the town),
 ## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_PHOTO=1 (photo mode), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
 
 
@@ -42,6 +42,12 @@ func _ready() -> void:
 			lines = [[]]
 			for k in 41:
 				lines[0].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z + sin(k / 40.0 * PI) * 3.0))
+		if OS.get_environment("CV_STREETS") == "3":
+			# two long streets 24 m apart, a deep block between
+			lines = [[], []]
+			for k in 41:
+				lines[0].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z - 12.0))
+				lines[1].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z + 12.0 + sin(k / 40.0 * PI) * 2.0))
 		for l in lines:
 			island.streets.add_stroke(PackedVector2Array(l))
 		print("streets: ", island.streets.streets.size())

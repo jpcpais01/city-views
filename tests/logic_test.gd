@@ -19,6 +19,7 @@ func _ready() -> void:
 	await _island_coop()
 	await _island_grow()
 	await _island_levels()
+	await _island_inner()
 	await _island_progress()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -232,6 +233,39 @@ func _island_levels() -> void:
 	for v in after.values():
 		sum_after += int(v)
 	check(before.size() > 0 and sum_after >= sum_before * 0.85, "how far houses grew comes back with the island (%d of %d stages)" % [sum_after, sum_before])
+	island.queue_free()
+	await get_tree().process_frame
+
+
+## Deep blocks fill in from behind: cottages and pocket parks that stand
+## near a street without fronting it.
+func _island_inner() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(9)
+	for z in [-12.0, 12.0]:
+		var pts := PackedVector2Array()
+		for k in 60:
+			pts.append(Vector2(-30 + k, z))
+		island.streets.add_stroke(pts)
+	island.streets.flush()
+	island.land.paint_zone(Vector3(0, 0, 0), 26.0, 2.0)
+	island.land.paint_level(Vector3(0, 0, 0), 26.0, 1.0, 2.0)
+	island.land.paint_green(Vector3(12, 0, 0), 4.0, 2.0)
+	island.town.fill_all()
+	var cottages := 0
+	var parks := 0
+	var far := INF
+	for l: Town.Lot in island.town.lots.values():
+		if l.inner:
+			if l.type == "park":
+				parks += 1
+			else:
+				cottages += 1
+				var mid := l.origin - Vector2(sin(l.yaw), cos(l.yaw)) * l.depth * 0.5
+				far = minf(far, absf(absf(mid.y) - 12.0))
+	check(cottages >= 2 and far > 3.5, "cottages stand inside deep blocks, back from the street (%d)" % cottages)
+	check(parks >= 1, "painted green deep in a block becomes a pocket park (%d)" % parks)
 	island.queue_free()
 	await get_tree().process_frame
 

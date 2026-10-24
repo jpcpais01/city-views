@@ -259,7 +259,7 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 		var tz := -setback - hd - wing.y - (l.depth - setback - hd - wing.y) * 0.5
 		_tree(mk, rng, Vector3(lerpf(-0.4, 0.4, rng.randf()) * l.width, 0.0, tz), land, l, y0)
 	# a street lamp on the pavement every few houses
-	if posmod(seed_value, 3) == 0:
+	if posmod(seed_value, 3) == 0 and not l.inner:
 		CivicGen._lamp(mk, Vector3(l.width * 0.5, street_y - y0, 0.36))
 	mk.pop()
 	return [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,

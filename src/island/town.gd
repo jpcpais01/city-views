@@ -103,6 +103,8 @@ class Lot:
 	## plot's id on the others, and on the first the plots it spans, in order
 	var host := 0
 	var group: Array = []
+	## set back inside the block, near a street but not on it
+	var inner := false
 	## the back of the plot in its own frame, left to right: (x along the
 	## street, z going in from it, negative), as deep as the block allows
 	var back := PackedVector2Array()
@@ -684,6 +686,101 @@ func _step(job: Dictionary, until: int) -> bool:
 				f += 1.0
 		job.side += 1
 		job.f = 1.0
+	_inner(s)
+	return true
+
+
+# ------------------------------------------------------------------ inside the blocks
+
+## How far inside a block a cottage or a pocket park may stand from its street.
+const INNER_REACH := 13.0
+
+
+## Fills ground left free deep inside the blocks along a street, behind its
+## plots and within a short walk of it: a pocket park where the player
+## painted green, otherwise now and then a cottage, the way back lanes and
+## courtyards fill in an old town.
+func _inner(s: Streets.Street) -> void:
+	var n := s.pts.size()
+	var f := 2.0
+	while f < n - 2.0:
+		var p := streets._ptf(s, f)
+		for side: float in [-1.0, 1.0]:
+			var nrm := streets._sidef(s, f) * side
+			var d := s.reach() + 3.5
+			while d <= INNER_REACH:
+				var c := p + nrm * d
+				d += 1.0
+				if land.zone_at(c.x, c.y) < 0.3 or is_built(c):
+					continue
+				var park := land.green_at(c.x, c.y) > 0.5
+				if not park and _hash(roundi(c.x * 3.0), c.y, 4.4) > 0.6:
+					continue
+				# it belongs to whichever street is nearest
+				var nearest := true
+				for o: Streets.Street in streets._touching(s):
+					if o.near_box(c, d) and o.closest(c).x < d - 0.5:
+						nearest = false
+						break
+				if nearest and _inner_lot(s, f, c, park):
+					break
+		f += 6.0
+
+
+## A small plot centred on c, facing the street it belongs to, if the ground
+## there is free and fit to build on.
+func _inner_lot(s: Streets.Street, f: float, c: Vector2, park: bool) -> bool:
+	var to_street := (streets._ptf(s, s.closest(c).z) - c).normalized()
+	var w := 4.2 if park else lerpf(2.6, 3.2, _hash(roundi(c.x * 5.0), c.y, 1.3))
+	var dep := 4.2 if park else lerpf(3.2, 3.8, _hash(roundi(c.y * 5.0), c.x, 2.1))
+	var yaw := atan2(to_street.x, to_street.y)
+	var right := Vector2(cos(yaw), -sin(yaw))
+	var origin := c + to_street * dep * 0.5
+	var poly := PackedVector2Array([origin - right * w * 0.5, origin + right * w * 0.5,
+		origin + right * w * 0.5 - to_street * dep, origin - right * w * 0.5 - to_street * dep])
+	var cells := _free_cells(poly, s.id, -to_street)
+	if cells.is_empty() or not _ground_ok(poly):
+		return false
+	# never on another street's frontage, which its own plots may still want
+	for k in cells:
+		if _front[k] != 0 and _front[k] != s.id:
+			return false
+	var l := Lot.new()
+	l.id = _next_id
+	_next_id += 1
+	l.street = s.id
+	l.side = signf(streets._sidef(s, f).dot(-to_street))
+	l.quad = poly
+	l.origin = origin
+	l.yaw = yaw
+	l.width = w
+	l.depth = dep
+	l.back = PackedVector2Array([Vector2(-w * 0.5, -dep), Vector2(w * 0.5, -dep)])
+	l.inner = true
+	l.cells = cells
+	for k in cells:
+		_occ[k] = l.id
+	l.patch = Vector2i(int(floor((origin.x + Land.HALF) / PATCH)), int(floor((origin.y + Land.HALF) / PATCH)))
+	lots[l.id] = l
+	var ground := land.height_at(c.x, c.y)
+	l.type = "park" if park else "house"
+	if not park:
+		land.pad(poly, ground + 0.02, 1.2, _near_street)
+	l.kit = HouseGen.kit_at(land, origin)
+	l.sd = int(floor(origin.x * 8.0)) * 73856093 ^ int(floor(origin.y * 8.0)) * 19349663
+	l.street_y = ground + 0.02
+	# a cottage or a small house: back lanes never grow tall
+	l.cap = mini(_cap_at(s, c, l.side), 1)
+	l.capq = c
+	l.stage = mini(_take_kept(origin, w), l.cap)
+	l.dense = STAGE_DENSE[l.cap]
+	l.next_up = _clock + _delay(l, Vector2.ZERO)
+	if park:
+		l.arrays = CivicGen.build(l, land, l.street_y, l.sd)
+	else:
+		l.arrays = HouseGen.build(l, land, l.street_y, l.sd, false)
+	reshaped.emit()
+	_dirty_patches[l.patch] = true
 	return true
 
 
