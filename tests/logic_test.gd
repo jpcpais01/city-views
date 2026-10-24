@@ -495,6 +495,8 @@ func _island_budget() -> void:
 	var lh: Vector2 = island.landmarks.spots.get("lighthouse", Vector2.ZERO)
 	check(island.town.is_built(lh) and island.landmarks.beams().size() <= 1, "the town leaves room round a landmark")
 	island.wilds.rebuild_all()
+	island.yards.rebuild_all()
+	check(island.yards.yard_count() > 30, "the gaps between buildings fill with gardens, courtyards and yards (%d)" % island.yards.yard_count())
 	# the two biggest ships passing at once
 	island.ships.spawn(0, true)
 	island.ships.spawn(1, true)
@@ -519,8 +521,12 @@ func _island_budget() -> void:
 	check(pr.title != "Hamlet" and pr.can_use("green") and pr.income() > 0.0, "a big town earns a title, opens brushes and pays its way (%s)" % pr.title)
 	# the same lot grows the same house every time
 	var some: Town.Lot = island.town.lots.values()[0]
-	var again := HouseGen.build(some, island.land, island.land.height_at(some.origin.x, some.origin.y), 1234)
-	var twice := HouseGen.build(some, island.land, island.land.height_at(some.origin.x, some.origin.y), 1234)
+	# (building levels the ground under the house, so the ground is put back between the two)
+	var ground := island.land.heights.duplicate()
+	var sy := island.land.height_at(some.origin.x, some.origin.y)
+	var again := HouseGen.build(some, island.land, sy, 1234)
+	island.land.heights = ground.duplicate()
+	var twice := HouseGen.build(some, island.land, sy, 1234)
 	check(again[0] == twice[0] and again[2] == twice[2], "houses are built the same from the same seed")
 	var civic := 0
 	for l: Town.Lot in island.town.lots.values():
@@ -533,6 +539,14 @@ func _island_budget() -> void:
 			public[l.type] = public.get(l.type, 0) + 1
 	check(public.size() >= 2, "the town grows public buildings: a town hall, schools, market halls (%s)" % str(public))
 	check(public.get("hall", 0) <= 1, "there is only one town hall in the middle of town")
+	var bases := []
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "house" and l.group.size() < 2:
+			bases.append(l.plinth)
+	bases.sort()
+	var tall := bases.filter(func(b): return b > 0.3).size()
+	print("  stone bases: median %.2f m, tallest %.2f m, %d of %d over 0.3 m" % [bases[bases.size() / 2], bases[-1], tall, bases.size()])
+	check(tall * 5 < bases.size(), "houses on slopes stand on levelled ground, with few tall stone bases (%d of %d)" % [tall, bases.size()])
 	# tapping a building tells what it is
 	var picked := 0
 	var told := ""

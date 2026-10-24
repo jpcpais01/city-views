@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 11:48 UTC
+- The ground between buildings comes alive: back gardens with sheds, veg patches, washing lines and trampolines behind houses.
+- Paved courtyards with trees and benches among taller blocks, and service yards with bins and a parked van behind offices.
+- Cafés and bakeries set out a terrace with parasols and string lights, and open grass in the middle of a block becomes a little pocket park.
+- Houses on hills level their plot first, so the grey stone bases under them are much shorter and far rarer.
+- Back areas are just for looks: they give way the moment a building grows or joins its neighbours.
+
 ## 2026-10-24 11:20 UTC
 - Tap any building with no brush in hand to see what it is, its level, and how many people live or work there.
 - New houses rise out of the ground with a little bounce again, and grown houses stretch up to their new height.
