@@ -761,13 +761,15 @@ func window_grid(foot: Vector3, out: Vector3, length: float, count: int, floors:
 	shadow = casts
 
 
-## A thin ledge along a wall: its top and front, from `at` (on the wall, at
-## the ledge's foot) out along `out`, `side` its half length.
+## A thin ledge along a wall, from `at` (on the wall, at the ledge's foot)
+## out along `out`, `side` its half length: one bevelled face running from
+## its top at the wall down to its front edge, which reads as both its top
+## and its front from up above and catches the light like a weathered sill.
 func _ledge(at: Vector3, side: Vector3, out: Vector3, h: float, d: float, col: Color) -> void:
 	var up := Vector3(0, h, 0)
 	var o := out * d
-	quad(at + o - side + up, at + o + side + up, at + side + up, at - side + up, Vector3.UP, col)
-	quad(at + o - side, at + o + side, at + o + side + up, at + o - side + up, out, col)
+	var n := (out * h + Vector3.UP * d).normalized()
+	quad(at + o - side, at + o + side, at + side + up, at - side + up, n, col)
 
 
 ## Thin trim lines running round a w x d block every `spacing` up from y0
@@ -791,6 +793,23 @@ func bands(y0: float, w: float, d: float, spacing: float, count: int, thick: flo
 		var p := out * dist
 		quad_uv(p - along + Vector3(0, lo, 0), p + along + Vector3(0, lo, 0), p + along + Vector3(0, hi, 0), p - along + Vector3(0, hi, 0), out, c,
 			Vector2(300, s0), Vector2(300.98, s0), Vector2(300.98, s1), Vector2(300, s1))
+	detail = was
+
+
+## Thin trim lines along one wall from a to b (feet on the ground, facing
+## `out`), every `spacing` up from y0: one quad, the gaps cut out by the shader.
+func band_wall(a: Vector3, b: Vector3, out: Vector3, y0: float, spacing: float, count: int, thick: float, col: Color) -> void:
+	if count <= 0:
+		return
+	var was := detail
+	detail = true
+	var ht := thick * 0.5
+	var s0 := -ht / spacing
+	var s1 := count - 1 + ht / spacing
+	var c := Color(col.r, col.g, col.b, ht / spacing)
+	var lo := Vector3(0, y0 - ht, 0)
+	var hi := Vector3(0, y0 + (count - 1) * spacing + ht, 0)
+	quad_uv(a + lo, b + lo, b + hi, a + hi, out, c, Vector2(300, s0), Vector2(300.98, s0), Vector2(300.98, s1), Vector2(300, s1))
 	detail = was
 
 

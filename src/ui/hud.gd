@@ -18,7 +18,9 @@ const BRUSH_INFO := {
 }
 const ICONS := {"street": "road", "grow": "house", "green": "park", "clear": "bulldoze"}
 const SIZES := [["S", 1.5], ["M", 3.33], ["L", 8.5]]
-const LEVELS := ["Village", "Town", "City", "Centre"]
+const LEVELS := ["Village", "Town", "City", "Centre", "Downtown", "Skyline"]
+const LEVEL_INFO := ["cottages and small houses", "houses and low terraces", "terraces with shops", "tall terraces and blocks, shops everywhere",
+	"apartment blocks and offices", "towers over a busy podium"]
 
 var island: IslandWorld
 var _brush_keys := {}
@@ -592,7 +594,7 @@ func _build_levels() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.add_child(row)
 	for i in LEVELS.size():
-		var b := _key(104, 50)
+		var b := _key(96, 50)
 		var h := HBoxContainer.new()
 		h.set_anchors_preset(Control.PRESET_FULL_RECT)
 		h.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -644,7 +646,7 @@ func _refresh_brushes() -> void:
 	if island.brush != "":
 		_help.text = BRUSH_INFO[island.brush][1]
 		if island.brush == "grow":
-			_help.text = "Paint beside a street. %s: %s" % [LEVELS[island.grow_level - 1], ["cottages and small houses", "houses and low terraces", "terraces with shops", "tall terraces, shops everywhere"][island.grow_level - 1]]
+			_help.text = "Paint beside a street. %s: %s" % [LEVELS[island.grow_level - 1], LEVEL_INFO[island.grow_level - 1]]
 	else:
 		_help.text = "Draw streets, or shape the land: pick a brush"
 

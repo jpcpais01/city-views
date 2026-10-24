@@ -13,6 +13,12 @@ func check(cond: bool, msg: String) -> void:
 
 
 func _ready() -> void:
+	if OS.get_environment("CV_ONLY") == "budget":
+		# just the triangle budget (with CV_BUDGET_R / CV_BUDGET_LEVEL)
+		await _island_budget()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	_streets()
 	_street_snap()
 	await _junction_fuzz()
@@ -21,6 +27,7 @@ func _ready() -> void:
 	await _island_coop()
 	await _island_grow()
 	await _island_levels()
+	await _island_skyline()
 	await _island_inner()
 	await _island_wilds()
 	await _island_progress()
@@ -475,7 +482,7 @@ func _island_budget() -> void:
 			pts.append(a.lerp(line[1], k / 40.0) + Vector2(0, sin(k / 40.0 * PI) * 3.0))
 		island.streets.add_stroke(pts)
 	# a big town (the whole first island's worth), painted where it grows
-	island.land.paint_zone(Vector3.ZERO, float(OS.get_environment("CV_BUDGET_R")) if OS.get_environment("CV_BUDGET_R") != "" else 46.0, 2.0)
+	island.land.paint_zone(Vector3.ZERO, float(OS.get_environment("CV_BUDGET_R")) if OS.get_environment("CV_BUDGET_R") != "" else 80.0, 2.0)
 	if OS.get_environment("CV_BUDGET_LEVEL") != "":
 		# the same island at another Grow level, to see what it costs
 		island.land.paint_level(Vector3.ZERO, 70.0, float(OS.get_environment("CV_BUDGET_LEVEL")), 2.0)
@@ -630,6 +637,47 @@ func _busiest_view(island: IslandWorld, focuses: Array) -> Array:
 				total = t
 				worst = acc
 	return [total, worst]
+
+
+## The two top Grow levels: Downtown grows apartment blocks of eight to ten
+## floors, Skyline grows towers of twelve and more, set back over a podium.
+func _island_skyline() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(9)
+	var pts := PackedVector2Array()
+	for k in 70:
+		pts.append(Vector2(-35 + k, 3.0))
+	island.streets.add_stroke(pts)
+	island.streets.flush()
+	island.land.paint_zone(Vector3(0, 0, 3), 34.0, 2.0)
+	island.land.paint_level(Vector3(-18, 0, 3), 16.0, 5.0, 2.0)
+	island.land.paint_level(Vector3(18, 0, 3), 16.0, 6.0, 2.0)
+	island.town.fill_all()
+	island.town.evolve_all()
+	var mid := 0
+	var tall := 0
+	var top := 0.0
+	var bad := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type != "house" or l.host != 0:
+			continue
+		if l.arrays.is_empty():
+			bad += 1
+			continue
+		if l.stage == 5 and l.floors >= 8 and l.floors <= 11:
+			mid += 1
+		if l.stage == 6 and l.floors >= 12:
+			tall += 1
+			var hi := -INF
+			for v: Vector3 in l.arrays[0]:
+				hi = maxf(hi, v.y)
+			top = maxf(top, hi - l.street_y)
+	check(mid >= 2, "Downtown grows apartment blocks of eight to ten floors (%d)" % mid)
+	check(tall >= 2 and top > 12 * Town.FH, "Skyline grows towers (%d, the tallest %.1f m)" % [tall, top])
+	check(bad == 0, "every building is drawn")
+	island.queue_free()
+	await get_tree().process_frame
 
 
 ## A save from before the big maps (a 128 m island, its samples numbered on a

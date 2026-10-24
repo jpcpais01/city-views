@@ -5,7 +5,7 @@ extends Node
 func _ready() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
-	island.new_island(11)
+	island.new_island(11, "island")
 	for line in [[Vector2(-34, 4), Vector2(26, 2)], [Vector2(-6, -30), Vector2(-2, 30)]]:
 		var pts := PackedVector2Array()
 		for k in 41:

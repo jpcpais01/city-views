@@ -19,6 +19,15 @@ const IRON := Color(0.22, 0.24, 0.27)
 ## pale stone, concrete and dark cladding for office blocks
 const OFFICE_WALLS := [Color("dedad2"), Color("c9ced1"), Color("ebe5d8"), Color("97a3ab"), Color("b8b2a6")]
 const OFFICE_GLASS := Color(0.38, 0.5, 0.6)
+const APARTMENT_WALLS := [Color("e8b07a"), Color("d98b6a"), Color("efd29a"), Color("c9d3b0"), Color("e6c2b0"), Color("b8c9cf"), Color("f0e2c8"), Color("cf7f5f")]
+## a tower's look: [wall tones, glass, window width, offices, brick]
+const TOWER_SCHEMES := [
+	[[Color("4f6f86"), Color("3f5a6e"), Color("5a7d8c"), Color("344b5c")], Color(0.24, 0.38, 0.5), 0.56, true, false],
+	[[Color("5e8c8c"), Color("4c7a7d"), Color("6b9a92")], Color(0.26, 0.45, 0.46), 0.56, true, false],
+	[[Color("f2f1ec"), Color("e8e6df"), Color("dfe3e4")], OFFICE_GLASS, 0.42, true, false],
+	[[Color("d6c3a5"), Color("cbb595"), Color("e0d1b6")], Color(0.32, 0.42, 0.5), 0.34, false, false],
+	[[Color("a65a43"), Color("9a4f3c"), Color("b26a4f")], Palette.GLASS, 0.28, false, true],
+]
 
 enum { HARBOUR, PASTEL, BRICK, STONE_SLATE, SOUTH, NORDIC }
 const KIT_NAMES := ["harbour", "pastel", "brick", "stone", "south", "nordic"]
@@ -103,6 +112,9 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var kit: int = l.kit
 	var K: Dictionary = KITS[kit]
 	l.use = "home"
+	if l.stage >= 5:
+		# apartments and towers are blocks, even on a plot of their own
+		return build_block([l], land, street_y, seed_value, main)
 	# a house grows through stages: cottage, two-floor house, terrace, taller terrace, tall terrace
 	var dense := l.stage >= 2
 	var right := Vector2(cos(l.yaw), -sin(l.yaw))
@@ -300,7 +312,7 @@ static func _office_front(mk: MeshKit, rng: RandomNumberGenerator, run: float, f
 	mk.window_row(Vector3(0, FH * 0.5, 0.01), Vector3.BACK, run - 0.2, count, 0.5, 0.46, OFFICE_GLASS, false)
 	if entrance:
 		mk.box_faces(Vector3(0, FH * 0.92, 0.2), Vector3(minf(run * 0.6, 1.6), 0.04, 0.4), IRON, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
-	mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, run / count - 0.1, OFFICE_GLASS, 3)
+	mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, run / count - 0.1, OFFICE_GLASS, 1)
 
 
 ## What a shop sells, by chance: each has its own front.
@@ -480,9 +492,12 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	var stage := 0
 	for l: Town.Lot in ls:
 		stage = maxi(stage, l.stage)
-	var floors := 4 + rng.randi() % 2 if stage < 4 else 5 + rng.randi() % 3
+	# four to five floors in a city, up to seven in a centre, eight to ten
+	# for apartments and twelve to sixteen for a tower
+	var floors: int = [4 + rng.randi() % 2, 5 + rng.randi() % 3, 8 + rng.randi() % 3, 12 + rng.randi() % 5][clampi(stage - 3, 0, 3)]
 	# in a centre, and now and then on a city's main street, the big building is offices
-	var office := rng.randf() < (0.45 if stage >= 4 else (0.2 if main else 0.0))
+	var office: bool = rng.randf() < [0.2 if main else 0.0, 0.45, 0.3, 0.6][clampi(stage - 3, 0, 3)]
+	var tower := stage >= 6
 	var pts := block_outline(ls)
 	var box := Rect2(pts[0], Vector2.ZERO)
 	for p in pts:
@@ -510,19 +525,46 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		we = MeshKit.BRICKS
 		trim = Color(0.95, 0.93, 0.88)
 	var roof: Color = K.roofs[rng.randi() % K.roofs.size()]
+	if stage >= 5 and not office and rng.randf() < 0.6:
+		# apartment blocks in warm renders
+		wall = APARTMENT_WALLS[rng.randi() % APARTMENT_WALLS.size()]
+		we = 0.0
+		trim = wall.lightened(0.4)
 	if office:
 		wall = OFFICE_WALLS[rng.randi() % OFFICE_WALLS.size()]
 		we = 0.0
 		trim = wall.lightened(0.3)
 		floors += 1
 		hgt = floors * FH + 0.06
+	# a tower: a podium over the whole plot, the shaft rising from it set back,
+	# in glass, white or warm stone, now and then brick
+	var shaft := PackedVector2Array()
+	var glass_col: Color = OFFICE_GLASS if office else Palette.GLASS
+	var win_w := 0.5 if office else 0.24
+	if tower:
+		var scheme: Array = TOWER_SCHEMES[rng.randi() % TOWER_SCHEMES.size()]
+		var tones: Array = scheme[0]
+		wall = tones[rng.randi() % tones.size()]
+		glass_col = scheme[1]
+		win_w = scheme[2]
+		office = scheme[3]
+		we = MeshKit.BRICKS if scheme[4] else 0.0
+		trim = wall.lightened(0.3) if not scheme[4] else Color(0.95, 0.93, 0.88)
+	var all_floors := floors
+	if tower:
+		var inner := Geometry2D.offset_polygon(pts, -0.45)
+		if inner.size() == 1 and inner[0].size() >= 3 and outline_ok(inner[0]):
+			shaft = inner[0]
+			floors = 3
+			hgt = floors * FH + 0.06
 	mk.push_at(Vector3(h.origin.x, y0, h.origin.y), h.yaw)
 	if y0 - lo > 0.04:
 		# a stone base where the ground falls away
 		mk.shadow = false
 		_walls(mk, pts, lo - y0 - 0.12, 0.02, STONE.darkened(0.06))
 		mk.shadow = true
-	_prism(mk, pts, hgt, wall, we, floors, trim, fronts.size() - 1, office, 0.5 if office else 0.24, OFFICE_GLASS if office else Palette.GLASS)
+	# sides and back: windows and floor bands, no ledges (they'd cost more than the rest of it)
+	_prism(mk, pts, hgt, wall, we, floors, trim, fronts.size() - 1, office, win_w, glass_col, 0)
 	# each plot's front: shops or a door below, windows above, a balcony or two
 	var cw := Geometry2D.is_polygon_clockwise(pts)
 	for k in fronts.size() - 1:
@@ -538,7 +580,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		mk.push_at(Vector3(m.x, 0, m.y), atan2(out.x, out.y))
 		if office:
 			_office_front(mk, rng, run, floors, wall, k == fronts.size() / 2 - 1 or fronts.size() == 2)
-			l.floors = floors
+			l.floors = all_floors
 			l.shop = false
 			l.use = "office"
 			if posmod(seed_value + k, 3) == 0:
@@ -547,7 +589,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			continue
 		l.use = "home"
 		var shop := (main or rng.randf() < 0.45) and run > 1.3
-		l.floors = floors
+		l.floors = all_floors
 		l.shop = shop
 		# the ground floor in a heavier base: stone under brick, a darker render elsewhere
 		var base := STONE if we == MeshKit.BRICKS else wall.darkened(0.12)
@@ -562,20 +604,47 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			if count > 2:
 				for sx: float in [-1.0, 1.0]:
 					mk.window_row(Vector3(sx * (run * 0.25 + 0.1), FH * 0.55, 0.0), Vector3.BACK, run * 0.5 - 0.3, maxi(1, (count - 1) / 2), 0.24, 0.32, Palette.GLASS, true)
-		mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, 0.24, Palette.GLASS, 3)
+		# tall fronts: one sill course per floor (a ledge per window costs too much)
+		mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, 0.24, Palette.GLASS, 1)
 		if rng.randf() < K.balcony + 0.25 and count >= 2:
 			# a stack of iron balconies up one bay
 			var bx := -run * 0.5 + (rng.randi() % count + 0.5) * run / count
+			mk.shadow = false
 			for fl in range(1, floors):
 				var by := fl * FH + 0.08
 				mk.box_faces(Vector3(bx, by, 0.12), Vector3(0.46, 0.04, 0.24), STONE, MeshKit.TOP | MeshKit.FRONT)
 				mk.box_faces(Vector3(bx, by + 0.11, 0.235), Vector3(0.46, 0.18, 0.012), IRON, MeshKit.FRONT)
+			mk.shadow = true
 		if posmod(seed_value + k, 3) == 0:
 			CivicGen._lamp(mk, Vector3(run * 0.5, street_y - y0, 0.36))
 		mk.pop()
 	# the top: a slate attic set back behind the parapet in the old quarters,
 	# a plain parapet and a few boxes on the roof elsewhere
-	var attic := not office and (kit == BRICK or kit == STONE_SLATE or kit == NORDIC or kit == PASTEL) and rng.randf() < 0.7
+	if not shaft.is_empty():
+		_flat_roof(mk, pts, hgt, wall)
+		mk.push_at(Vector3(0, hgt, 0))
+		var rest := all_floors - floors
+		_prism(mk, shaft, rest * FH + 0.06, wall, we, rest, trim, 0, office, win_w, glass_col, 0)
+		mk.pop()
+		hgt += rest * FH + 0.06
+		# a crown: a plain set-back top storey for the plant, and a mast on some
+		var crown := Geometry2D.offset_polygon(shaft, -0.3)
+		if crown.size() == 1 and crown[0].size() >= 3 and outline_ok(crown[0]):
+			_flat_roof(mk, shaft, hgt, wall)
+			mk.push_at(Vector3(0, hgt, 0))
+			_prism(mk, crown[0], FH * 0.9, wall.darkened(0.12), 0.0, 0, trim, 0)
+			mk.pop()
+			hgt += FH * 0.9
+			shaft = crown[0]
+			if rng.randf() < 0.4:
+				var mc := Vector2.ZERO
+				for p in shaft:
+					mc += p
+				mc /= shaft.size()
+				mk.cylinder(Vector3(mc.x, hgt + 0.9, mc.y), 0.03, 1.8, 4, IRON, false)
+		pts = shaft
+		backs = shaft
+	var attic := shaft.is_empty() and not office and (kit == BRICK or kit == STONE_SLATE or kit == NORDIC or kit == PASTEL) and rng.randf() < 0.7
 	var inset: Array[PackedVector2Array] = []
 	if attic:
 		inset = Geometry2D.offset_polygon(pts, -0.32)
@@ -615,7 +684,7 @@ static func block_outline(ls: Array) -> PackedVector2Array:
 	var stage := 0
 	for l: Town.Lot in ls:
 		stage = maxi(stage, l.stage)
-	var deepest := 4.4 if stage < 4 else 5.0
+	var deepest: float = [4.4, 5.0, 5.4, 5.6][clampi(stage - 3, 0, 3)]
 	var fronts := PackedVector2Array()
 	var backs := PackedVector2Array()
 	for l: Town.Lot in ls:
@@ -746,7 +815,7 @@ static func _squeezed(l: Town.Lot, hw: float, hd: float, setback: float) -> Pack
 ## Walls round an outline (house-local, front edge first), with floor bands and
 ## windows on every wall but the front, which the house dresses itself.
 static func _prism(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color, we: float, floors: int, trim: Color, fronts := 1, every_floor := true,
-		win_w := 0.24, glass := Palette.GLASS) -> void:
+		win_w := 0.24, glass := Palette.GLASS, sills := 2) -> void:
 	var cw := Geometry2D.is_polygon_clockwise(pts)
 	for k in pts.size():
 		var a := pts[k]
@@ -761,15 +830,13 @@ static func _prism(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color
 		if k < fronts or run < 0.5:
 			continue
 		var m := (a + b) * 0.5
-		mk.window_grid(Vector3(m.x, 0, m.y), o3, run, maxi(1, int(run / 0.6)), floors, win_w, glass)
-		# floor bands as thin strips standing just proud of the wall
-		for fl in (range(1, floors) if every_floor or floors < 2 else [1]):
-			var y: float = fl * FH + 0.03
+		mk.window_grid(Vector3(m.x, 0, m.y), o3, run, maxi(1, int(run / 0.6)), floors, win_w, glass, sills)
+		# floor bands as thin strips standing just proud of the wall (one quad,
+		# the gaps between them cut out by the shader)
+		if floors >= 2:
 			var a2 := a + out * 0.012
 			var b2 := b + out * 0.012
-			mk.detail = true
-			mk.quad(Vector3(a2.x, y - 0.018, a2.y), Vector3(b2.x, y - 0.018, b2.y), Vector3(b2.x, y + 0.018, b2.y), Vector3(a2.x, y + 0.018, a2.y), o3, trim)
-			mk.detail = false
+			mk.band_wall(Vector3(a2.x, 0, a2.y), Vector3(b2.x, 0, b2.y), o3, FH + 0.03, FH, floors - 1 if every_floor else 1, 0.036, trim)
 
 
 ## A flat roof over an outline, behind a low parapet.
@@ -785,6 +852,9 @@ static func _flat_roof(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: C
 		mk.tri(Vector3(a.x, hgt + 0.02, a.y), Vector3(b.x, hgt + 0.02, b.y), Vector3(c.x, hgt + 0.02, c.y), top, 0.0, 0.0, Vector3.UP)
 	var cw := Geometry2D.is_polygon_clockwise(pts)
 	var lip := wall.lightened(0.35)
+	# the parapet is too low to cast a shadow worth its triangles
+	var casts := mk.shadow
+	mk.shadow = false
 	for k in pts.size():
 		var a := pts[k]
 		var b := pts[(k + 1) % pts.size()]
@@ -797,6 +867,7 @@ static func _flat_roof(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: C
 		var o3 := Vector3(out.x, 0, out.y)
 		mk.quad(Vector3(a2.x, hgt, a2.y), Vector3(b2.x, hgt, b2.y), Vector3(b2.x, hgt + 0.12, b2.y), Vector3(a2.x, hgt + 0.12, a2.y), o3, lip)
 		mk.quad(Vector3(a2.x, hgt + 0.12, a2.y), Vector3(b2.x, hgt + 0.12, b2.y), Vector3(b.x - out.x * 0.05, hgt + 0.12, b.y - out.y * 0.05), Vector3(a.x - out.x * 0.05, hgt + 0.12, a.y - out.y * 0.05), Vector3.UP, lip)
+	mk.shadow = casts
 
 
 ## The back garden behind a house (from z = `z0` to the back of the lot): a
