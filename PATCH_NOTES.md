@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 12:16 UTC
+- Gentler islands: hills are half as tall and the land rolls more smoothly, leaving more room for towns to spread.
+- Every house window now has a real stone sill beneath it and a hood above, giving the walls depth.
+- Empty plots waiting for a house, and busy parts of town, fill with gardens and yards as well.
+- A town hall always comes back where it stood when you reload your island.
+
 ## 2026-10-24 12:02 UTC
 - The Grow brush now paints in bold colours you can't miss: yellow for Village, orange for Town, red for City and pink for Centre.
 - The Green brush shows its parks in a bright green while you paint.

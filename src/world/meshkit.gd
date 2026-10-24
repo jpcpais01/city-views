@@ -19,6 +19,7 @@ var duvs := PackedVector2Array()
 # cheap stand-in shapes drawn only into the shadow map (a box per rounded box,
 # a diamond per canopy...): soft shadows look the same at a fraction of the cost
 var shadow := true
+const SILL := Color(0.93, 0.91, 0.87)
 var sverts := PackedVector3Array()
 var snorms := PackedVector3Array()
 var _depth := 0
@@ -737,6 +738,24 @@ func window_grid(foot: Vector3, out: Vector3, length: float, count: int, floors:
 	quad_uv(p - side, p + side, p + side + top, p - side + top, out, col,
 		Vector2(code, y), Vector2(code + 0.98, y), Vector2(code + 0.98, y + 0.98), Vector2(code, y + 0.98))
 	detail = was
+	# a real stone sill under each window and a hood over it, standing off
+	# the wall so the windows read with depth and catch the light
+	var dir := side.normalized()
+	var half := minf((w + 0.09) * 0.5 + 0.025, cell * 0.5 - 0.01)
+	for f in floors:
+		for i in count:
+			var c := foot + dir * (-length * 0.5 + (i + 0.5) * cell) + Vector3(0, f * 0.62 + 0.086, 0)
+			_ledge(c + Vector3(0, 0.005, 0), dir * half, out, 0.04, 0.055, SILL)
+			_ledge(c + Vector3(0, 0.428, 0), dir * (half - 0.01), out, 0.032, 0.035, SILL)
+
+
+## A thin ledge along a wall: its top and front, from `at` (on the wall, at
+## the ledge's foot) out along `out`, `side` its half length.
+func _ledge(at: Vector3, side: Vector3, out: Vector3, h: float, d: float, col: Color) -> void:
+	var up := Vector3(0, h, 0)
+	var o := out * d
+	quad(at + o - side + up, at + o + side + up, at + side + up, at - side + up, Vector3.UP, col)
+	quad(at + o - side, at + o + side, at + o + side + up, at + o - side + up, out, col)
 
 
 ## Thin trim lines running round a w x d block every `spacing` up from y0

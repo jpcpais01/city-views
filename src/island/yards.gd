@@ -24,7 +24,7 @@ const WALL_GAP := 0.3
 # how far it looks for the building it belongs to
 const NEAR := 4.5
 # the most yards one chunk holds
-const MOST := 40
+const MOST := 64
 # where a corner may shift to when the spot itself is too tight; never so
 # far that its little patch reaches a neighbouring yard's
 const NUDGES: Array[Vector2] = [Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.5), Vector2(0, -0.5)]
@@ -109,7 +109,7 @@ func _chunk_sig(c: Vector2i) -> int:
 	var area := Rect2(lo, Vector2.ONE * (SPAN + (NEAR + 8.0) * 2.0))
 	for l: Town.Lot in world.town.lots.values():
 		if area.has_point(l.origin):
-			parts.append(hash([l.id, l.foot, l.host]))
+			parts.append(hash([l.id, l.foot, l.host, l.arrays.is_empty()]))
 	var land := world.land
 	var i0 := c.x * Land.CHUNK
 	for j in range(c.y * Land.CHUNK, (c.y + 1) * Land.CHUNK + 1):
@@ -208,7 +208,10 @@ func _owner_at(p: Vector2, room: Array) -> Town.Lot:
 			var l: Town.Lot = town.lots.get(o)
 			if l and l.host != 0:
 				l = town.lots.get(l.host, l)
-			if l and l.foot.has_area():
+			if l and l.arrays.is_empty():
+				# a plot not built on yet is open ground for now
+				on_building = false
+			elif l and l.foot.has_area():
 				var q := Vector2((c.x + di + 0.5) * Town.CELL - Land.HALF, (c.y + dj + 0.5) * Town.CELL - Land.HALF) - l.origin
 				var local := Vector2(q.dot(Vector2(cos(l.yaw), -sin(l.yaw))), q.dot(Vector2(sin(l.yaw), cos(l.yaw))))
 				on_building = l.foot.grow(WALL_GAP).has_point(local)
