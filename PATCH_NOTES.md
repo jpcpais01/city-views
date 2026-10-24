@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-24 21:11 UTC
+- Shadows now reach right across the view and stay just as crisp and dark at every zoom and tilt, and the haze no longer washes your city out when you pull back.
+- A new lighting pass: a lower sun so every building throws a shadow you can read, film-like colour, a sky that glows around a low sun at dawn and dusk, a warm haze towards the sun, and cooler, deeper nights where colours fade as they do to the eye.
+- Town goals take much less room: one tidy line per goal with a thin progress bar and its reward, the ones to collect listed first, and the whole list folds away from its header.
+
 ## 2026-10-24 20:07 UTC
 - Bus stops: main streets and avenues get glass shelters with a bench and an advert that lights up at night, and buses now keep to the kerb lane and pull in at each stop.
 - Zoom out twice as far to take in your whole city and the country around it, and on PC tilt the camera up towards the horizon much further (right mouse button, slide up or down).

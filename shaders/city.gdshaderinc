@@ -313,6 +313,10 @@ void fragment() {
 	ALBEDO = base;
 	ROUGHNESS = 0.78;
 	SPECULAR = 0.35;
+#ifdef GROUND
+	// grass and earth barely glint; a broad sheen would grey the land seen from high up
+	SPECULAR = 0.12;
+#endif
 	float emit = v_emit;
 	float rnd = v_rand;
 	// pane coordinates of a window (u < 0: none) and what hangs behind its glass

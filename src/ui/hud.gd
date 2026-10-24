@@ -89,6 +89,7 @@ var _redo_btn: Button
 var _goals: PanelContainer
 var _goal_rows: VBoxContainer
 var _goal_count: Label
+var _goal_fold: Label
 var _goals_open := true
 var _glass_light: ShaderMaterial
 var _glass_dark: ShaderMaterial
@@ -1168,37 +1169,42 @@ func _build_goals() -> void:
 	_goals = PanelContainer.new()
 	_goals.set_anchors_preset(Control.PRESET_CENTER_LEFT)
 	_goals.offset_left = 18
-	_goals.offset_top = -96
+	_goals.offset_top = -70
 	_glassify(_goals)
-	_goals.add_theme_stylebox_override("panel", _glass_box(GLASS, 18, 10))
+	_goals.add_theme_stylebox_override("panel", _glass_box(GLASS, 14, 8))
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
+	v.add_theme_constant_override("separation", 5)
 	_goals.add_child(v)
 	# the header folds the list away, for when the view needs the room
 	var head := Button.new()
 	head.flat = true
 	head.focus_mode = Control.FOCUS_NONE
-	head.custom_minimum_size = Vector2(212, 26)
+	head.custom_minimum_size = Vector2(196, 20)
 	for st in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
 		head.add_theme_stylebox_override(st, StyleBoxEmpty.new())
 	var hr := HBoxContainer.new()
 	hr.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hr.add_theme_constant_override("separation", 8)
+	hr.add_theme_constant_override("separation", 6)
 	hr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	head.add_child(hr)
-	hr.add_child(_icon("star", 20))
-	var title := _label("Town goals", 14, true)
+	hr.add_child(_icon("star", 15))
+	var title := _label("Town goals", 12, true)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hr.add_child(title)
-	_goal_count = _label("", 12, true, SOFT)
+	_goal_count = _label("", 10, true, SOFT)
+	_goal_count.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	hr.add_child(_goal_count)
+	_goal_fold = _label("", 10, true, SOFT)
+	_goal_fold.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hr.add_child(_goal_fold)
 	head.pressed.connect(func():
 		Sfx.play("click")
 		_goals_open = not _goals_open
-		_goal_rows.visible = _goals_open)
+		_goal_rows.visible = _goals_open
+		_goal_fold.text = "-" if _goals_open else "+")
 	v.add_child(head)
 	_goal_rows = VBoxContainer.new()
-	_goal_rows.add_theme_constant_override("separation", 6)
+	_goal_rows.add_theme_constant_override("separation", 5)
 	v.add_child(_goal_rows)
 	_root.add_child(_goals)
 
@@ -1210,67 +1216,84 @@ func _refresh_goals() -> void:
 		c.queue_free()
 	var ready := 0
 	var list := _goal_list()
-	for i in list.size():
+	# the ones to collect first, then the rest nearest to done
+	var order: Array = range(list.size())
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var ra: bool = list[a].get("ready", false)
+		var rb: bool = list[b].get("ready", false)
+		if ra != rb:
+			return ra
+		return _goal_frac(list[a]) > _goal_frac(list[b]))
+	for i: int in order:
 		var g: Dictionary = list[i]
 		if g.get("ready", false):
 			ready += 1
 		_goal_rows.add_child(_goal_row(i, g))
 	_goal_count.text = ("%d to collect" % ready) if ready > 0 else ("%d done" % _goals_done())
 	_goal_count.add_theme_color_override("font_color", ACCENT if ready > 0 else SOFT)
+	_goal_fold.text = "-" if _goals_open else "+"
 	_goals.visible = not list.is_empty()
 
 
+## One goal: its icon, what to do over a thin
+## bar of how far along it is, and the reward, which turns into a Collect
+## chip once it is done.
 func _goal_row(i: int, g: Dictionary) -> Control:
+	var ready: bool = g.get("ready", false)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 7)
-	var ic := _icon(str(g.icon), 24)
+	row.add_theme_constant_override("separation", 6)
+	var ic := _icon(str(g.icon), 16)
 	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(ic)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 2)
+	col.add_theme_constant_override("separation", 3)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(col)
-	var t := _label(str(g.text), 12, true)
+	var t := _label(str(g.text), 10, true)
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	t.custom_minimum_size.x = 150
+	t.custom_minimum_size.x = 140
 	col.add_child(t)
-	if g.get("ready", false):
+	var pb := ProgressBar.new()
+	pb.custom_minimum_size = Vector2(0, 4)
+	pb.show_percentage = false
+	pb.max_value = 1.0
+	pb.step = 0.0
+	pb.value = 1.0 if ready else _goal_frac(g)
+	pb.add_theme_stylebox_override("background", _box(Color(INK, 0.1), 2, 0, false))
+	pb.add_theme_stylebox_override("fill", _box(MINT if ready else Color("f2a93b"), 2, 0, false))
+	if not ready:
+		pb.set_meta("goal", i)
+	col.add_child(pb)
+	if ready:
 		var b := Button.new()
-		b.text = "Collect +%s" % _short(float(g.reward))
-		b.custom_minimum_size = Vector2(0, 28)
+		b.text = "+%s" % _short(float(g.reward))
+		b.custom_minimum_size = Vector2(46, 22)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_size_override("font_size", 13)
-		b.add_theme_stylebox_override("normal", _box(ACCENT, 14, 8))
-		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 14, 8))
-		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 14, 8, false))
+		b.tooltip_text = "Collect"
+		b.add_theme_font_size_override("font_size", 11)
+		b.add_theme_stylebox_override("normal", _box(ACCENT, 11, 4))
+		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 11, 4))
+		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 11, 4, false))
 		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(fc, Color.WHITE)
 		b.pressed.connect(_claim_goal.bind(i, b))
-		col.add_child(b)
+		row.add_child(b)
 		# a gentle breathing pulse so it is hard to miss
-		b.pivot_offset = Vector2(60, 14)
+		b.pivot_offset = Vector2(23, 11)
 		var tw := b.create_tween().set_loops()
-		tw.tween_property(b, "scale", Vector2(1.04, 1.04), 0.55).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(b, "scale", Vector2(1.06, 1.06), 0.55).set_trans(Tween.TRANS_SINE)
 		tw.tween_property(b, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_SINE)
 	else:
-		var h := HBoxContainer.new()
-		h.add_theme_constant_override("separation", 8)
-		col.add_child(h)
-		var pb := ProgressBar.new()
-		pb.custom_minimum_size = Vector2(0, 6)
-		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		pb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		pb.show_percentage = false
-		pb.max_value = 1.0
-		pb.step = 0.0
-		pb.value = _goal_frac(g)
-		pb.set_meta("goal", i)
-		h.add_child(pb)
 		var r := HBoxContainer.new()
 		r.add_theme_constant_override("separation", 2)
-		r.add_child(_icon("coin", 13))
-		r.add_child(_label(_short(float(g.reward)), 11, true, Color("b46a1f")))
-		h.add_child(r)
+		r.custom_minimum_size.x = 46
+		r.alignment = BoxContainer.ALIGNMENT_END
+		r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r.add_child(_icon("coin", 11))
+		r.add_child(_label(_short(float(g.reward)), 10, true, Color("b46a1f")))
+		row.add_child(r)
 	return row
 
 
