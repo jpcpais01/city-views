@@ -92,6 +92,8 @@ var _goal_count: Label
 var _goal_fold: Label
 ## the row along the top: the town's name card, then the goals beside it
 var _top_row: HBoxContainer
+# the name card, with the town goals under it
+var _top_col: VBoxContainer
 var _goals_open := true
 var _glass_light: ShaderMaterial
 var _glass_dark: ShaderMaterial
@@ -284,10 +286,15 @@ func _build_island_top() -> void:
 	row.add_theme_constant_override("separation", 10)
 	margin.add_child(row)
 	_top_row = row
+	_top_col = VBoxContainer.new()
+	_top_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_top_col.add_theme_constant_override("separation", 8)
+	_top_col.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(_top_col)
 	var card := PanelContainer.new()
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_glassify(card)
-	row.add_child(card)
+	_top_col.add_child(card)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
 	card.add_child(v)
@@ -849,7 +856,12 @@ func _build_fps() -> void:
 	_fps_label = _label("", 13, true, Color(1, 1, 1, 0.9))
 	_fps_label.add_theme_color_override("font_outline_color", Color(0.1, 0.14, 0.2, 0.55))
 	_fps_label.add_theme_constant_override("outline_size", 4)
-	_fps_label.position = Vector2(30, 112)
+	# under the pills on the right, clear of the name card and the goals
+	_fps_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_fps_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_fps_label.offset_right = -30
+	_fps_label.offset_top = 86
 	_fps_label.visible = Game.settings.get("fps", true)
 	_root.add_child(_fps_label)
 
@@ -1208,8 +1220,7 @@ func _build_goals() -> void:
 	_goal_rows = VBoxContainer.new()
 	_goal_rows.add_theme_constant_override("separation", 5)
 	v.add_child(_goal_rows)
-	_top_row.add_child(_goals)
-	_top_row.move_child(_goals, 1)
+	_top_col.add_child(_goals)
 
 
 func _refresh_goals() -> void:

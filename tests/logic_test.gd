@@ -599,7 +599,11 @@ func _island_budget() -> void:
 	check(total + reserve < TriBudget.BUDGET, "the busiest view over a big town stays under budget (%d)" % (total + reserve))
 	# pulled all the way out (João, 2026-10-24) a little more is allowed: more
 	# of the town fills the view
-	var far: int = _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, deg_to_rad(-32.0))[0]
+	var far_view := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, deg_to_rad(-32.0))
+	var far: int = far_view[0]
+	if OS.get_environment("CV_ONLY") == "budget":
+		for k in far_view[1]:
+			print("  far tris %-16s %7d +shadow %7d" % [k, far_view[1][k][0], far_view[1][k][1]])
 	print("island: %d triangles in the busiest view from all the way out" % far)
 	check(far + reserve < TriBudget.FAR_BUDGET, "and from all the way out stays under %dk (%d)" % [TriBudget.FAR_BUDGET / 1000, far + reserve])
 	# and tilted right up to look across the town from the side, more again

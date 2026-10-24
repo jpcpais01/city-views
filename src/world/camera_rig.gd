@@ -17,6 +17,10 @@ var idle_spin := false
 var ground_fn: Callable
 ## How far from the middle the view can pan.
 var limit := 64.0
+# the ground height the view follows and the lowest the camera may go, both
+# eased so gliding over hills and valleys never jolts (NAN: not yet known)
+var _ground := NAN
+var _floor := NAN
 
 const MIN_D := 9.0
 ## how far the player may tilt the view from the zoom's own tilt: up towards
@@ -85,13 +89,19 @@ func _process(delta: float) -> void:
 	dist = lerpf(dist, _t_dist, k)
 	tilt = lerpf(tilt, _t_tilt, k)
 	var pitch := view_pitch()
-	var ground := _ground_height(target)
-	var focus_p := Vector3(target.x, ground, target.z)
+	var want := _ground_height(target)
+	_ground = want if is_nan(_ground) else lerpf(_ground, want, 1.0 - exp(-delta * 2.2))
+	var focus_p := Vector3(target.x, _ground, target.z)
 	var off := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * dist
 	var at := focus_p + off
-	# looking across the town from the side, the camera never sinks into a hill
+	# looking across the town from the side, the camera never sinks into a hill:
+	# it rises over one quickly but smoothly, and settles back down slowly
 	if ground_fn.is_valid():
-		at.y = maxf(at.y, float(ground_fn.call(at.x, at.z)) + 0.8)
+		var low := _area_height(at, 2.5) + 0.8
+		if is_nan(_floor):
+			_floor = low
+		_floor = lerpf(_floor, low, 1.0 - exp(-delta * (7.0 if low > _floor else 1.8)))
+		at.y = maxf(at.y, maxf(_floor, float(ground_fn.call(at.x, at.z)) + 0.3))
 	cam.global_position = at
 	cam.look_at(focus_p, Vector3.UP)
 
@@ -120,8 +130,24 @@ func _keyboard(delta: float) -> void:
 		zoom(exp(z * 1.4 * delta * fast))
 
 
+## The ground the view looks at: not the single point under the focus but the
+## lie of the land around it, over an area that widens as the view pulls back,
+## so one hillock or bank passing underneath barely moves the view.
 func _ground_height(p: Vector3) -> float:
-	if ground_fn.is_valid():
-		return maxf(0.0, ground_fn.call(p.x, p.z)) * 0.8
-	return 0.0
+	if not ground_fn.is_valid():
+		return 0.0
+	return _area_height(p, clampf(dist * 0.18, 2.0, 24.0)) * 0.8
+
+
+## The ground around `p`: the middle and two rings, the middle counting most.
+func _area_height(p: Vector3, r: float) -> float:
+	var sum := maxf(0.0, ground_fn.call(p.x, p.z)) * 4.0
+	var w := 4.0
+	for ring: float in [0.5, 1.0]:
+		for k in 8:
+			var q := Vector2(p.x, p.z) + Vector2.from_angle(k * TAU / 8.0 + ring) * r * ring
+			var wt := 2.0 - ring
+			sum += maxf(0.0, ground_fn.call(q.x, q.y)) * wt
+			w += wt
+	return sum / w
 
