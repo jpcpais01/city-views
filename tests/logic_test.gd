@@ -49,6 +49,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "advisor":
+		await preload("res://tests/advisor_check.gd").run(self)
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "roads":
 		await _road_kinds()
 		print("FAILURES: %d" % failures)
@@ -72,6 +77,7 @@ func _ready() -> void:
 	await _island_inner()
 	await _island_wilds()
 	await _island_progress()
+	await preload("res://tests/advisor_check.gd").run(self)
 	await _legacy_save()
 	await _map_kinds()
 	print("FAILURES: %d" % failures)

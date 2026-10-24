@@ -13,6 +13,7 @@ func _ready() -> void:
 	var hud := Hud.new()
 	hud.island = island
 	add_child(hud)
+	AdvisorBot.attach(hud, island)
 	loader.set_progress(0.3)
 	loader.track(island)
 	move_child(loader, -1)

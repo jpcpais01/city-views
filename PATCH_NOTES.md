@@ -5,6 +5,7 @@
 - Sun direction in Settings: slide it round the compass to choose which way the sun crosses your sky, so the morning light, long sunset shadows and night moon come from the side you like. It works with every time of day.
 - The update card has a "What's new" list: open it to read everything the new version brings since the one you have, before you install it.
 - On PC the game now opens in true full screen instead of a maximized window. F11 or Alt+Enter switches to a window and back.
+- Meet Pip, your city advisor, in the bottom-right corner. Tap Pip and ask for a look round: Pip scores your city on jobs, shops, green and calm, then lights up to three spots on the map with what to paint there, like Shops for homes that have none nearby, Offices or Industry when people need work, Green between factories and houses, or a taller level where homes have topped out. Tap a tip to fly there, and Paint hands you the right brush, district and level. Pip also waves now and then when something needs you.
 
 ## 2026-10-24 23:02 UTC
 - Clouds no longer slip behind rivers, lakes and the sea when they drift over water.
