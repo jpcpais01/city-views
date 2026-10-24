@@ -664,6 +664,30 @@ func _island_budget() -> void:
 		if picked >= 10:
 			break
 	check(picked >= 8, "tapping a building picks it (%d of 10): %s" % [picked, told])
+	# from a low slant, a tap picks the building drawn under the finger: the
+	# nearest walls or roof along the ray, whatever plots it crosses first
+	var slant_ok := 0
+	var slant_n := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type != "house" or l.host != 0 or l.arrays.is_empty() or slant_n >= 12:
+			continue
+		var v: PackedVector3Array = l.arrays[0]
+		var aim := (v[v.size() / 2] + v[v.size() / 2 + 1] + v[v.size() / 2 + 2]) / 3.0
+		var eye := aim + Vector3(25.0, 18.0, 25.0)
+		var dir := (aim - eye).normalized()
+		var truth: Town.Lot = null
+		var near := INF
+		for o: Town.Lot in island.town.lots.values():
+			var d := island.town._ray_hit(o, eye, dir)
+			if d < near:
+				near = d
+				truth = o
+		if truth == null:
+			continue
+		slant_n += 1
+		if island.town.lot_on_ray(eye, dir) == truth:
+			slant_ok += 1
+	check(slant_n >= 8 and slant_ok == slant_n, "a slanting tap picks the building drawn under it (%d of %d)" % [slant_ok, slant_n])
 	# painting green turns the houses there into parks
 	var at: Vector2 = some.origin
 	island.land.paint_green(Vector3(at.x, 0, at.y), 8.0, 1.0)
