@@ -1,6 +1,6 @@
 # City Views patch notes
 
-## 2026-10-24 16:05 UTC
+## 2026-10-24 16:03 UTC
 - Milestones: your city climbs from Hamlet through Small City, City, Big City and Large City to Metropolis and Megalopolis, with coins paid out at every milestone.
 - Unlocks: Shops and Industry districts open at 60 and 120 residents, Offices at 300, the Downtown level at 600 and Skyline at 1,200. Bigger cities you already have keep everything they've reached.
 - City stats: tap your population for a panel with your milestone and what the next one opens, residents, jobs and how many are out of work, homes, shops, works, streets, traffic and taxes.
