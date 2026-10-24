@@ -24,6 +24,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "roads":
+		await _road_kinds()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	_streets()
 	_street_snap()
 	await _junction_fuzz()
@@ -806,6 +811,31 @@ func _road_kinds() -> void:
 	check(on_highway == 0, "nobody lives along a highway")
 	var seeds: Array = island.growth._seeds(h)
 	check(seeds.is_empty(), "no street branches off a highway")
+	# street lights down the middle of the avenue and the highway
+	island.lights.rebuild()
+	var on_mid := 0
+	for t: Transform3D in island.lights.places():
+		var q := Vector2(t.origin.x, t.origin.z)
+		if a.closest(q).x < 0.1 or h.closest(q).x < 0.1:
+			on_mid += 1
+	check(on_mid >= 8, "street lights stand down the middle of avenues and highways (%d)" % on_mid)
+	# traffic: lanes, queues, buses and lorries
+	var tr := island.cars
+	for k in 600:
+		tr._process(0.05)
+	var lanes_av := {}
+	var overlaps := 0
+	var kinds_seen := {}
+	for c in tr._cars:
+		kinds_seen[tr.STYLES[c.v][0]] = true
+		if c.s == a and c.grow >= 1.0:
+			lanes_av[c.lane] = true
+		if c.ahead < -0.05 and c.grow >= 1.0:
+			overlaps += 1
+	check(tr._cars.size() >= 20, "traffic fills the streets (%d vehicles)" % tr._cars.size())
+	check(lanes_av.size() == 2, "an avenue is driven in two lanes each way (%s)" % str(lanes_av.keys()))
+	check(overlaps <= 1, "vehicles queue behind the one ahead rather than run into it (%d overlap)" % overlaps)
+	check(kinds_seen.has("car") and (kinds_seen.has("bus") or kinds_seen.has("truck")), "buses and lorries drive among the cars (%s)" % str(kinds_seen.keys()))
 	var data := island.to_dict()
 	island._apply_save(JSON.parse_string(JSON.stringify(data)))
 	var kinds := {}

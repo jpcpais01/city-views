@@ -190,6 +190,11 @@ void fragment() {
 				float al = fwidth(v_rand);
 				float dash = smoothstep(-al, al, d) * (1.0 - smoothstep(every * 0.4 - al, every * 0.4 + al, d));
 				base = mix(base, vec3(1.0, 0.97, 0.9), max(solid, mid * dash) * 0.92);
+				// at night, a warm pool under each street light (StreetLights:
+				// every 9 m from 2.6 m in, its head a quarter way out from the middle)
+				float dl = (fract((v_rand - 2.6) / 9.0 + 0.5) - 0.5) * 9.0;
+				float dx = (x - width * 0.75) * 1.3;
+				EMISSION = vec3(1.0, 0.78, 0.5) * exp(-(dl * dl + dx * dx) * 1.1) * night * 0.45;
 			} else if (v_emit > 0.115) {
 				// a dashed white centre line: 0.5 m dashes every 1.4 m, 7 cm wide
 				// on a 1.56 m carriageway (COLOR.a runs kerb to kerb, UV.y along)
