@@ -1747,13 +1747,13 @@ func _build_menu() -> void:
 	sun_slider.max_value = 360
 	sun_slider.step = 5
 	sun_slider.custom_minimum_size.y = 44
-	var track := _box(Color(1, 1, 1, 0.85), 6, 0, false)
-	track.content_margin_top = 5
-	track.content_margin_bottom = 5
+	var sun_track := _box(Color(1, 1, 1, 0.85), 6, 0, false)
+	sun_track.content_margin_top = 5
+	sun_track.content_margin_bottom = 5
 	var fill := _box(ACCENT, 6, 0, false)
 	fill.content_margin_top = 5
 	fill.content_margin_bottom = 5
-	sun_slider.add_theme_stylebox_override("slider", track)
+	sun_slider.add_theme_stylebox_override("slider", sun_track)
 	sun_slider.add_theme_stylebox_override("grabber_area", fill)
 	sun_slider.add_theme_stylebox_override("grabber_area_highlight", fill)
 	sun_slider.value = float(Game.settings.get("sun_angle", 0.0))
