@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-24 12:02 UTC
+- The Grow brush now paints in bold colours you can't miss: yellow for Village, orange for Town, red for City and pink for Centre.
+- The Green brush shows its parks in a bright green while you paint.
+- Twice as many little back corners between buildings, with bins, planters, benches and flower beds tucked into the tighter gaps.
+
 ## 2026-10-24 11:48 UTC
 - The ground between buildings comes alive: back gardens with sheds, veg patches, washing lines and trampolines behind houses.
 - Paved courtyards with trees and benches among taller blocks, and service yards with bins and a parked van behind offices.

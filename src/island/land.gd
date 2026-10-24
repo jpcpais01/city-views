@@ -32,7 +32,7 @@ var green := PackedFloat32Array()
 # 1 village .. 4 centre (0 where never painted, which counts as a town, 2)
 var level := PackedFloat32Array()
 const LEVEL_DEFAULT := 2.0
-const LEVEL_TINTS := [Color("f4e3b0"), Color("f4e3b0"), Color("f3cf8c"), Color("efb173"), Color("ea8f66")]
+const LEVEL_TINTS := [Color("ffd23f"), Color("ffd23f"), Color("ff9a1f"), Color("ff5a3c"), Color("e0328c")]
 # tint the painted area strongly (while the Grow brush is in hand)
 var show_zone := false:
 	set(v):
@@ -471,13 +471,13 @@ func _build_chunk(c: Vector2i) -> void:
 					# while growing, the painted ground shows its level: warmer is taller
 					var lv := level[gj * SIDE + gi]
 					var t: Color = LEVEL_TINTS[clampi(int(round(lv if lv >= 0.5 else LEVEL_DEFAULT)), 1, 4)]
-					col = col.lerp(t, zn * (0.45 + 0.07 * lv))
+					col = col.lerp(t, minf(zn * 1.4, 1.0) * 0.82)
 				else:
 					col = col.lerp(Color("b5c97a"), zn * 0.18)
 			var gn := green[gj * SIDE + gi]
 			if gn > 0.0 and h > 0.0:
 				# park lawns, a lusher green
-				col = col.lerp(Color("74bf5e"), gn * (0.5 if show_zone else 0.3))
+				col = col.lerp(Color("2fd35a") if show_zone else Color("74bf5e"), minf(gn * 1.4, 1.0) * 0.82 if show_zone else gn * 0.3)
 			if h > -0.3:
 				col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
 			cols[k] = col
