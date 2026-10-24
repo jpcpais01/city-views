@@ -78,6 +78,9 @@ var _mouse_buttons := 0
 var _undo: Array = []
 var _redo: Array = []
 var _stroke_did := false
+## a glow over the building last tapped, while its card shows
+var _picked: MeshInstance3D
+var _picked_tw: Tween
 
 
 func _ready() -> void:
@@ -717,7 +720,55 @@ func _hover_at(screen: Vector2) -> void:
 func _tap(screen: Vector2) -> void:
 	if brush != "":
 		return
-	inspected.emit(town.lot_on_ray(rig.cam.project_ray_origin(screen), rig.cam.project_ray_normal(screen)))
+	var lot: Town.Lot = town.lot_on_ray(rig.cam.project_ray_origin(screen), rig.cam.project_ray_normal(screen))
+	_highlight(lot)
+	inspected.emit(lot)
+
+
+## Lights up the tapped building for as long as its info card stays up, so
+## it is plain which one the card is about.
+func _highlight(lot: Town.Lot) -> void:
+	if _picked_tw:
+		_picked_tw.kill()
+	if _picked:
+		_picked.queue_free()
+		_picked = null
+	if lot == null or lot.arrays.is_empty():
+		return
+	var mesh := ArrayMesh.new()
+	for k in [0, 4]:
+		var v: PackedVector3Array = lot.arrays[k]
+		if v.is_empty():
+			continue
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		arr[Mesh.ARRAY_VERTEX] = v
+		arr[Mesh.ARRAY_NORMAL] = lot.arrays[k + 1]
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	if mesh.get_surface_count() == 0:
+		return
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(1.0, 0.78, 0.3, 0.0)
+	# just proud of the walls, so it never flickers against them
+	mat.grow = true
+	mat.grow_amount = 0.025
+	_picked = MeshInstance3D.new()
+	_picked.mesh = mesh
+	_picked.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_picked.material_override = mat
+	add_child(_picked)
+	var node := _picked
+	_picked_tw = create_tween()
+	_picked_tw.tween_property(mat, "albedo_color:a", 0.6, 0.12)
+	_picked_tw.tween_property(mat, "albedo_color:a", 0.38, 0.35)
+	_picked_tw.tween_interval(4.5)
+	_picked_tw.tween_property(mat, "albedo_color:a", 0.0, 0.4)
+	_picked_tw.tween_callback(func():
+		node.queue_free()
+		if _picked == node:
+			_picked = null)
 
 
 func _begin_stroke(screen: Vector2) -> void:

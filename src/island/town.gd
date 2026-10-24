@@ -286,24 +286,16 @@ func is_built(p: Vector2) -> bool:
 	return _occ[c.y * RES + c.x] != 0
 
 
-## How tall a lot's building stands above its plot, roughly, for picking it.
-static func _pick_height(l: Lot) -> float:
-	match l.type:
-		"house":
-			return maxf(l.floors, 1) * FH + 0.9
-		"church":
-			return 5.0
-		"hall":
-			return 3.4
-		"school", "market":
-			return 2.4
-	return 0.4
-
-
-## The lot whose building (or open ground, for a park or square) a ray from
-## `from` along `dir` meets first, or null. A plot that is part of a joined
-## building gives back the building's first plot.
+## The lot whose building a ray from `from` along `dir` meets first, or
+## null. The ray is tested against the buildings' own triangles, so a tap
+## picks what is drawn under the finger, not a plot it happens to pass over;
+## open ground (a park, a square, a bare plot) counts where the ray lands.
+## A plot that is part of a joined building gives back the building's first plot.
 func lot_on_ray(from: Vector3, dir: Vector3, reach := 400.0) -> Lot:
+	# the plots the ray passes over, in order, until it reaches the ground
+	var seen := {}
+	var order: Array = []
+	var ground: Lot = null
 	var t := 0.0
 	while t < reach:
 		var p := from + dir * t
@@ -312,16 +304,44 @@ func lot_on_ray(from: Vector3, dir: Vector3, reach := 400.0) -> Lot:
 		if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
 			continue
 		var id := _occ[c.y * RES + c.x]
-		if id <= 0 or not lots.has(id):
-			continue
-		var l: Lot = lots[id]
-		if l.host != 0 and lots.has(l.host):
-			l = lots[l.host]
-		if p.y <= l.street_y + _pick_height(l):
-			return l
+		var l: Lot = null
+		if id > 0 and lots.has(id):
+			l = lots[id]
+			if l.host != 0 and lots.has(l.host):
+				l = lots[l.host]
+			if not seen.has(l.id):
+				seen[l.id] = true
+				order.append([t - 0.15, l])
 		if p.y < land.height_at(p.x, p.z):
-			return null
-	return null
+			ground = l
+			break
+	var best: Lot = null
+	var best_t := t
+	for e in order:
+		if e[0] > best_t:
+			break
+		var l: Lot = e[1]
+		var d := _ray_hit(l, from, dir)
+		if d < best_t:
+			best_t = d
+			best = l
+	return best if best else ground
+
+
+## How far along the ray it first meets the lot's building (INF if not).
+func _ray_hit(l: Lot, from: Vector3, dir: Vector3) -> float:
+	var best := INF
+	if l.arrays.is_empty():
+		return best
+	for k in [0, 4]:
+		var v: PackedVector3Array = l.arrays[k]
+		var i := 0
+		while i + 2 < v.size():
+			var hit: Variant = Geometry3D.ray_intersects_triangle(from, dir, v[i], v[i + 1], v[i + 2])
+			if hit != null:
+				best = minf(best, from.distance_to(hit))
+			i += 3
+	return best
 
 
 const TRADE_NAMES := {"shop": "Shop", "cafe": "Café", "bakery": "Bakery", "grocer": "Grocer", "pharmacy": "Pharmacy"}

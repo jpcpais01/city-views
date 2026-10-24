@@ -664,6 +664,30 @@ func _island_budget() -> void:
 		if picked >= 10:
 			break
 	check(picked >= 8, "tapping a building picks it (%d of 10): %s" % [picked, told])
+	# from a low slant, a tap picks the building drawn under the finger: the
+	# nearest walls or roof along the ray, whatever plots it crosses first
+	var slant_ok := 0
+	var slant_n := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type != "house" or l.host != 0 or l.arrays.is_empty() or slant_n >= 12:
+			continue
+		var v: PackedVector3Array = l.arrays[0]
+		var aim := (v[v.size() / 2] + v[v.size() / 2 + 1] + v[v.size() / 2 + 2]) / 3.0
+		var eye := aim + Vector3(25.0, 18.0, 25.0)
+		var dir := (aim - eye).normalized()
+		var truth: Town.Lot = null
+		var near := INF
+		for o: Town.Lot in island.town.lots.values():
+			var d := island.town._ray_hit(o, eye, dir)
+			if d < near:
+				near = d
+				truth = o
+		if truth == null:
+			continue
+		slant_n += 1
+		if island.town.lot_on_ray(eye, dir) == truth:
+			slant_ok += 1
+	check(slant_n >= 8 and slant_ok == slant_n, "a slanting tap picks the building drawn under it (%d of %d)" % [slant_ok, slant_n])
 	# painting green turns the houses there into parks
 	var at: Vector2 = some.origin
 	island.land.paint_green(Vector3(at.x, 0, at.y), 8.0, 1.0)
@@ -1021,6 +1045,11 @@ func _road_kinds() -> void:
 	island.streets.flush()
 	check(a != null and h != null and a.kind == "avenue" and h.kind == "highway", "the Street brush lays avenues and highways")
 	check(a.w() > Streets.KINDS.main.w * 1.6 and h.w() > a.w(), "avenues are wider than streets, highways wider still")
+	# a lone road's ends are dead ends, rounded off past the end of the line
+	var hm: MeshInstance3D = island.streets._meshes[h.id]
+	var hb := hm.mesh.get_aabb()
+	check(island.streets._dead_end(h, 0) and island.streets._dead_end(h, h.pts.size() - 1), "a road with nothing at its ends has dead ends")
+	check(hb.position.x < h.pts[0].x - h.w() * 0.9 and hb.end.x > h.pts[h.pts.size() - 1].x + h.w() * 0.9, "dead ends are rounded off (%s)" % str(hb))
 	# a shaky hand: streets keep the wobble, avenues smooth it, highways more so
 	var shaky := PackedVector2Array()
 	for k in 61:
@@ -1069,6 +1098,11 @@ func _road_kinds() -> void:
 		if l.street == h.id:
 			on_highway += 1
 	check(off_avenue >= 2, "side streets grow off an avenue (%d)" % off_avenue)
+	var joined_dead := 0
+	for s: Streets.Street in island.streets.streets:
+		if s != a and s != h and a.closest(s.pts[0]).x < a.reach() and island.streets._dead_end(s, 0):
+			joined_dead += 1
+	check(joined_dead == 0, "a street that meets another is not a dead end (%d)" % joined_dead)
 	check(on_avenue >= 6 and main, "houses and shops line an avenue, as on a main street (%d)" % on_avenue)
 	check(on_highway == 0, "nobody lives along a highway")
 	var seeds: Array = island.growth._seeds(h)

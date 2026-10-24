@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-24 23:02 UTC
+- Dead-end streets now finish in a rounded turning head, with the kerb and pavement carried round, instead of stopping square.
+- Tapping a building picks the one you see under your finger: the tap follows the buildings' real walls and roofs instead of the plots on the ground, so a low house in front or a yard no longer gets in the way. The building you picked glows while its card is up.
+
 ## 2026-10-24 22:02 UTC
 - Hyper graphics in photo mode: the camera button now renders at twice the resolution, with a shadow map four times as detailed, the softest shadow edges, ambient occlusion that darkens the corners, gaps and building feet where real skylight can't reach, finer sky reflections and a gentle glow by day. Normal play is unchanged, and Settings can turn it off.
 - The camera glides over hills and valleys: it follows the lie of the land around the view instead of the spot under it, and eases up and down instead of jolting. Town goals now sit under your city's name.
