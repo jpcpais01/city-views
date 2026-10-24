@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 03:13 UTC
+- Corner houses now have windows on the wall that faces the side street, instead of a blank end wall.
+- Flat roofs vary: grey felt, dark tar, pale gravel and the odd planted green roof.
+- Big joined buildings stand on a heavier ground floor, with a stone base under brick and darker render elsewhere.
+- Balconies and street lamps on big buildings are lighter on triangles, so an all-Centre island still stays under budget.
+
 ## 2026-10-24 03:09 UTC
 - Cottages and small houses can now stand inside deep blocks, within a short walk of a street instead of right on it, the way back lanes and courtyards fill in an old town.
 - Green painted deep inside a block becomes a pocket park, even with no street alongside.
