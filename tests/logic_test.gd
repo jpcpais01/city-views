@@ -20,6 +20,7 @@ func _ready() -> void:
 	await _island_grow()
 	await _island_levels()
 	await _island_inner()
+	await _island_wilds()
 	await _island_progress()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -270,6 +271,62 @@ func _island_inner() -> void:
 	await get_tree().process_frame
 
 
+## The countryside: woods and lone trees on open ground, none on the streets
+## or where Grow is painted, a wood where green is painted, and not too dear.
+func _island_wilds() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(11)
+	var pts := PackedVector2Array()
+	for k in 50:
+		pts.append(Vector2(-25 + k, 6))
+	island.streets.add_stroke(pts)
+	island.streets.flush()
+	island.town.fill_all()
+	island.wilds.rebuild_all()
+	var wild := island.wilds.tree_count()
+	var acc := TriBudget.count(island)
+	var cost: int = acc.get("Wilds", [0, 0])[0] + acc.get("Wilds", [0, 0])[1]
+	print("  wilds: %d trees, %d triangles" % [wild, cost])
+	check(wild > 150, "the countryside grows woods and lone trees (%d)" % wild)
+	check(cost < 12000, "the woods stay cheap (%d triangles)" % cost)
+	var near := 0
+	var s0: Streets.Street = island.streets.streets[0]
+	for j in Wilds.PER * Wilds.CHUNKS:
+		for i in Wilds.PER * Wilds.CHUNKS:
+			var p := Vector2(-Land.HALF + (i + 0.5) * Wilds.GAP, -Land.HALF + (j + 0.5) * Wilds.GAP)
+			if s0.closest(p).x < s0.reach() + 0.6 and island.wilds._spot(p.x, p.y, 0.0) >= 0:
+				near += 1
+	check(near == 0, "no tree stands on a street or its verge (%d)" % near)
+	# Grow painted: the trees there make way for the town; green grows a wood
+	var spots: Array[Vector2] = []
+	for j in 13:
+		for i in 13:
+			var q := Vector2(-36 + i * 6, -36 + j * 4)
+			var h := island.land.height_at(q.x, q.y)
+			if h > 2.0 and h < 7.0 and island.land.normal_at(q.x, q.y).y > 0.97 and q.distance_to(Vector2(q.x, 6)) > 12.0:
+				spots.append(q)
+	var za: Vector2 = spots[0]
+	var gb: Vector2 = spots[-1]
+	island.land.paint_zone(Vector3(za.x, 0, za.y), 10.0, 2.0)
+	island.land.paint_green(Vector3(gb.x, 0, gb.y), 10.0, 2.0)
+	var zoned := 0
+	var wood := 0
+	var tried := 0
+	for k in 400:
+		var off := Vector2.from_angle(k * 0.7) * (k % 5)
+		var a := za + off
+		zoned += int(island.wilds._spot(a.x, a.y, 0.0) >= 0)
+		var b := gb + off
+		if island.land.normal_at(b.x, b.y).y > 0.9:
+			tried += 1
+			wood += int(island.wilds._spot(b.x, b.y, 0.6) >= 0)
+	check(zoned == 0, "trees give way where Grow is painted (%d left)" % zoned)
+	check(wood > tried * 0.8, "painted green away from the streets becomes a wood (%d of %d)" % [wood, tried])
+	island.queue_free()
+	await get_tree().process_frame
+
+
 func _island_progress() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
@@ -381,6 +438,7 @@ func _island_budget() -> void:
 	check(island.landmarks.spots.has("windmill") and island.landmarks.spots.has("lighthouse") and island.landmarks.spots.has("pier"), "a big town gets a windmill, a lighthouse and a pier (%s)" % str(island.landmarks.spots))
 	var lh: Vector2 = island.landmarks.spots.get("lighthouse", Vector2.ZERO)
 	check(island.town.is_built(lh) and island.landmarks.beams().size() <= 1, "the town leaves room round a landmark")
+	island.wilds.rebuild_all()
 	var acc := TriBudget.count(island)
 	for k in acc:
 		print("  island tris %-16s %7d +shadow %7d" % [k, acc[k][0], acc[k][1]])
