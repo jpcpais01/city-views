@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-25 00:00 UTC
+- New Drive mode: tap the car button and take a little car out on your own streets. Follow it with a close chase camera or switch to the driver's seat, roll over hills, kerbs and bridges, and bump into the buildings you grew. Touch pedals and a thumb wheel on phones, WASD or arrows on PC, with an engine that revs, headlights that light the road at night and a speedometer. The X button (or Back / Esc) takes you back to building.
+
 ## 2026-10-24 23:30 UTC
 - Fixed the last update not starting up: the game opens normally again.
 - Sun direction in Settings: slide it round the compass to choose which way the sun crosses your sky, so the morning light, long sunset shadows and night moon come from the side you like. It works with every time of day.
