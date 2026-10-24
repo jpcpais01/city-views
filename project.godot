@@ -20,6 +20,7 @@ Game="*res://src/autoload/game.gd"
 Sfx="*res://src/autoload/sfx.gd"
 Firebase="*res://src/autoload/firebase.gd"
 Net="*res://src/autoload/net.gd"
+Updater="*res://src/autoload/updater.gd"
 
 [display]
 

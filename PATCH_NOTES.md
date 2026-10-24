@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-24 12:45 UTC
+- Updates inside the game: when a new version is out, a small card offers it a few seconds after you start.
+- On Android, tap Update to download it with a progress bar, then confirm Android's install screen. The first time, Android asks you to allow installs from City Views.
+- On Windows, tap Update and then Restart: the game saves, swaps in the new version and opens again by itself.
+
 ## 2026-10-24 12:16 UTC
 - Gentler islands: hills are half as tall and the land rolls more smoothly, leaving more room for towns to spread.
 - Every house window now has a real stone sill beneath it and a hood above, giving the walls depth.
