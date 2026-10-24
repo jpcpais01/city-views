@@ -245,6 +245,8 @@ func _island_undo() -> void:
 	island.rig.tilt_by(10.0)
 	check(is_equal_approx(island.rig._t_tilt, CameraRig.MAX_TILT), "the view tilts only so far")
 	island.rig.tilt_by(-10.0)
+	check(is_equal_approx(island.rig._t_tilt, CameraRig.MIN_TILT), "and up towards the horizon further than down")
+	island.rig.tilt_by(10.0 + CameraRig.MIN_TILT)
 	island.queue_free()
 	await get_tree().process_frame
 
@@ -589,6 +591,12 @@ func _island_budget() -> void:
 	print("island: %d streets, %d houses, %d triangles in the busiest view (+%d for HUD, traffic and people)" % [made + 2, island.town.house_count(), total, reserve])
 	check(island.town.house_count() > 130, "a whole island grows a real town (%d houses)" % island.town.house_count())
 	check(total + reserve < TriBudget.BUDGET, "the busiest view over a big town stays under budget (%d)" % (total + reserve))
+	# pulled all the way out or tilted right up towards the horizon (João asked
+	# for both, 2026-10-24) a little more is allowed: more of the town fills the view
+	var far: int = _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, CameraRig.MIN_TILT)[0]
+	far = maxi(far, _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.FAR_D, CameraRig.MIN_TILT)[0])
+	print("island: %d triangles in the busiest view from all the way out" % far)
+	check(far + reserve < TriBudget.FAR_BUDGET, "and from all the way out stays under %dk (%d)" % [TriBudget.FAR_BUDGET / 1000, far + reserve])
 	var kits := {}
 	for l: Town.Lot in island.town.lots.values():
 		kits[l.kit] = true
@@ -688,13 +696,12 @@ func _island_budget() -> void:
 
 ## The most triangles seen from as far out as the camera goes, looking at any
 ## of `focuses` from several sides: [total, by part].
-func _busiest_view(island: IslandWorld, focuses: Array) -> Array:
+func _busiest_view(island: IslandWorld, focuses: Array, d := CameraRig.FAR_D, tilt := -CameraRig.MAX_TILT) -> Array:
 	var total := 0
 	var worst := {}
-	var d := CameraRig.MAX_D
 	for yaw_deg in [0, 35, 80, 135, 200, 290]:
 		# as the zoom tilts it, and tilted out as far as the player can
-		for pitch in [island.rig.pitch_for(d), island.rig.pitch_for(d) - CameraRig.MAX_TILT]:
+		for pitch in [island.rig.pitch_for(d), maxf(island.rig.pitch_for(d) + tilt, deg_to_rad(8.0))]:
 			for focus: Vector2 in focuses:
 				var yaw := deg_to_rad(yaw_deg)
 				var at := Vector3(focus.x, maxf(island.land.height_at(focus.x, focus.y), 0.0) * 0.8, focus.y)
@@ -1013,6 +1020,8 @@ func _road_kinds() -> void:
 	check(on_mid >= 8, "street lights stand down the middle of avenues and highways (%d)" % on_mid)
 	# traffic: lanes, queues, buses and lorries
 	var tr := island.cars
+	# a fixed draw of vehicles, so a run never just happens to spawn no bus or lorry
+	tr._rng.seed = 11
 	var lanes_av := {}
 	var kinds_seen := {}
 	for k in 600:

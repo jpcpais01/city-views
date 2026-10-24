@@ -10,13 +10,13 @@ extends Node3D
 const SPAN := float(Land.TILE)
 const CHUNKS := Land.TILES
 # one candidate spot per GAP x GAP metres, nudged off the grid
-const GAP := 1.5
+const GAP := 1.8
 const PER := int(SPAN / GAP)
 # how far a trunk keeps from anything built, and from a street's edge
 const CLEAR := 0.75
 const ROADSIDE := 1.25
 # the most trees one chunk holds, so even an island painted all green stays cheap
-const MOST := 48
+const MOST := 36
 const TRUNK := Color(0.42, 0.31, 0.22)
 const PINE := [Color("3f7d4e"), Color("356f45"), Color("4a8a55")]
 
@@ -239,7 +239,7 @@ func _blocked(x: float, z: float) -> bool:
 
 
 func _tree(mk: MeshKit, rng: RandomNumberGenerator, at: Vector3, kind: int) -> void:
-	var s := lerpf(0.95, 1.55, rng.randf())
+	var s := lerpf(1.05, 1.7, rng.randf())
 	if kind == 1:
 		var col: Color = PINE[rng.randi() % PINE.size()]
 		mk.pole(at, 0.05 * s, 0.4 * s, 4, TRUNK)
