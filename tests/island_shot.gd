@@ -2,7 +2,7 @@ extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one; 3: two 24 m apart), CV_GROW=radius (paints and grows the town),
-## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_PHOTO=1 (photo mode), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
+## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
 
 
 func _ready() -> void:
@@ -237,6 +237,7 @@ func _ready() -> void:
 		var cam := island.rig.cam
 		island.planes._plane.position = island.rig._t_target.lerp(cam.global_position, 0.45) + Vector3(4, 4, 0)
 	if OS.get_environment("CV_PHOTO") != "":
+		Game.settings["hyper"] = OS.get_environment("CV_NOHYPER") == ""
 		hud.set_photo(true)
 	if OS.get_environment("CV_MENU") != "":
 		hud._page = OS.get_environment("CV_MENU")

@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-24 22:02 UTC
+- Hyper graphics in photo mode: the camera button now renders at twice the resolution, with a shadow map four times as detailed, the softest shadow edges, ambient occlusion that darkens the corners, gaps and building feet where real skylight can't reach, finer sky reflections and a gentle glow by day. Normal play is unchanged, and Settings can turn it off.
+
 ## 2026-10-24 21:11 UTC
 - A new lighting pass: shadows reach right across the view and stay crisp at every zoom, the haze no longer washes the city out, a lower sun throws shadows you can read, colours look like film, the sky glows round a low sun and nights are deeper and cooler.
 - Town goals sit in a small tidy panel beside your city's name: one line per goal with a thin progress bar, ready ones first, and it folds away from its header.

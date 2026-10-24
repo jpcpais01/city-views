@@ -1416,6 +1416,7 @@ func set_photo(on: bool) -> void:
 			c.show()
 			create_tween().tween_property(c, "modulate:a", 1.0, 0.25)
 	_photo_exit.visible = on
+	island.set_hyper(on and Game.settings.get("hyper", true))
 	if on:
 		# shown clearly for a moment, then it steps back out of the picture
 		_photo_exit.modulate.a = 1.0
@@ -1675,7 +1676,7 @@ func _build_menu() -> void:
 
 	# ---- settings
 	var st := _section(_page_box("settings"), "Settings")
-	for key in [["music", "Music"], ["sfx", "Sound effects"], ["shadows", "Shadows"], ["fps", "Show FPS & triangles"]]:
+	for key in [["music", "Music"], ["sfx", "Sound effects"], ["shadows", "Shadows"], ["hyper", "Hyper graphics in photo mode"], ["fps", "Show FPS & triangles"]]:
 		var cb := CheckButton.new()
 		cb.text = key[1]
 		cb.add_theme_font_size_override("font_size", 18)
