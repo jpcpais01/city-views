@@ -38,18 +38,33 @@ const IRON := Color(0.22, 0.24, 0.27)
 const WOOD := Color(0.55, 0.4, 0.28)
 
 var world: IslandWorld
+# the next chunk to fingerprint while looking for changes (-1: not looking)
+var _scan := -1
+var _near := {}
 var _seed := 0
 var _nodes := {}
 var _sigs := {}
 var _counts := {}
 var _todo: Array[Vector2i] = []
+var _job := {}
 var _check := 1.0
 var _seen := -1
 
 
 func _process(delta: float) -> void:
+	if not _job.is_empty():
+		# laid out over a frame or two, then put up on a frame of its own
+		if _job.has("done"):
+			_finish(_job)
+			_job = {}
+		elif _work(_job, 3000):
+			_job.done = true
+		return
 	if not _todo.is_empty():
-		_build(_todo.pop_back())
+		_job = _start(_todo.pop_back())
+		return
+	if _scan >= 0:
+		_scan_some()
 		return
 	_check -= delta
 	if _check > 0.0:
@@ -67,6 +82,8 @@ func _process(delta: float) -> void:
 func rebuild_all() -> void:
 	_seed = world.island_seed
 	_todo.clear()
+	_job = {}
+	_scan = -1
 	var near := _lots_near()
 	for cz in CHUNKS:
 		for cx in CHUNKS:
@@ -82,18 +99,28 @@ func yard_count() -> int:
 	return n
 
 
+## Starts looking over the chunks for any whose yards need redoing: a few
+## each frame (see _scan_some), so a big town never stalls one.
 func _queue_changed() -> void:
 	if _seed != world.island_seed:
 		_seed = world.island_seed
 		_sigs.clear()
-	var near := _lots_near()
-	for cz in CHUNKS:
-		for cx in CHUNKS:
-			var c := Vector2i(cx, cz)
-			var s := _chunk_sig(c, near)
-			if _sigs.get(c, -1) != s:
-				_sigs[c] = s
-				_todo.append(c)
+	_near = _lots_near()
+	_scan = 0
+
+
+func _scan_some() -> void:
+	var start := Time.get_ticks_usec()
+	while _scan < CHUNKS * CHUNKS and Time.get_ticks_usec() - start < 2000:
+		var c := Vector2i(_scan % CHUNKS, _scan / CHUNKS)
+		_scan += 1
+		var s := _chunk_sig(c, _near)
+		if _sigs.get(c, -1) != s:
+			_sigs[c] = s
+			_todo.append(c)
+	if _scan >= CHUNKS * CHUNKS:
+		_scan = -1
+		_near = {}
 
 
 ## A fingerprint of what a chunk's yards depend on: the town map round it
@@ -130,17 +157,31 @@ func _chunk_sig(c: Vector2i, near: Dictionary) -> int:
 
 
 func _build(c: Vector2i) -> void:
-	var old: Node3D = _nodes.get(c)
-	if old:
-		old.queue_free()
-		_nodes.erase(c)
+	var job := _start(c)
+	_work(job, -1)
+	_finish(job)
+
+
+## A chunk's yards are laid out a row of spots at a time (see _work), so a
+## busy chunk spreads over a few frames instead of stalling one.
+func _start(c: Vector2i) -> Dictionary:
 	var mk := MeshKit.new()
 	mk.quiet_sprites = true
-	var n := 0
+	return {"c": c, "mk": mk, "rng": RandomNumberGenerator.new(), "j": 0, "n": 0}
+
+
+## Lays out rows of the chunk's yards until done or `budget_us` is spent;
+## true once the whole chunk is laid out.
+func _work(job: Dictionary, budget_us: int) -> bool:
+	var start := Time.get_ticks_usec()
+	var c: Vector2i = job.c
+	var mk: MeshKit = job.mk
+	var rng: RandomNumberGenerator = job.rng
 	var x0 := c.x * SPAN - Land.HALF
 	var z0 := c.y * SPAN - Land.HALF
-	var rng := RandomNumberGenerator.new()
-	for j in PER:
+	while job.j < PER and job.n < MOST:
+		var j: int = job.j
+		job.j += 1
 		for i in PER:
 			rng.seed = hash([_seed, c, i, j, 5])
 			var p := Vector2(x0 + (i + 0.5 + (rng.randf() - 0.5) * 0.3) * GAP, z0 + (j + 0.5 + (rng.randf() - 0.5) * 0.3) * GAP)
@@ -164,11 +205,23 @@ func _build(c: Vector2i) -> void:
 				_corner(mk, rng, p, owner)
 			else:
 				_yard(mk, rng, p, owner)
-			n += 1
-			if n >= MOST:
+			job.n += 1
+			if job.n >= MOST:
 				break
-		if n >= MOST:
+		if budget_us >= 0 and Time.get_ticks_usec() - start > budget_us:
 			break
+	return job.j >= PER or job.n >= MOST
+
+
+## Swaps the chunk's old yards for the newly laid out ones.
+func _finish(job: Dictionary) -> void:
+	var c: Vector2i = job.c
+	var mk: MeshKit = job.mk
+	var n: int = job.n
+	var old: Node3D = _nodes.get(c)
+	if old:
+		old.queue_free()
+		_nodes.erase(c)
 	_counts[c] = n
 	if n == 0:
 		return

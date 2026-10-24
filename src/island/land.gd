@@ -65,7 +65,7 @@ var show_zone := false:
 		if v != show_zone:
 			show_zone = v
 			for c in _chunks.keys():
-				_dirty[c] = true
+				_dirty_chunk(c)
 var _chunks := {}
 ## counts up whenever the ground or its painting changes
 var revision := 0
@@ -81,6 +81,10 @@ var kind := "island"
 var _col := PackedColorArray()
 var _steps := PackedByteArray()
 var _ready_chunks := {}
+# chunks part way through being worked out: the next row of colours to do,
+# and the mesh being put together
+var _prep_row := {}
+var _jobs := {}
 var _pending_build := false
 var _noise := FastNoiseLite.new()
 var _warp := FastNoiseLite.new()
@@ -112,6 +116,9 @@ func generate(seed_value: int, map_kind := "island", build := true) -> void:
 	_farm_noise.fractal_octaves = 2
 	_farm_noise.frequency = 1.0 / 90.0
 	farm_angle = fposmod(seed_value * 0.618, 1.0) * 0.9 - 0.45
+	# a new map works its farmland out afresh
+	_farm_raw.clear()
+	_farm_land.clear()
 	_plan_water(seed_value)
 	heights.resize(SIDE * SIDE)
 	if kind == "legacy":
@@ -174,6 +181,9 @@ func finish() -> void:
 		for cx in CELLS / CHUNK:
 			_prepare(Vector2i(cx, cz))
 	_dirty.clear()
+	_jobs.clear()
+	_prep_row.clear()
+	_shadow_all = true
 	for cz in CELLS / CHUNK:
 		for cx in CELLS / CHUNK:
 			_dirty[Vector2i(cx, cz)] = true
@@ -704,47 +714,71 @@ var farm_angle := 0.0
 ## bumped whenever the farm map may need working out again
 var farm_rev := 0
 var _farm := PackedFloat32Array()
+# the town at each farm cell, spread along its row, then down its column too
+var _farm_raw := PackedFloat32Array()
+var _farm_row := PackedFloat32Array()
+var _farm_town := PackedFloat32Array()
+# how fit the ground alone is for fields, before the town clears it
+var _farm_land := PackedFloat32Array()
 var _farm_noise := FastNoiseLite.new()
 
 
-## Works out the farm map afresh (after the land, the town or the parks changed).
-func update_farm() -> void:
+## Works out the farm map (after the land, the town or the parks changed):
+## all of it, or only round `box` (in samples), as far as a change there
+## can reach.
+func update_farm(box := Rect2i(0, 0, -1, -1)) -> void:
 	var n := FARM_SIDE
-	var town := PackedFloat32Array()
-	town.resize(n * n)
-	for j in n:
-		for i in n:
+	var full := box.size.x < 0 or _farm_raw.size() != n * n or _farm_land.size() != n * n
+	var lo := Vector2i.ZERO
+	var hi := Vector2i(n - 1, n - 1)
+	if full:
+		_farm_raw.resize(n * n)
+		_farm_row.resize(n * n)
+		_farm_town.resize(n * n)
+		_farm_land.resize(n * n)
+		_farm.resize(n * n)
+	else:
+		var k := STEP / FARM_CELL
+		lo = Vector2i(int(floor(box.position.x * k)) - 1, int(floor(box.position.y * k)) - 1).max(Vector2i.ZERO)
+		hi = Vector2i(int(ceil(box.end.x * k)) + 1, int(ceil(box.end.y * k)) + 1).min(Vector2i(n - 1, n - 1))
+	# how much town there is at each farm cell
+	for j in range(lo.y, hi.y + 1):
+		for i in range(lo.x, hi.x + 1):
 			var x := -HALF + i * FARM_CELL
 			var z := -HALF + j * FARM_CELL
 			var t := 0.0
 			for o: Vector2 in [Vector2.ZERO, Vector2(2, 0), Vector2(0, 2), Vector2(2, 2), Vector2(-2, -2)]:
 				t = maxf(t, maxf(zone_at(x + o.x, z + o.y), green_at(x + o.x, z + o.y)))
-			town[j * n + i] = t
+			_farm_raw[j * n + i] = t
 	# spread the town out, a row and then a column at a time
-	for pass_i in 2:
-		var out := PackedFloat32Array()
-		out.resize(n * n)
-		for j in n:
-			for i in n:
-				var t := 0.0
-				for d in range(-FARM_CLEAR, FARM_CLEAR + 1):
-					var a := i + d if pass_i == 0 else i
-					var b := j if pass_i == 0 else j + d
-					if a >= 0 and b >= 0 and a < n and b < n:
-						t = maxf(t, town[b * n + a])
-				out[j * n + i] = t
-		town = out
-	_farm.resize(n * n)
-	for j in n:
-		for i in n:
+	var c := Vector2i(FARM_CLEAR, FARM_CLEAR)
+	var wide_lo := (lo - c).max(Vector2i.ZERO)
+	var wide_hi := (hi + c).min(Vector2i(n - 1, n - 1))
+	for j in range(lo.y, hi.y + 1):
+		for i in range(wide_lo.x, wide_hi.x + 1):
+			var t := 0.0
+			for a in range(maxi(i - FARM_CLEAR, 0), mini(i + FARM_CLEAR, n - 1) + 1):
+				t = maxf(t, _farm_raw[j * n + a])
+			_farm_row[j * n + i] = t
+	for j in range(wide_lo.y, wide_hi.y + 1):
+		for i in range(wide_lo.x, wide_hi.x + 1):
+			var t := 0.0
+			for b in range(maxi(j - FARM_CLEAR, 0), mini(j + FARM_CLEAR, n - 1) + 1):
+				t = maxf(t, _farm_row[b * n + i])
+			_farm_town[j * n + i] = t
+	# how fit the ground itself is for fields only changes where the ground did
+	for j in range(lo.y, hi.y + 1):
+		for i in range(lo.x, hi.x + 1):
 			var x := -HALF + i * FARM_CELL
 			var z := -HALF + j * FARM_CELL
 			var h := height_at(x, z)
 			var f := smoothstep(-0.12, 0.08, _farm_noise.get_noise_2d(x, z))
 			f *= smoothstep(0.7, 1.1, h) * (1.0 - smoothstep(6.5, 8.0, h))
 			f *= smoothstep(0.965, 0.985, normal_at(x, z).y)
-			f *= 1.0 - smoothstep(0.05, 0.2, town[j * n + i])
-			_farm[j * n + i] = f
+			_farm_land[j * n + i] = f
+	for j in range(wide_lo.y, wide_hi.y + 1):
+		for i in range(wide_lo.x, wide_hi.x + 1):
+			_farm[j * n + i] = _farm_land[j * n + i] * (1.0 - smoothstep(0.05, 0.2, _farm_town[j * n + i]))
 
 
 func farm_image() -> Image:
@@ -830,6 +864,19 @@ var touched_lo := Vector2i(1 << 20, 1 << 20)
 var touched_hi := Vector2i(-1, -1)
 
 
+## The same for the ground maps the shaders read (heights, farmland), kept
+## apart so the co-op sync and the maps each take their own.
+var _map_lo := Vector2i(1 << 20, 1 << 20)
+var _map_hi := Vector2i(-1, -1)
+
+
+func take_map_box() -> Rect2i:
+	var r := Rect2i(_map_lo, _map_hi - _map_lo + Vector2i.ONE) if _map_hi.x >= 0 else Rect2i()
+	_map_lo = Vector2i(1 << 20, 1 << 20)
+	_map_hi = Vector2i(-1, -1)
+	return r
+
+
 func take_touched() -> Rect2i:
 	var r := Rect2i(touched_lo, touched_hi - touched_lo + Vector2i.ONE) if touched_hi.x >= 0 else Rect2i()
 	touched_lo = Vector2i(1 << 20, 1 << 20)
@@ -858,9 +905,16 @@ func _mark(i0: int, j0: int, i1: int, j1: int) -> void:
 			tile_rev[tz * TILES + tx] += 1
 	touched_lo = touched_lo.min(Vector2i(maxi(i0, 0), maxi(j0, 0)))
 	touched_hi = touched_hi.max(Vector2i(mini(i1, CELLS), mini(j1, CELLS)))
+	_map_lo = _map_lo.min(Vector2i(maxi(i0, 0), maxi(j0, 0)))
+	_map_hi = _map_hi.max(Vector2i(mini(i1, CELLS), mini(j1, CELLS)))
+	# the shadow stand-in reads the ground a few samples round each of its points
+	for tz in range(maxi(0, (j0 - 3) / SHADOW_TILE), mini(CELLS / SHADOW_TILE - 1, (j1 + 3) / SHADOW_TILE) + 1):
+		for tx in range(maxi(0, (i0 - 3) / SHADOW_TILE), mini(CELLS / SHADOW_TILE - 1, (i1 + 3) / SHADOW_TILE) + 1):
+			_shadow_tiles[Vector2i(tx, tz)] = true
 	for cz in range(maxi(0, (j0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (j1 + 1) / CHUNK) + 1):
 		for cx in range(maxi(0, (i0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (i1 + 1) / CHUNK) + 1):
-			_dirty[Vector2i(cx, cz)] = true
+			# changed since it was last worked out: work it out again
+			_dirty_chunk(Vector2i(cx, cz), true)
 
 
 ## Cut and fill the ground to meet a street: flat at the street's height within
@@ -949,19 +1003,56 @@ func pad(outline: PackedVector2Array, y: float, blend: float, keep_off := Callab
 
 
 ## Remake changed chunks, spending at most `budget_us` microseconds.
-func rebuild_dirty(budget_us := 4000) -> void:
+func rebuild_dirty(budget_us := 3000) -> void:
 	if not _dirty.is_empty():
 		revision += 1
 		_shadow_dirty = true
 	var start := Time.get_ticks_usec()
 	for c in _dirty.keys():
-		# (unless generate() has just worked it out)
-		if not _ready_chunks.erase(c):
-			_prepare(c)
-		_build_chunk(c)
-		_dirty.erase(c)
-		if Time.get_ticks_usec() - start > budget_us:
-			break
+		# colours and coarseness first (unless generate() has just worked them
+		# out), the mesh after, each in a few pieces so none stalls a frame
+		while _dirty.has(c):
+			_advance(c)
+			if Time.get_ticks_usec() - start > budget_us:
+				return
+
+
+## Marks a chunk to be redrawn; `reprepare` when its ground or paint changed,
+## so its colours and coarseness are worked out again too.
+func _dirty_chunk(c: Vector2i, reprepare := false) -> void:
+	_dirty[c] = true
+	_jobs.erase(c)
+	if reprepare:
+		_ready_chunks.erase(c)
+		_prep_row.erase(c)
+
+
+## Does the next piece of redrawing a dirty chunk.
+func _advance(c: Vector2i) -> void:
+	if not _ready_chunks.has(c):
+		var row: int = _prep_row.get(c, 0)
+		if row <= CHUNK:
+			var to := mini(row + 4, CHUNK + 1)
+			_prepare_colours(c, row, to)
+			_prep_row[c] = to
+		else:
+			_prep_row.erase(c)
+			_ready_chunks[c] = true
+			_prepare_steps(c)
+		return
+	if not _jobs.has(c):
+		_jobs[c] = {"bj": 0, "verts": PackedVector3Array(), "norms": PackedVector3Array(), "cols": PackedColorArray(), "idx": PackedInt32Array(), "at": PackedInt32Array()}
+		_jobs[c].at.resize((CHUNK + 1) * (CHUNK + 1))
+		_jobs[c].at.fill(-1)
+	var job: Dictionary = _jobs[c]
+	if job.bj < CHUNK / BLOCK:
+		_build_rows(c, job, job.bj, job.bj + 1)
+		job.bj += 1
+		return
+	_jobs.erase(c)
+	_dirty.erase(c)
+	_ready_chunks.erase(c)
+	_commit_chunk(c, job)
 
 
 func is_settled() -> bool:
@@ -969,75 +1060,98 @@ func is_settled() -> bool:
 
 
 var _shadow_dirty := true
+# the shadow stand-in's heights, and the tiles of it to redo
+var _shadow_hs := PackedFloat32Array()
+var _shadow_tiles := {}
+var _shadow_all := true
 # the shadow stand-in is cut into tiles this many samples across
-const SHADOW_TILE := 96
+const SHADOW_TILE := 48
 
 
 ## Remake the shadow stand-in (call once a stroke has finished): the ground
 ## every 4 samples, sunk a little, only where it is hilly enough to shade
 ## anything, in tiles so only what is in view is drawn.
-func rebuild_shadow() -> void:
-	if not _shadow_dirty and not _shadow.is_empty():
-		return
-	_shadow_dirty = false
+func rebuild_shadow(budget_us := -1) -> void:
 	const S := 4
 	var n := CELLS / S + 1
-	var hs := PackedFloat32Array()
-	hs.resize(n * n)
-	for j in n:
-		for i in n:
-			# never above the real ground around it, so cuttings and streets stay lit
-			var gi := i * S
-			var gj := j * S
-			var h := heights[gj * SIDE + gi]
-			for dj in range(-2, 3):
-				for di in range(-2, 3):
-					h = minf(h, heights[index(gi + di, gj + dj)])
-			hs[j * n + i] = maxf(h, -0.6) - 0.12
 	var per := SHADOW_TILE / S
-	for tj in CELLS / SHADOW_TILE:
-		for ti in CELLS / SHADOW_TILE:
-			var verts := PackedVector3Array()
-			var idx := PackedInt32Array()
-			var at := {}
-			for j in range(tj * per, tj * per + per):
-				for i in range(ti * per, ti * per + per):
-					var ks := [j * n + i, j * n + i + 1, (j + 1) * n + i, (j + 1) * n + i + 1]
-					var lo := INF
-					var hi := -INF
-					for k in ks:
-						lo = minf(lo, hs[k])
-						hi = maxf(hi, hs[k])
-					# flat ground and the sea floor shade nothing
-					if hi < -0.65 or hi - lo < 0.12:
-						continue
-					var vi := PackedInt32Array()
-					for k in ks:
-						if not at.has(k):
-							at[k] = verts.size()
-							var p := _pos((k % n) * S, (k / n) * S)
-							verts.append(Vector3(p.x, hs[k], p.y))
-						vi.append(at[k])
-					idx.append_array([vi[0], vi[1], vi[2], vi[1], vi[3], vi[2]])
-			var key := Vector2i(ti, tj)
-			var mi: MeshInstance3D = _shadow.get(key)
-			if idx.is_empty():
-				if mi:
-					mi.mesh = null
-				continue
-			var arr := []
-			arr.resize(Mesh.ARRAY_MAX)
-			arr[Mesh.ARRAY_VERTEX] = verts
-			arr[Mesh.ARRAY_INDEX] = idx
-			var m := ArrayMesh.new()
-			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-			m.surface_set_material(0, Palette.shadow_material())
-			if mi == null:
-				mi = MeshInstance3D.new()
-				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-				add_child(mi)
-				_shadow[key] = mi
-			mi.mesh = m
+	var tiles: Array = []
+	if _shadow.is_empty() or _shadow_hs.size() != n * n or _shadow_all:
+		# all of it (a new map)
+		_shadow_hs.resize(n * n)
+		for tj in CELLS / SHADOW_TILE:
+			for ti in CELLS / SHADOW_TILE:
+				tiles.append(Vector2i(ti, tj))
+	elif _shadow_tiles.is_empty():
+		return
+	else:
+		# only the tiles whose ground changed, one at a time when time is short
+		tiles = _shadow_tiles.keys()
+		if budget_us >= 0:
+			tiles = tiles.slice(0, 1)
+	_shadow_all = false
+	for t in tiles:
+		_shadow_tiles.erase(t)
+	_shadow_dirty = false
+	for t: Vector2i in tiles:
+		for j in range(t.y * per, mini(t.y * per + per, n - 1) + 1):
+			for i in range(t.x * per, mini(t.x * per + per, n - 1) + 1):
+				# never above the real ground around it, so cuttings and streets stay lit
+				var gi := i * S
+				var gj := j * S
+				var h := heights[gj * SIDE + gi]
+				var i0 := maxi(gi - 2, 0)
+				var i1 := mini(gi + 2, CELLS)
+				for jj in range(maxi(gj - 2, 0), mini(gj + 2, CELLS) + 1):
+					var row := jj * SIDE
+					for ii in range(i0, i1 + 1):
+						h = minf(h, heights[row + ii])
+				_shadow_hs[j * n + i] = maxf(h, -0.6) - 0.12
+	var hs := _shadow_hs
+	for t: Vector2i in tiles:
+		var ti := t.x
+		var tj := t.y
+		var verts := PackedVector3Array()
+		var idx := PackedInt32Array()
+		var at := {}
+		for j in range(tj * per, tj * per + per):
+			for i in range(ti * per, ti * per + per):
+				var ks := [j * n + i, j * n + i + 1, (j + 1) * n + i, (j + 1) * n + i + 1]
+				var lo := INF
+				var hi := -INF
+				for k in ks:
+					lo = minf(lo, hs[k])
+					hi = maxf(hi, hs[k])
+				# flat ground and the sea floor shade nothing
+				if hi < -0.65 or hi - lo < 0.12:
+					continue
+				var vi := PackedInt32Array()
+				for k in ks:
+					if not at.has(k):
+						at[k] = verts.size()
+						var p := _pos((k % n) * S, (k / n) * S)
+						verts.append(Vector3(p.x, hs[k], p.y))
+					vi.append(at[k])
+				idx.append_array([vi[0], vi[1], vi[2], vi[1], vi[3], vi[2]])
+		var key := Vector2i(ti, tj)
+		var mi: MeshInstance3D = _shadow.get(key)
+		if idx.is_empty():
+			if mi:
+				mi.mesh = null
+			continue
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		arr[Mesh.ARRAY_VERTEX] = verts
+		arr[Mesh.ARRAY_INDEX] = idx
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		m.surface_set_material(0, Palette.shadow_material())
+		if mi == null:
+			mi = MeshInstance3D.new()
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			add_child(mi)
+			_shadow[key] = mi
+		mi.mesh = m
 
 
 # ------------------------------------------------------------------ mesh
@@ -1046,11 +1160,19 @@ func rebuild_shadow() -> void:
 ## blocks can be drawn. A border block that changes how coarse it is makes
 ## the chunk next to it redraw too, so their seam stays closed.
 func _prepare(c: Vector2i) -> void:
-	for j in CHUNK + 1:
+	_prepare_colours(c, 0, CHUNK + 1)
+	_prepare_steps(c)
+
+
+func _prepare_colours(c: Vector2i, j0: int, j1: int) -> void:
+	for j in range(j0, j1):
 		for i in CHUNK + 1:
 			var gi := c.x * CHUNK + i
 			var gj := c.y * CHUNK + j
 			_col[gj * SIDE + gi] = _sample_colour(gi, gj)
+
+
+func _prepare_steps(c: Vector2i) -> void:
 	var per := CHUNK / BLOCK
 	for bj in per:
 		for bi in per:
@@ -1064,7 +1186,7 @@ func _prepare(c: Vector2i) -> void:
 				if (bi == 0 and d.x < 0) or (bi == per - 1 and d.x > 0) or (bj == 0 and d.y < 0) or (bj == per - 1 and d.y > 0):
 					var nc := c + d
 					if nc.x >= 0 and nc.y >= 0 and nc.x < CELLS / CHUNK and nc.y < CELLS / CHUNK:
-						_dirty[nc] = true
+						_dirty_chunk(nc)
 
 
 ## The coarsest step (8, 4, 2 or 1 samples) a block can be drawn at while
@@ -1152,18 +1274,16 @@ func _sample_colour(gi: int, gj: int) -> Color:
 	return col
 
 
-func _build_chunk(c: Vector2i) -> void:
-	var n := CHUNK + 1
-	var verts := PackedVector3Array()
-	var norms := PackedVector3Array()
-	var cols := PackedColorArray()
-	var idx := PackedInt32Array()
-	var at := PackedInt32Array()
-	at.resize(n * n)
-	at.fill(-1)
+## Adds rows bj0..bj1 of a chunk's blocks to its mesh being put together.
+func _build_rows(c: Vector2i, job: Dictionary, bj0: int, bj1: int) -> void:
+	var verts: PackedVector3Array = job.verts
+	var norms: PackedVector3Array = job.norms
+	var cols: PackedColorArray = job.cols
+	var idx: PackedInt32Array = job.idx
+	var at: PackedInt32Array = job.at
 	var per := CHUNK / BLOCK
 	var ring := PackedInt32Array()
-	for bj in per:
+	for bj in range(bj0, mini(bj1, per)):
 		for bi in per:
 			var bx := c.x * per + bi
 			var bz := c.y * per + bj
@@ -1209,12 +1329,20 @@ func _build_chunk(c: Vector2i) -> void:
 					var mid := _vert(c, ci + s / 2, cj + s / 2, at, verts, norms, cols)
 					for k in ring.size():
 						idx.append_array([mid, ring[k], ring[(k + 1) % ring.size()]])
+	job.verts = verts
+	job.norms = norms
+	job.cols = cols
+	job.idx = idx
+	job.at = at
+
+
+func _commit_chunk(c: Vector2i, job: Dictionary) -> void:
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = verts
-	arr[Mesh.ARRAY_NORMAL] = norms
-	arr[Mesh.ARRAY_COLOR] = cols
-	arr[Mesh.ARRAY_INDEX] = idx
+	arr[Mesh.ARRAY_VERTEX] = job.verts
+	arr[Mesh.ARRAY_NORMAL] = job.norms
+	arr[Mesh.ARRAY_COLOR] = job.cols
+	arr[Mesh.ARRAY_INDEX] = job.idx
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	m.surface_set_material(0, material)
@@ -1337,37 +1465,48 @@ func height_image() -> Image:
 	return Image.create_from_data(SIDE, SIDE, false, Image.FORMAT_L8, bytes)
 
 
+## Writes the heights inside `box` (in samples) into a height_image().
+func paint_heights(img: Image, box: Rect2i) -> void:
+	for j in range(maxi(box.position.y, 0), mini(box.end.y, SIDE)):
+		for i in range(maxi(box.position.x, 0), mini(box.end.x, SIDE)):
+			var v := float(int(clampf((heights[j * SIDE + i] + MAP_BIAS) / MAP_SCALE, 0.0, 1.0) * 255.0)) / 255.0
+			img.set_pixel(i, j, Color(v, v, v))
+
+
 ## The little edits the player has made, as (index, delta) pairs, for saving.
 func edits() -> Dictionary:
+	return edits_of(heights, _base)
+
+
+func zone_edits() -> Dictionary:
+	return painted_of(zone, 0.01)
+
+
+func green_edits() -> Dictionary:
+	return painted_of(green, 0.01)
+
+
+func level_edits() -> Dictionary:
+	return painted_of(level, 0.5)
+
+
+## The same from copies of the layers, so a save can work them out off the
+## main thread: (index, offset) where the ground was reshaped...
+static func edits_of(h: PackedFloat32Array, base: PackedFloat32Array) -> Dictionary:
 	var out := {}
-	for k in heights.size():
-		var dlt := heights[k] - _base[k]
+	for k in h.size():
+		var dlt := h[k] - base[k]
 		if absf(dlt) > 0.01:
 			out[k] = snappedf(dlt, 0.01)
 	return out
 
 
-func zone_edits() -> Dictionary:
+## ...and (index, value) wherever a painted layer is above `least`.
+static func painted_of(layer: PackedFloat32Array, least: float) -> Dictionary:
 	var out := {}
-	for k in zone.size():
-		if zone[k] > 0.01:
-			out[k] = snappedf(zone[k], 0.01)
-	return out
-
-
-func green_edits() -> Dictionary:
-	var out := {}
-	for k in green.size():
-		if green[k] > 0.01:
-			out[k] = snappedf(green[k], 0.01)
-	return out
-
-
-func level_edits() -> Dictionary:
-	var out := {}
-	for k in level.size():
-		if level[k] >= 0.5:
-			out[k] = snappedf(level[k], 0.01)
+	for k in layer.size():
+		if layer[k] > least or (least >= 0.5 and layer[k] >= least):
+			out[k] = snappedf(layer[k], 0.01)
 	return out
 
 

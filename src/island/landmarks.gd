@@ -35,6 +35,8 @@ var _beam: MeshInstance3D
 var _check := 1.0
 # what the town was like when each missing landmark was last looked for
 var _looked := {}
+var _next_look := {}
+var _searches: Array[Dictionary] = []
 
 
 func _process(delta: float) -> void:
@@ -44,7 +46,9 @@ func _process(delta: float) -> void:
 	if _beam:
 		_beam.visible = world.night > 0.15
 	_check -= delta
-	if _check > 0.0 or world.town.is_busy():
+	if _check > 0.0 or world.town.is_busy() or not _searches.is_empty():
+		if not _searches.is_empty():
+			_step_searches()
 		return
 	_check = 2.0
 	for kind in NEED:
@@ -56,13 +60,37 @@ func _process(delta: float) -> void:
 			var sig := hash([world.town.lots.size(), world.streets.streets.size(), world.land.revision])
 			if _looked.get(kind, 0) == sig:
 				continue
+			# a long search: while the town is still growing, not too often
+			var now := Time.get_ticks_msec()
+			if _looked.has(kind) and now < int(_next_look.get(kind, 0)):
+				continue
+			_next_look[kind] = now + 12000
 			_looked[kind] = sig
-			var at: Variant = _find(kind)
-			if at != null:
-				_place(kind, at)
-				if world.progress._hush <= 0.0:
-					world.note.emit(NAMES[kind], "title")
-					Sfx.play("unlock", 0.9)
+			var search := _search_start(kind)
+			if not search.is_empty():
+				_searches.append(search)
+	_step_searches()
+
+
+## The searches under way go on a slice at a time, so none stalls a frame.
+func _step_searches() -> void:
+	if not _searches.is_empty() and _search_step(_searches[0], 2000):
+		var done: Dictionary = _searches.pop_front()
+		var kind: String = done.kind
+		if done.at != null and not spots.has(kind) and _wants(kind):
+			_place(kind, done.at)
+			if world.progress._hush <= 0.0:
+				world.note.emit(NAMES[kind], "title")
+				Sfx.play("unlock", 0.9)
+
+
+## Runs every search under way to the end (loads and tests).
+func settle() -> void:
+	_check = 0.0
+	_next_look.clear()
+	_process(0.0)
+	while not _searches.is_empty():
+		_process(0.0)
 
 
 ## Whether the town is big enough for `kind`: the old landmarks go by
@@ -132,14 +160,18 @@ func _fits(kind: String, p: Vector2, standing := false) -> bool:
 		return false
 	var r: float = ROOM[kind]
 	if RETAIL.has(kind):
-		# a wide one: every ring of ground under it is dry, level and clear
+		# a wide one: every ring of ground under it clear (the quick test,
+		# first), then dry and level
+		if not standing:
+			for ring in [0.0, 0.5, 1.0, 0.75, 0.25]:
+				for k in (16 if ring > 0.0 else 1):
+					if world.town.is_built(p + Vector2.from_angle(k * TAU / 16.0) * r * ring):
+						return false
 		for ring in [0.35, 0.7, 1.0]:
 			for k in 16:
 				var q: Vector2 = p + Vector2.from_angle(k * TAU / 16.0) * r * ring
 				var g: float = land.height_at(q.x, q.y)
 				if absf(g - h) > 0.7 or g < 0.2:
-					return false
-				if not standing and world.town.is_built(q):
 					return false
 	for k in 8:
 		var q := p + Vector2.from_angle(k * TAU / 8.0) * r
@@ -212,90 +244,106 @@ func _harbour_centre() -> Variant:
 	return null
 
 
+## Where `kind` should stand, looked for all at once (loads and tests).
 func _find(kind: String) -> Variant:
-	var land := world.land
+	var search := _search_start(kind)
+	if search.is_empty():
+		return null
+	_search_step(search, -1)
+	return search.at
+
+
+## A search for where `kind` should stand: the spots to try and how to rate
+## each. _search_step() works through them a slice of time at a time.
+func _search_start(kind: String) -> Dictionary:
+	var pts := PackedVector2Array()
+	var origin := Vector2.ZERO
 	if kind == "pier":
 		var c: Variant = _harbour_centre()
 		if c == null:
-			return null
-		var best_d := INF
-		var found: Variant = null
-		var gx := -30.0
-		while gx <= 30.0:
-			var gz := -30.0
-			while gz <= 30.0:
-				var p: Vector2 = c + Vector2(gx, gz)
-				var dd := Vector2(gx, gz).length()
-				if dd < best_d and absf(p.x) < Land.HALF - 8.0 and absf(p.y) < Land.HALF - 8.0 and _pier_fits(p, false):
-					best_d = dd
-					found = p
-				gz += 1.0
-			gx += 1.0
-		return found
-
-	if RETAIL.has(kind):
+			return {}
+		origin = c
+		for gx in range(-30, 31):
+			for gz in range(-30, 31):
+				pts.append(origin + Vector2(gx, gz))
+	elif RETAIL.has(kind):
 		var shops := _retail()
 		if shops.is_empty():
-			return null
-		var mid := Vector2.ZERO
+			return {}
 		for q in shops:
-			mid += q
-		mid /= shops.size()
-		var best_d := INF
-		var found: Variant = null
-		var gx := -40.0
-		while gx <= 40.0:
-			var gz := -40.0
-			while gz <= 40.0:
-				var p: Vector2 = mid + Vector2(gx, gz)
-				var dd := Vector2(gx, gz).length()
-				for other in spots:
-					if p.distance_to(spots[other]) < float(ROOM[kind]) + float(ROOM[other]) + 2.0:
-						dd = INF
-				if dd < best_d and absf(p.x) < Land.HALF - 10.0 and absf(p.y) < Land.HALF - 10.0 and _fits(kind, p):
-					best_d = dd
-					found = p
-				gz += 2.0
-			gx += 2.0
-		return found
+			origin += q
+		origin /= shops.size()
+		for gx in range(-20, 21):
+			for gz in range(-20, 21):
+				pts.append(origin + Vector2(gx, gz) * 2.0)
+	else:
+		# only round the town: the map is far bigger than anyone would walk
+		var lo := Vector2(INF, INF)
+		var hi := Vector2(-INF, -INF)
+		for st: Streets.Street in world.streets.streets:
+			lo = lo.min(st.lo)
+			hi = hi.max(st.hi)
+		if lo.x > hi.x:
+			return {}
+		lo = (lo - Vector2(SEARCH, SEARCH)).max(Vector2(-Land.HALF + 6.0, -Land.HALF + 6.0))
+		hi = (hi + Vector2(SEARCH, SEARCH)).min(Vector2(Land.HALF - 6.0, Land.HALF - 6.0))
+		var x := snappedf(lo.x, 2.0)
+		while x < hi.x:
+			var z := snappedf(lo.y, 2.0)
+			while z < hi.y:
+				pts.append(Vector2(x, z))
+				z += 2.0
+			x += 2.0
+	return {"kind": kind, "pts": pts, "i": 0, "origin": origin, "best": -INF, "at": null}
 
-	var best := -INF
-	var at: Variant = null
-	# only round the town: the map is far bigger than anyone would walk
-	var lo := Vector2(INF, INF)
-	var hi := Vector2(-INF, -INF)
-	for st: Streets.Street in world.streets.streets:
-		lo = lo.min(st.lo)
-		hi = hi.max(st.hi)
-	if lo.x > hi.x:
-		return null
-	lo = (lo - Vector2(SEARCH, SEARCH)).max(Vector2(-Land.HALF + 6.0, -Land.HALF + 6.0))
-	hi = (hi + Vector2(SEARCH, SEARCH)).min(Vector2(Land.HALF - 6.0, Land.HALF - 6.0))
-	var x := snappedf(lo.x, 2.0)
-	while x < hi.x:
-		var z := snappedf(lo.y, 2.0)
-		while z < hi.y:
-			var p := Vector2(x, z)
-			var h := land.height_at(x, z)
-			var score := -INF
-			if kind == "lighthouse" and h > 0.3 and h < 6.0:
-				# how much of the view all round is open sea
-				var sea := 0
-				for k in 16:
-					var q := p + Vector2.from_angle(k * TAU / 16.0) * 7.0
-					sea += int(land.height_at(q.x, q.y) < -0.3)
-				if sea >= 6:
-					score = sea * 10.0 + h
-			elif kind == "windmill" and h > 1.2:
-				score = h
-			if spots.has("lighthouse") and kind == "windmill" and p.distance_to(spots.lighthouse) < 12.0:
-				score = -INF
-			if score > best and _fits(kind, p):
-				best = score
-				at = p
-			z += 2.0
-		x += 2.0
-	return at
+
+## Tries the search's next spots for up to `budget_us` (all of them if < 0).
+## Returns whether it has tried them all.
+func _search_step(search: Dictionary, budget_us: int) -> bool:
+	var start := Time.get_ticks_usec()
+	var pts: PackedVector2Array = search.pts
+	var kind: String = search.kind
+	while search.i < pts.size():
+		var p := pts[search.i]
+		search.i += 1
+		var score := _score(kind, p, search.origin)
+		if score > search.best and (_pier_fits(p, false) if kind == "pier" else _fits(kind, p)):
+			search.best = score
+			search.at = p
+		if budget_us >= 0 and Time.get_ticks_usec() - start > budget_us:
+			return false
+	return true
+
+
+## How good a spot is for `kind` before the closer look (-INF: no good):
+## the pier and the attractions as near the middle of their quarter as can
+## be, the lighthouse looking out over the most sea, the windmill up high.
+func _score(kind: String, p: Vector2, origin: Vector2) -> float:
+	var land := world.land
+	if kind == "pier":
+		if absf(p.x) > Land.HALF - 8.0 or absf(p.y) > Land.HALF - 8.0:
+			return -INF
+		return -p.distance_to(origin)
+	if RETAIL.has(kind):
+		if absf(p.x) > Land.HALF - 10.0 or absf(p.y) > Land.HALF - 10.0:
+			return -INF
+		for other in spots:
+			if p.distance_to(spots[other]) < float(ROOM[kind]) + float(ROOM[other]) + 2.0:
+				return -INF
+		return -p.distance_to(origin)
+	var h := land.height_at(p.x, p.y)
+	if kind == "lighthouse" and h > 0.3 and h < 6.0:
+		# how much of the view all round is open sea
+		var sea := 0
+		for k in 16:
+			var q := p + Vector2.from_angle(k * TAU / 16.0) * 7.0
+			sea += int(land.height_at(q.x, q.y) < -0.3)
+		return sea * 10.0 + h if sea >= 6 else -INF
+	if kind == "windmill" and h > 1.2:
+		if spots.has("lighthouse") and p.distance_to(spots.lighthouse) < 12.0:
+			return -INF
+		return h
+	return -INF
 
 
 # ------------------------------------------------------------------ building
