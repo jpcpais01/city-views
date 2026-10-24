@@ -2,8 +2,7 @@
 
 ## 2026-10-24 22:02 UTC
 - Hyper graphics in photo mode: the camera button now renders at twice the resolution, with a shadow map four times as detailed, the softest shadow edges, ambient occlusion that darkens the corners, gaps and building feet where real skylight can't reach, finer sky reflections and a gentle glow by day. Normal play is unchanged, and Settings can turn it off.
-- The camera glides over hills and valleys: it follows the lie of the land around the view instead of the spot under it, and eases up and down instead of jolting.
-- Town goals now sit under your city's name.
+- The camera glides over hills and valleys: it follows the lie of the land around the view instead of the spot under it, and eases up and down instead of jolting. Town goals now sit under your city's name.
 - Brand-new clouds: soft, billowing cumulus with flat bases, wispy edges that slowly change shape, sunlit crowns and a silver lining against a low sun, and their soft shadows now drift across your city.
 - Brushes feel instant: the Grow and Green tint shows under your finger as you paint, the ground reshapes while you drag instead of after, picking the Grow brush no longer redraws the whole map, and background work (new houses, woods, yards, streets) shares one budget per frame so painting stays smooth.
 - Avenues and highways smooth out a shaky hand as you draw them: avenues follow your line in easy curves, highways in long, sweeping ones. Streets still go exactly where you draw.
