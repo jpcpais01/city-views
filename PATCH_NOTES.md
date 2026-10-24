@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-24 18:10 UTC
+- Smoke curls up from the chimney stacks of the big works in industrial districts and drifts away on the wind.
+- Airliners now cross high over your city every minute or so, with glowing cabin windows and red and green wingtip lights at night.
+
 ## 2026-10-24 16:03 UTC
 - Milestones: your city climbs from Hamlet through Small City, City, Big City and Large City to Metropolis and Megalopolis, with coins paid out at every milestone.
 - Unlocks: Shops and Industry districts open at 60 and 120 residents, Offices at 300, the Downtown level at 600 and Skyline at 1,200. Bigger cities you already have keep everything they've reached.

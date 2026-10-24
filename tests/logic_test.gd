@@ -786,6 +786,18 @@ func _districts() -> void:
 	check(works >= 2 and works_ok, "an industrial district grows works, each on its own plot (%d)" % works)
 	check(shops >= 2 and shops_all, "a shops district puts a shop under every house (%d)" % shops)
 	check(offices >= 2, "an office district grows offices (%d)" % offices)
+	# smoke rises from the stacks of the works, never from anything else
+	var stacks := island.smoke.stacks()
+	var stacks_ok := true
+	for l: Town.Lot in island.town.lots.values():
+		if l.smoke != Vector3.INF and l.use == "industry":
+			stacks_ok = stacks_ok and l.smoke.y > island.land.height_at(l.origin.x, l.origin.y) + 1.0 and l.smoke.distance_to(Vector3(l.origin.x, l.smoke.y, l.origin.y)) < 8.0
+	check(stacks_ok and stacks.size() <= Smoke.STACKS, "smoke rises from the top of the works' stacks (%d)" % stacks.size())
+	# an airliner now and then, high over the town and cheap to draw
+	island.planes.spawn(true)
+	var plane: Node3D = island.planes._plane
+	check(plane != null and plane.position.y > 30.0 and Vector2(plane.position.x, plane.position.z).length() < 400.0, "an airliner crosses high over the town")
+	check(island.planes.tris() < 200, "an airliner is cheap to draw (%d tris)" % island.planes.tris())
 	island.progress.recount(true)
 	check(island.progress.jobs > 0, "offices and works bring jobs (%d)" % island.progress.jobs)
 	var data := island.to_dict()

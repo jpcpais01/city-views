@@ -1067,6 +1067,7 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 	l.use = "industry"
 	l.shop = false
 	l.floors = 1
+	l.smoke = Vector3.INF
 	var big := l.stage >= 3
 	var yard := 0.35 + rng.randf() * 0.3
 	var hw := maxf(l.width - 0.3, 1.2)
@@ -1131,6 +1132,7 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 		var ch := hgt + 1.6 + rng.randf() * 1.6
 		mk.cylinder(Vector3(cx, 0.0, cz - hd * 0.3), 0.16, ch - 0.4, 8, Color("a35a45"), false, null, 0.13)
 		mk.cylinder(Vector3(cx, ch - 0.4, cz - hd * 0.3), 0.13, 0.4, 8, Color(0.95, 0.95, 0.93), true, Color(0.2, 0.2, 0.2), 0.125)
+		l.smoke = mk.xf * Vector3(cx, ch, cz - hd * 0.3)
 	# a container or two stacked in the yard
 	if rng.randf() < 0.5 and yard > 0.45:
 		var cc := [Color("c8553d"), Color("2f8f83"), Color("e3a33b"), Color("3d5f8f")]

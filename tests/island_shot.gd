@@ -186,6 +186,13 @@ func _ready() -> void:
 		add_child(cam)
 		cam.look_at_from_position(at + Vector3(0, island.land.height_at(at.x, at.z) + 12.0, 0.01), at, Vector3.FORWARD)
 		cam.make_current()
+	if OS.get_environment("CV_PLANE") != "":
+		# an airliner held in view, part way between the camera and its focus
+		await get_tree().create_timer(1.0).timeout
+		island.planes.spawn(true)
+		island.planes.set_process(false)
+		var cam := island.rig.cam
+		island.planes._plane.position = island.rig._t_target.lerp(cam.global_position, 0.45) + Vector3(4, 4, 0)
 	if OS.get_environment("CV_PHOTO") != "":
 		hud.set_photo(true)
 	if OS.get_environment("CV_MENU") != "":
