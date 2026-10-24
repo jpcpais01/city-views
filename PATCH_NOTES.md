@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-24 03:09 UTC
+- Cottages and small houses can now stand inside deep blocks, within a short walk of a street instead of right on it, the way back lanes and courtyards fill in an old town.
+- Green painted deep inside a block becomes a pocket park, even with no street alongside.
+- These tucked-away homes stay small: cottages and two-floor houses, never tall buildings.
+
 ## 2026-10-24 03:05 UTC
 - In City and Centre areas, neighbouring tall houses now join up over time into wider buildings of four to seven floors, spanning two to four plots.
 - Joined buildings follow their plots' shape: the front bends with the street and the back steps with the block. Shops or doors line each plot's ground floor, and stacks of balconies run up the front.
