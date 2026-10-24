@@ -12,7 +12,9 @@ float hash3(vec3 p) {
 
 void sky() {
 	float y = EYEDIR.y;
-	vec3 col = mix(hor_col, top_col, smoothstep(-0.02, 0.6, y));
+	// the sky deepens quickly above a bright band of haze along the horizon
+	vec3 col = mix(hor_col, top_col, pow(smoothstep(-0.02, 0.75, y), 0.6));
+	col = mix(col, hor_col * 1.06 + vec3(0.02), exp(-abs(y) * 14.0) * 0.5 * (1.0 - night));
 	col = mix(col, bottom_col, smoothstep(0.0, -0.25, y));
 	if (LIGHT0_ENABLED) {
 		float d = max(dot(EYEDIR, LIGHT0_DIRECTION), 0.0);
@@ -23,6 +25,9 @@ void sky() {
 		col += vec3(0.95, 0.97, 1.0) * moon_disc * 1.4 * night;
 		col += sun_col * pow(d, 9.0) * 0.28 * (1.0 - night * 0.6);
 		col += sun_col * pow(d, 2.5) * 0.08 * (1.0 - night);
+		// a low sun sets the whole side of the sky it is on aglow
+		float low = 1.0 - smoothstep(0.0, 0.45, LIGHT0_DIRECTION.y);
+		col += sun_col * pow(d, 5.0) * exp(-max(y, 0.0) * 4.0) * 0.45 * low * (1.0 - night);
 	}
 	if (night > 0.01 && y > 0.0) {
 		vec3 p = EYEDIR * 160.0;

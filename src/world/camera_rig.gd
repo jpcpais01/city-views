@@ -43,6 +43,11 @@ func pitch_for(d: float) -> float:
 	return deg_to_rad(lerpf(28.0, 62.0, pow(t, 0.7)) + far * 6.0)
 
 
+## How steeply the camera looks down now, zoom and tilt together.
+func view_pitch() -> float:
+	return clampf(pitch_for(dist) + tilt, deg_to_rad(8.0), deg_to_rad(86.0))
+
+
 func pan_screen(delta: Vector2) -> void:
 	# convert screen motion to ground motion proportional to zoom
 	var k := dist * 0.0021 * (720.0 / maxf(get_viewport().get_visible_rect().size.y, 1.0)) * 1.0
@@ -79,7 +84,7 @@ func _process(delta: float) -> void:
 	yaw = lerp_angle(yaw, _t_yaw, k)
 	dist = lerpf(dist, _t_dist, k)
 	tilt = lerpf(tilt, _t_tilt, k)
-	var pitch := clampf(pitch_for(dist) + tilt, deg_to_rad(8.0), deg_to_rad(86.0))
+	var pitch := view_pitch()
 	var ground := _ground_height(target)
 	var focus_p := Vector3(target.x, ground, target.z)
 	var off := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * dist

@@ -3,6 +3,14 @@ extends Node3D
 ## The island's stage: materials, sky and day/night, sun, sea and clouds.
 
 const DAY_LENGTH := 420.0
+## the haze over the country at the closest zoom
+const FOG := 0.0011
+## shadow softness and lift, in shadow-map texels at the closest zoom
+const SHADOW_BLUR := 2.4
+const SHADOW_NORMAL_BIAS := 1.2
+## how far the shadow map reaches when the view is at its tightest (in metres);
+## the texel is this over the map's size, and the blur is kept in metres from it
+const SHADOW_NEAR_REACH := 92.0
 const SEA_FLOOR := -6.3
 
 var time_of_day := 0.3
@@ -67,30 +75,28 @@ func _make_environment() -> void:
 	env.ambient_light_energy = 0.6
 	env.ambient_light_sky_contribution = 0.7
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# AgX rolls bright skies and lamps off softly, like film, instead of clipping them
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
 	if OS.get_environment("CV_TONE") != "":
 		env.tonemap_mode = int(OS.get_environment("CV_TONE"))
-	if OS.get_environment("CV_NOGLOW") != "":
-		env.glow_enabled = false
-	if OS.get_environment("CV_NOFOG") != "":
-		env.fog_enabled = false
 	env.tonemap_exposure = 1.0
-	env.tonemap_white = 5.0
+	env.tonemap_white = 6.0
 	env.glow_enabled = true
 	env.glow_intensity = 0.4
 	env.glow_strength = 0.9
 	env.glow_bloom = 0.04
 	env.glow_hdr_threshold = 1.1
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
-	env.fog_enabled = true
-	# a soft haze that blues the far country, as from a plane over a big city
-	env.fog_density = 0.0011
-	env.fog_aerial_perspective = 0.35
-	env.fog_sun_scatter = 0.06
+	env.fog_enabled = OS.get_environment("CV_NOFOG") == ""
+	# a haze that blues the far country, as from a plane over a big city; how
+	# thick it is follows the zoom (frame_view), so the town itself stays clear
+	env.fog_density = FOG
+	env.fog_aerial_perspective = 0.5
+	env.fog_sun_scatter = 0.12
 	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.08
-	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.06
 	we.environment = env
 	add_child(we)
 	sun = DirectionalLight3D.new()
@@ -98,9 +104,11 @@ func _make_environment() -> void:
 	# one orthogonal map: every caster is drawn into the shadow map once, not once per split
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 60.0
-	sun.shadow_blur = 2.4
+	# never let shadows thin out towards the edge of what they cover
+	sun.directional_shadow_fade_start = 1.0
+	sun.shadow_blur = SHADOW_BLUR
 	sun.shadow_bias = 0.04
-	sun.shadow_normal_bias = 1.2
+	sun.shadow_normal_bias = SHADOW_NORMAL_BIAS
 	add_child(sun)
 
 
@@ -191,6 +199,26 @@ func _make_clouds() -> void:
 		_clouds.append(mi)
 
 
+# ------------------------------------------------------------------ view
+
+## Fits the shadow map and the haze to what the camera at distance `d`,
+## looking down at `pitch`, can see: the shadows reach the far edge of the
+## view (all the way to the horizon when tilted up), and stay as crisp and as
+## dark there as up close; the haze thins as the camera pulls back so the town
+## never washes out, while the far country still fades into the sky.
+func frame_view(d: float, pitch: float) -> void:
+	var h := d * sin(pitch)
+	var top := pitch - deg_to_rad(rig.cam.fov * 0.5 if rig else 20.0)
+	var reach := h / sin(top) if top > deg_to_rad(4.0) else 1e9
+	var far := clampf(maxf(reach, d) * 1.3, 32.0, 900.0)
+	sun.directional_shadow_max_distance = far
+	# the map's texels grow with its reach: keep the blur and lift the same in metres
+	var k := clampf(SHADOW_NEAR_REACH / far, 0.3, 1.0)
+	sun.shadow_blur = SHADOW_BLUR * k
+	sun.shadow_normal_bias = SHADOW_NORMAL_BIAS * maxf(k, 0.5)
+	env.fog_density = FOG * 42.0 / maxf(d, 42.0)
+
+
 # ------------------------------------------------------------------ effects
 
 ## Tells every lit surface where the lighthouse beams point, so the sweep shows
@@ -211,18 +239,19 @@ func _update_beams(beams: PackedVector4Array) -> void:
 
 const SKY_KEYS := [
 	# t, top, horizon, sun colour, sun energy, ambient
-	[0.0, Color("0b1430"), Color("1f2d55"), Color("9fb6ff"), 0.22, 0.35],
-	[0.2, Color("1a2550"), Color("4a4f7a"), Color("9fb6ff"), 0.15, 0.4],
-	[0.26, Color("4f6fb0"), Color("ffb38a"), Color("ffb070"), 0.6, 0.6],
-	[0.34, Color("5d9be0"), Color("bfe0f5"), Color("fff0d6"), 1.3, 0.65],
-	[0.5, Color("4f8fe0"), Color("c6e4fa"), Color("fff6e6"), 1.45, 0.7],
-	[0.68, Color("5a93db"), Color("d8e2ea"), Color("ffe6c2"), 1.3, 0.65],
-	[0.76, Color("6a6fb8"), Color("ff9e6e"), Color("ff9a5a"), 0.75, 0.65],
-	[0.81, Color("2e3570"), Color("b06a7a"), Color("ff8a6a"), 0.25, 0.45],
-	[0.87, Color("111a3c"), Color("2a3360"), Color("9fb6ff"), 0.2, 0.35],
-	[1.0, Color("0b1430"), Color("1f2d55"), Color("9fb6ff"), 0.22, 0.35],
+	[0.0, Color("070d24"), Color("16224a"), Color("8fa8ff"), 0.3, 0.22],
+	[0.2, Color("121c45"), Color("3a4272"), Color("8fa8ff"), 0.22, 0.26],
+	[0.26, Color("41609f"), Color("ffae80"), Color("ffa868"), 0.85, 0.42],
+	[0.31, Color("4f8ad4"), Color("f6d6b8"), Color("ffd9a8"), 1.45, 0.5],
+	[0.38, Color("3d82dc"), Color("b9dcf6"), Color("fff1dc"), 1.75, 0.52],
+	[0.5, Color("3a7fdc"), Color("bfe0f8"), Color("fff6ea"), 1.85, 0.52],
+	[0.66, Color("4383d6"), Color("cfe0ee"), Color("ffeccc"), 1.7, 0.52],
+	[0.73, Color("4f74c0"), Color("ffc890"), Color("ffc27a"), 1.4, 0.48],
+	[0.775, Color("4b5aa6"), Color("ff9a68"), Color("ffa860"), 1.2, 0.4],
+	[0.81, Color("272f68"), Color("c0687a"), Color("ff7f5e"), 0.3, 0.32],
+	[0.87, Color("0e1636"), Color("24305e"), Color("8fa8ff"), 0.26, 0.24],
+	[1.0, Color("070d24"), Color("16224a"), Color("8fa8ff"), 0.3, 0.22],
 ]
-
 
 func _eased_arc(t: float) -> float:
 	var half := fposmod(t - 0.25, 1.0) * 2.0
@@ -262,7 +291,9 @@ func _update_sky() -> void:
 	# the sun barely moves around noon (and the moon around midnight) so shadows
 	# stay still while you build; it only sweeps visibly at dawn and dusk
 	var ang := _eased_arc(t) * TAU
-	var sun_dir := Vector3(cos(ang), sin(ang), 0.35).normalized()
+	# (tipped towards the south, so even at noon it stands about 55° up and
+	# every building throws a shadow you can read)
+	var sun_dir := Vector3(cos(ang), sin(ang), 0.7).normalized()
 	var is_day := sun_dir.y > -0.02
 	var light_dir := sun_dir if is_day else Vector3(-sun_dir.x, -sun_dir.y, 0.5).normalized()
 	var horizon_fade := smoothstep(-0.02, 0.12, absf(sun_dir.y))
@@ -272,6 +303,10 @@ func _update_sky() -> void:
 	sun.look_at_from_position(Vector3.ZERO, -light_dir.rotated(Vector3.UP, 0.6), Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.BACK)
 	env.ambient_light_energy = amb * float(OS.get_environment("CV_AMB")) if OS.get_environment("CV_AMB") != "" else amb
 	env.fog_light_color = hor.lerp(top, 0.25)
+	# the haze glows towards the sun when it is low
+	env.fog_sun_scatter = lerpf(0.1, 0.45, 1.0 - smoothstep(0.05, 0.5, absf(sun_dir.y))) * (1.0 - night)
+	# colours drain away in the dark, as they do to the eye
+	env.adjustment_saturation = lerpf(1.12, 0.78, night)
 	sky_mat.set_shader_parameter("top_col", top)
 	sky_mat.set_shader_parameter("hor_col", hor)
 	sky_mat.set_shader_parameter("bottom_col", hor.darkened(0.15))
