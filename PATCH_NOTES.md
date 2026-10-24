@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-24 01:34 UTC
+- New photo mode: tap the camera button at the top to hide every button and panel and enjoy your island on its own. Tap the faint cross in the corner, or press back, to bring them back.
+- On PC, press H to switch photo mode on and off.
+
 ## 2026-10-23 22:47 UTC
 - Strings of colourful bunting now hang across your main streets wherever rows of taller houses face each other.
 

@@ -70,6 +70,11 @@ var _goals_open := true
 var _glass_light: ShaderMaterial
 var _glass_dark: ShaderMaterial
 var _glass_accent: ShaderMaterial
+# photo mode: everything but one faint button hidden, brush put down meanwhile
+var _photo := false
+var _photo_exit: Button
+var _photo_brush := ""
+var _photo_hidden: Array[Control] = []
 
 const INK := Color("2b3440")
 const SOFT := Color("6b7785")
@@ -216,6 +221,7 @@ func _ready() -> void:
 	_build_toasts()
 	_build_goals()
 	_build_menu()
+	_build_photo_exit()
 	island.brush_changed.connect(_refresh_brushes)
 	island.note.connect(func(t, k): show_toast(t, k))
 	var pr := island.progress
@@ -289,6 +295,10 @@ func _build_island_top() -> void:
 	row.add_child(stats)
 	_pop_label = _pill(stats, "people")
 	_coin_label = _pill(stats, "coin")
+	var photo_btn := _glass_button(58, "camera")
+	photo_btn.pressed.connect(func(): set_photo(true))
+	photo_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	stats.add_child(photo_btn)
 	var menu_btn := _glass_button(58)
 	var mi := _icon("menu", 30)
 	mi.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -536,6 +546,10 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H and not event.ctrl_pressed:
+		set_photo(not _photo)
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and (event.keycode == KEY_F11 or (event.alt_pressed and event.keycode == KEY_ENTER)):
 		var w := get_window()
 		w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
@@ -905,14 +919,66 @@ func _set_menu(open: bool) -> void:
 		Game.save_settings()
 
 
+func _build_photo_exit() -> void:
+	_photo_exit = _glass_button(52, "close")
+	_photo_exit.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_photo_exit.offset_left = -70
+	_photo_exit.offset_right = -18
+	_photo_exit.offset_top = 18
+	_photo_exit.offset_bottom = 70
+	_photo_exit.visible = false
+	_photo_exit.pressed.connect(func(): set_photo(false))
+	_root.add_child(_photo_exit)
+
+
+## Photo mode hides the whole HUD so the island can be admired (and captured)
+## on its own; one faint button in the corner brings it all back.
+func set_photo(on: bool) -> void:
+	if on == _photo:
+		return
+	_photo = on
+	Sfx.play("click")
+	if on:
+		_set_menu(false)
+		_photo_brush = island.brush
+		if island.brush != "":
+			island.set_brush(island.brush)
+	if on:
+		_photo_hidden.clear()
+		for c: Control in _root.get_children():
+			if c != _photo_exit and c.visible:
+				_photo_hidden.append(c)
+				var tw := create_tween()
+				tw.tween_property(c, "modulate:a", 0.0, 0.25)
+				tw.tween_callback(func(): if _photo: c.hide())
+	else:
+		for c in _photo_hidden:
+			c.show()
+			create_tween().tween_property(c, "modulate:a", 1.0, 0.25)
+	_photo_exit.visible = on
+	if on:
+		# shown clearly for a moment, then it steps back out of the picture
+		_photo_exit.modulate.a = 1.0
+		var tw := create_tween()
+		tw.tween_interval(2.0)
+		tw.tween_property(_photo_exit, "modulate:a", 0.35, 0.6)
+	elif _photo_brush != "" and island.brush == "":
+		island.set_brush(_photo_brush)
+
+
 func _notification(what: int) -> void:
-	# Android back gesture closes the menu first
-	if what == NOTIFICATION_WM_GO_BACK_REQUEST and _menu != null and _menu.visible:
+	# Android back gesture leaves photo mode, or closes the menu
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and _photo:
+		set_photo(false)
+	elif what == NOTIFICATION_WM_GO_BACK_REQUEST and _menu != null and _menu.visible:
 		_set_menu(false)
 
 
 func _input(event: InputEvent) -> void:
-	if _menu != null and _menu.visible and event.is_action_pressed("ui_cancel"):
+	if _photo and event.is_action_pressed("ui_cancel"):
+		set_photo(false)
+		get_viewport().set_input_as_handled()
+	elif _menu != null and _menu.visible and event.is_action_pressed("ui_cancel"):
 		_set_menu(false)
 		get_viewport().set_input_as_handled()
 

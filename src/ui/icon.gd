@@ -342,6 +342,12 @@ func _draw() -> void:
 			_circle(P.call(0.37, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
 			_circle(P.call(0.63, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
 			draw_arc(P.call(0.5, 0.52), 0.18 * s, 0.3, PI - 0.3, 12, Color(0.15, 0.3, 0.2), 0.05 * s, true)
+		"camera":
+			_rr(Rect2(P.call(0.36, 0.2), Vector2(0.28, 0.14) * s), 0.04 * s, c)
+			_rr(Rect2(P.call(0.12, 0.3), Vector2(0.76, 0.5) * s), 0.1 * s, c)
+			_circle(P.call(0.5, 0.55), 0.17 * s, Color(1, 1, 1, 0.9))
+			_circle(P.call(0.5, 0.55), 0.11 * s, c)
+			_circle(P.call(0.76, 0.39), 0.035 * s, a)
 		"menu":
 			for i in 3:
 				_rr(Rect2(P.call(0.22, 0.28 + i * 0.19), Vector2(0.56, 0.08) * s), 0.04 * s, c)
