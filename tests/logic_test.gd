@@ -25,6 +25,7 @@ func _ready() -> void:
 	await _island_wilds()
 	await _island_progress()
 	await _legacy_save()
+	await _map_kinds()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -333,7 +334,7 @@ func _island_inner() -> void:
 func _island_wilds() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
-	island.new_island(11)
+	island.new_island(11, "island")
 	var pts := PackedVector2Array()
 	for k in 50:
 		pts.append(Vector2(-25 + k, 6))
@@ -432,7 +433,7 @@ func _island_coop() -> void:
 	a.sync.begin()
 	var b := IslandWorld.new()
 	add_child(b)
-	b.load_room(7, a.sync.full_state())
+	b.load_room(7, a.sync.full_state(), a.land.kind)
 	# A lays a street and paints; B hears about it as one patch
 	var pts := PackedVector2Array()
 	for k in 30:
@@ -651,6 +652,43 @@ func _legacy_save() -> void:
 	check(int(saved.v) == IslandWorld.SAVE_VERSION and saved.map == "legacy", "and saves in the new format, as the same island")
 	island._apply_save(JSON.parse_string(JSON.stringify(saved)))
 	check(island.land.kind == "legacy" and island.land.zone_at(at.x, at.y) > 0.9, "which loads back the same")
+	island.queue_free()
+	await get_tree().process_frame
+
+
+## Every kind of map: open country runs on past the map's edge (no rim of
+## sea), with its river, lakes or coast; the kind is saved and comes back.
+func _map_kinds() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	for kind: String in ["river", "coast", "lakes"]:
+		island.new_island(3, kind)
+		var land := island.land
+		var wet := 0
+		var dry_rim := 0
+		var rim := 0
+		for j in range(0, Land.SIDE, 4):
+			for i in range(0, Land.SIDE, 4):
+				var h := land.heights[j * Land.SIDE + i]
+				wet += int(h < 0.0)
+				if i == 0 or j == 0 or i >= Land.CELLS - 3 or j >= Land.CELLS - 3:
+					rim += 1
+					dry_rim += int(h > 0.0)
+		var share := float(wet) / float((Land.SIDE / 4 + 1) * (Land.SIDE / 4 + 1))
+		check(share > 0.01 and share < 0.45, "a %s map has water but is mostly land (%.0f%% water)" % [kind, share * 100.0])
+		check(dry_rim > rim / 2, "the land of a %s map runs on past its edge (%d of %d rim samples dry)" % [kind, dry_rim, rim])
+		check(not land._horizon.is_empty(), "and the country carries on to the horizon")
+		var sp := island._home()
+		check(land.height_at(sp.x, sp.z) > 0.3, "a fresh %s map opens over dry ground" % kind)
+		check(land.has_sea() == (kind == "coast"), "ships sail past a %s map only if it has a sea" % kind)
+		var saved := island.to_dict()
+		check(saved.map == kind, "the map's kind is saved (%s)" % saved.map)
+	island.new_island(3, "coast")
+	var before := island.land.heights.duplicate()
+	island._apply_save(JSON.parse_string(JSON.stringify(island.to_dict())))
+	check(island.land.kind == "coast" and island.land.heights == before, "a coast map loads back the same")
+	island.new_island(3, "island")
+	check(island.land._horizon.is_empty() and island.land.has_sea(), "an island stands in open sea")
 	island.queue_free()
 	await get_tree().process_frame
 

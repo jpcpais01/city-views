@@ -12,7 +12,7 @@ func _ready() -> void:
 	hud.island = island
 	add_child(hud)
 	if OS.get_environment("CV_SEED") != "":
-		island.new_island(int(OS.get_environment("CV_SEED")))
+		island.new_island(int(OS.get_environment("CV_SEED")), OS.get_environment("CV_MAP") if OS.get_environment("CV_MAP") != "" else "river")
 	island.time_of_day = float(OS.get_environment("CV_TIME")) if OS.get_environment("CV_TIME") != "" else 0.4
 	var f := Vector3.ZERO
 	if OS.get_environment("CV_FOCUS") != "":

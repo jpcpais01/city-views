@@ -32,7 +32,8 @@ func _process(delta: float) -> void:
 	_wait -= delta
 	if _wait <= 0.0:
 		_wait = _rng.randf_range(WAIT.x, WAIT.y)
-		if _ships.size() < 2:
+		var land: Land = world.get("land")
+		if _ships.size() < 2 and (land == null or land.has_sea()):
 			spawn(_rng.randi() % _kinds.size())
 	var t := Time.get_ticks_msec() * 0.001
 	for sh in _ships.duplicate():
@@ -55,6 +56,12 @@ func spawn(kind: int, halfway := false) -> void:
 	var side := _rng.randf() * TAU
 	var mid := Vector2.from_angle(side) * r
 	var dir := Vector2.from_angle(side + PI * 0.5) * (1.0 if _rng.randf() < 0.5 else -1.0)
+	if land and land.kind in Land.OPEN_KINDS:
+		# along the coast, well out past the beaches
+		var c := land.coast()
+		var inland := Vector2(c.x, c.y)
+		dir = inland.orthogonal() * (1.0 if _rng.randf() < 0.5 else -1.0)
+		mid = inland * (c.z - 75.0 - _rng.randf() * 30.0) + dir * _rng.randf_range(-80.0, 80.0)
 	var node := Node3D.new()
 	add_child(node)
 	var body := MeshInstance3D.new()

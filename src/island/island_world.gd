@@ -156,7 +156,7 @@ func _exit_tree() -> void:
 			Net.leave_room()
 
 
-func new_island(s: int, map_kind := "island") -> void:
+func new_island(s: int, map_kind := "river") -> void:
 	island_seed = s
 	island_name = ""
 	name_changed.emit()
@@ -189,7 +189,8 @@ func _load() -> void:
 ## Where the camera starts: the middle of the town, or of the map.
 func _home() -> Vector3:
 	if streets.streets.is_empty():
-		return Vector3.ZERO
+		var sp := land.start_point()
+		return Vector3(sp.x, 0, sp.y)
 	var c := Vector2.ZERO
 	for st: Streets.Street in streets.streets:
 		c += (st.lo + st.hi) * 0.5
@@ -295,7 +296,7 @@ func set_island_name(text: String) -> void:
 
 
 func display_name() -> String:
-	return island_name if island_name != "" else "Your island"
+	return island_name if island_name != "" else "Your city"
 
 
 func _save() -> void:
@@ -339,7 +340,7 @@ func pull_cloud(force: bool) -> void:
 		var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 		if f:
 			f.store_string(JSON.stringify(r.data))
-		note.emit("Your island was brought in from your account", "info")
+		note.emit("Your city was brought in from your account", "info")
 
 
 func save_cloud() -> void:

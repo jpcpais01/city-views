@@ -25,7 +25,10 @@ const TOL_COL := 0.07
 # the size of the first islands (version 1 saves), which sit in the middle of the map
 const LEGACY_SIZE := 128.0
 # the kinds of map a new game can start on
-const KINDS := ["island"]
+const KINDS := ["river", "coast", "lakes", "island"]
+const KIND_NAMES := {"river": "River valley", "coast": "Coast", "lakes": "Lake country", "island": "Island", "legacy": "Island"}
+# maps whose land runs on past the edge, drawn out to the horizon
+const OPEN_KINDS := ["river", "coast", "lakes"]
 const LOW := -4.6
 const HIGH := 11.0
 # sea floor deeper than this is drawn coarser (it is barely seen through the water)
@@ -95,6 +98,7 @@ func generate(seed_value: int, map_kind := "island", build := true) -> void:
 	_detail.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_detail.fractal_octaves = 2
 	_detail.frequency = 1.0 / 9.0
+	_plan_water(seed_value)
 	heights.resize(SIDE * SIDE)
 	if kind == "legacy":
 		for j in SIDE:
@@ -120,7 +124,7 @@ func generate(seed_value: int, map_kind := "island", build := true) -> void:
 	if kind != "legacy":
 		# rounded, rolling land: the big maps are seen from far out, where
 		# crisp little creases only cost triangles
-		for pass_i in 8:
+		for pass_i in (8 if kind == "island" else 4):
 			_blur(heights)
 	_base = heights.duplicate()
 	reach = 0.0
@@ -162,6 +166,7 @@ func finish() -> void:
 			_ready_chunks[Vector2i(cx, cz)] = true
 	rebuild_dirty(1 << 20)
 	rebuild_shadow()
+	_build_horizon()
 	changed.emit()
 
 
@@ -169,11 +174,314 @@ func _pos(i: int, j: int) -> Vector2:
 	return Vector2(i * STEP - HALF, j * STEP - HALF)
 
 
-## The untouched landscape at a point.
+## The untouched landscape at a point (anywhere, on the map or beyond it).
 func _natural(p: Vector2) -> float:
-	if kind == "legacy":
-		return _legacy(p)
-	return _island(p)
+	match kind:
+		"legacy":
+			return _legacy(p)
+		"island":
+			return _island(p)
+	return _country(p)
+
+
+# ------------------------------------------------------------------ open country
+
+# the river: its centre line (well past the map at both ends), how wide it is
+# along the way, and its stretches filed by area for quick lookups
+var _river := PackedVector2Array()
+var _river_w := PackedFloat32Array()
+var _river_cells := {}
+const RIVER_CELL := 64.0
+# where the sea is, for a coast: land rises away from the shore along _coast_dir
+var _coast_dir := Vector2.ZERO
+var _coast_at := 0.0
+
+
+## Lays out the big water of an open map: where its river runs and which way
+## the sea lies.
+func _plan_water(seed_value: int) -> void:
+	_river = PackedVector2Array()
+	_river_w = PackedFloat32Array()
+	_river_cells = {}
+	_coast_dir = Vector2.ZERO
+	if not kind in OPEN_KINDS:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 7 + 3
+	# the river runs roughly across the map, at a slant
+	var along := Vector2.from_angle(rng.randf() * TAU)
+	var side := along.orthogonal()
+	if kind == "coast":
+		# the sea lies on one side, the river comes down to it from inland
+		_coast_dir = -along
+		_coast_at = -HALF * 0.42 + rng.randf_range(-12.0, 12.0)
+	var off := rng.randf_range(-40.0, 40.0)
+	var ph := [rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU]
+	var wide := rng.randf_range(4.5, 6.0) if kind != "lakes" else rng.randf_range(3.2, 4.2)
+	var t := -HALF - 420.0
+	while t <= HALF + 420.0:
+		# broad sweeps with tighter meanders on them
+		var lat := off + sin(t / 170.0 + ph[0]) * 46.0 + sin(t / 61.0 + ph[1]) * 16.0 + sin(t / 23.0 + ph[2]) * 3.0
+		_river.append(along * t + side * lat)
+		var w := wide * (1.0 + 0.18 * sin(t / 90.0 + ph[2]))
+		if kind == "coast":
+			# an estuary: wider as it nears the sea
+			w *= 1.0 + 1.6 * smoothstep(0.0, 1.0, (-t - (-_coast_at) + 90.0) / 140.0)
+		_river_w.append(w)
+		t += 6.0
+	for k in _river.size() - 1:
+		var a := _river[k]
+		var b := _river[k + 1]
+		var c0 := Vector2i(floor(minf(a.x, b.x) / RIVER_CELL), floor(minf(a.y, b.y) / RIVER_CELL))
+		var c1 := Vector2i(floor(maxf(a.x, b.x) / RIVER_CELL), floor(maxf(a.y, b.y) / RIVER_CELL))
+		for cy in range(c0.y, c1.y + 1):
+			for cx in range(c0.x, c1.x + 1):
+				var key := Vector2i(cx, cy)
+				if not _river_cells.has(key):
+					_river_cells[key] = PackedInt32Array()
+				_river_cells[key].append(k)
+
+
+## (distance to the river's centre line, its half width there), or a far
+## distance where no river runs within about RIVER_CELL.
+func _river_at(p: Vector2) -> Vector2:
+	if _river.is_empty():
+		return Vector2(1e6, 1.0)
+	var c := Vector2i(floor(p.x / RIVER_CELL), floor(p.y / RIVER_CELL))
+	var best := 1e6
+	var bw := 1.0
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var segs: Variant = _river_cells.get(c + Vector2i(dx, dy))
+			if segs == null:
+				continue
+			for k: int in segs:
+				var a := _river[k]
+				var ab := _river[k + 1] - a
+				var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-6), 0.0, 1.0)
+				var d := p.distance_to(a + ab * t)
+				if d < best:
+					best = d
+					bw = lerpf(_river_w[k], _river_w[k + 1], t)
+	return Vector2(best, bw)
+
+
+## Open country: broad, gentle land a city can spread over, low and level by
+## the river (its flood plain), rising to wooded hills further out; a river
+## winding through, lakes in the hollows, and for a coast, the sea along one
+## side with beaches and the river's estuary.
+func _country(p: Vector2) -> float:
+	var broad := _noise.get_noise_2d(p.x * 0.22, p.y * 0.22)
+	var h := 1.5 + broad * 2.0
+	# hills, only in some parts of the map
+	var hilly := smoothstep(0.05, 0.45, _warp.get_noise_2d(p.x * 0.18 + 300.0, p.y * 0.18))
+	var bump := _noise.get_noise_2d(p.x * 0.7 + 100.0, p.y * 0.7) * 0.5 + 0.5
+	h += pow(bump, 2.2) * 9.0 * hilly
+	h = maxf(h, 0.75)
+	# the river and its flood plain
+	var rv := _river_at(p)
+	var plain := 0.55 + _detail.get_noise_2d(p.x * 0.08, p.y * 0.08) * 0.12
+	h = lerpf(plain, h, smoothstep(rv.y + 2.0, rv.y + 75.0, rv.x))
+	if rv.x < rv.y + 3.0:
+		var bank := clampf((rv.x - rv.y) / 3.0, 0.0, 1.0)
+		var bed := -1.7 * (1.0 - pow(clampf(rv.x / rv.y, 0.0, 1.0), 2.0)) - 0.35
+		h = minf(h, lerpf(bed, plain, smoothstep(0.0, 1.0, bank)) if rv.x > rv.y else bed)
+	# lakes in the hollows
+	if kind == "lakes" or kind == "river":
+		var ln := _warp.get_noise_2d(p.x * 0.11 - 500.0, p.y * 0.11 + 200.0)
+		var need := 0.38 if kind == "lakes" else 0.52
+		if ln > need - 0.08:
+			var lt := smoothstep(need - 0.08, need + 0.02, ln)
+			h = lerpf(h, minf(h, plain), lt)
+			if ln > need:
+				h = minf(h, -smoothstep(need, need + 0.12, ln) * 2.4 - 0.2)
+	# the sea
+	if _coast_dir != Vector2.ZERO:
+		var s := p.dot(_coast_dir) + _warp.get_noise_2d(p.x * 0.12, p.y * 0.12) * 38.0 + _detail.get_noise_2d(p.x * 0.05, p.y * 0.05) * 10.0
+		var inland := s - _coast_at
+		if inland < 26.0:
+			# a broad sandy shore
+			h = lerpf(0.35, h, smoothstep(4.0, 26.0, inland))
+		if inland < 0.0:
+			h = lerpf(0.3, LOW, smoothstep(0.0, 45.0, -inland))
+	return h if h > 0.0 else _beach(h)
+
+
+## Whether ships can sail past: the sea all round an island, or along a coast.
+func has_sea() -> bool:
+	return not kind in OPEN_KINDS or _coast_dir != Vector2.ZERO
+
+
+## For a coast: the way inland (x, y) and how far inland the shore lies (z).
+func coast() -> Vector3:
+	return Vector3(_coast_dir.x, _coast_dir.y, _coast_at)
+
+
+## A good first view of a fresh map: level, dry ground near the middle, and
+## on an open map near the river (where a town would start).
+func start_point() -> Vector2:
+	var best := Vector2.ZERO
+	var score := INF
+	for j in range(SIDE / 4, SIDE * 3 / 4, 6):
+		for i in range(SIDE / 4, SIDE * 3 / 4, 6):
+			var h := heights[j * SIDE + i]
+			if h < 0.4:
+				continue
+			var p := _pos(i, j)
+			var sl := absf(heights[j * SIDE + mini(i + 4, CELLS)] - h) + absf(heights[mini(j + 4, CELLS) * SIDE + i] - h)
+			var sc := p.length() * 0.4 + sl * 30.0 + h * 2.0
+			if not _river.is_empty():
+				var rv := _river_at(p)
+				sc += absf(rv.x - rv.y - 18.0)
+			if sc < score:
+				score = sc
+				best = p
+	return best
+
+
+# ------------------------------------------------------------------ the horizon
+
+# the land beyond the map, out to the horizon
+const FAR := 320.0
+const FAR_STEP := 8.0
+const FAR_TILE := 16
+var _horizon: Array[MeshInstance3D] = []
+
+
+## On an open map the country carries on past the edge of the map: drawn
+## coarser (nobody builds there), meeting the map's rim sample for sample.
+func _build_horizon() -> void:
+	for mi in _horizon:
+		mi.queue_free()
+	_horizon.clear()
+	if not kind in OPEN_KINDS:
+		return
+	var n := int((SIZE + FAR * 2.0) / FAR_STEP)
+	var inner0 := int(FAR / FAR_STEP)
+	var inner1 := inner0 + int(SIZE / FAR_STEP)
+	var per := int(FAR_STEP / STEP)
+	var hs := PackedFloat32Array()
+	hs.resize((n + 1) * (n + 1))
+	for j in n + 1:
+		for i in n + 1:
+			if i >= inner0 and i <= inner1 and j >= inner0 and j <= inner1:
+				# on the rim (or inside): the map's own ground
+				hs[j * (n + 1) + i] = heights[index((i - inner0) * per, (j - inner0) * per)]
+			else:
+				hs[j * (n + 1) + i] = _natural(_far_pos(i, j))
+	# a normal and colour per grid point, shared by the cells round it
+	var gn := PackedVector3Array()
+	var gc := PackedColorArray()
+	gn.resize((n + 1) * (n + 1))
+	gc.resize((n + 1) * (n + 1))
+	for j in n + 1:
+		for i in n + 1:
+			var a := j * (n + 1) + i
+			var hx := hs[a + 1 if i < n else a] - hs[a - 1 if i > 0 else a]
+			var hz := hs[a + n + 1 if j < n else a] - hs[a - n - 1 if j > 0 else a]
+			var nrm := Vector3(-hx, 2.0 * FAR_STEP, -hz).normalized()
+			gn[a] = nrm
+			gc[a] = _colour(_far_pos(i, j), hs[a], nrm.y)
+	for tj in n / FAR_TILE:
+		for ti in n / FAR_TILE:
+			var verts := PackedVector3Array()
+			var norms := PackedVector3Array()
+			var cols := PackedColorArray()
+			var idx := PackedInt32Array()
+			var shared := {}
+			for j in range(tj * FAR_TILE, (tj + 1) * FAR_TILE):
+				for i in range(ti * FAR_TILE, (ti + 1) * FAR_TILE):
+					if i >= inner0 and i < inner1 and j >= inner0 and j < inner1:
+						continue
+					# the ring of points round this cell: corners, plus every
+					# map sample along an edge it shares with the map
+					var ring: Array[Vector3] = []
+					var corners := [Vector2i(i, j), Vector2i(i + 1, j), Vector2i(i + 1, j + 1), Vector2i(i, j + 1)]
+					for e in 4:
+						var a: Vector2i = corners[e]
+						var b: Vector2i = corners[(e + 1) % 4]
+						ring.append(_far_vert(a, hs, n))
+						if _on_rim(a, inner0, inner1) and _on_rim(b, inner0, inner1) and (a.x == b.x) != (a.y == b.y) and _rim_edge(a, b, inner0, inner1):
+							for k in range(1, per):
+								var t := float(k) / per
+								var g := Vector2(a).lerp(Vector2(b), t)
+								var gi := int(round((g.x - inner0) * per))
+								var gj := int(round((g.y - inner0) * per))
+								var p := _pos(gi, gj)
+								ring.append(Vector3(p.x, heights[index(gi, gj)], p.y))
+					if ring.size() == 4:
+						var q := PackedInt32Array()
+						for c: Vector2i in corners:
+							var g := c.y * (n + 1) + c.x
+							if not shared.has(g):
+								shared[g] = verts.size()
+								verts.append(ring[q.size()])
+								norms.append(gn[g])
+								cols.append(gc[g])
+							q.append(shared[g])
+						if absf(ring[0].y - ring[2].y) < absf(ring[1].y - ring[3].y):
+							idx.append_array([q[0], q[1], q[2], q[0], q[2], q[3]])
+						else:
+							idx.append_array([q[0], q[1], q[3], q[1], q[2], q[3]])
+						continue
+					var base := verts.size()
+					var mid := (Vector2(i, j) + Vector2(0.5, 0.5))
+					var mp := Vector2(mid.x * FAR_STEP - HALF - FAR, mid.y * FAR_STEP - HALF - FAR)
+					_far_push(Vector3(mp.x, _natural(mp), mp.y), verts, norms, cols)
+					for v in ring:
+						_far_push(v, verts, norms, cols)
+					var m := ring.size()
+					for k in m:
+						idx.append_array([base, base + 1 + k, base + 1 + (k + 1) % m])
+			if idx.is_empty():
+				continue
+			var arr := []
+			arr.resize(Mesh.ARRAY_MAX)
+			arr[Mesh.ARRAY_VERTEX] = verts
+			arr[Mesh.ARRAY_NORMAL] = norms
+			arr[Mesh.ARRAY_COLOR] = cols
+			arr[Mesh.ARRAY_INDEX] = idx
+			var mesh := ArrayMesh.new()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			mesh.surface_set_material(0, material)
+			var mi := MeshInstance3D.new()
+			mi.mesh = mesh
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(mi)
+			_horizon.append(mi)
+
+
+func _far_pos(i: int, j: int) -> Vector2:
+	return Vector2(i * FAR_STEP - HALF - FAR, j * FAR_STEP - HALF - FAR)
+
+
+func _far_vert(g: Vector2i, hs: PackedFloat32Array, n: int) -> Vector3:
+	var p := _far_pos(g.x, g.y)
+	return Vector3(p.x, hs[g.y * (n + 1) + g.x], p.y)
+
+
+static func _on_rim(g: Vector2i, i0: int, i1: int) -> bool:
+	return g.x >= i0 and g.x <= i1 and g.y >= i0 and g.y <= i1 and (g.x == i0 or g.x == i1 or g.y == i0 or g.y == i1)
+
+
+## Whether a to b runs along the map's edge (not across a corner of it).
+static func _rim_edge(a: Vector2i, b: Vector2i, i0: int, i1: int) -> bool:
+	if a.x == b.x:
+		return a.x == i0 or a.x == i1
+	return a.y == i0 or a.y == i1
+
+
+## A horizon vertex: the ground's normal and colour worked out from the
+## natural land around it (painting never reaches out here).
+func _far_push(v: Vector3, verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray) -> void:
+	var p := Vector2(v.x, v.z)
+	var e := FAR_STEP * 0.5
+	var hx := _natural(p + Vector2(e, 0)) - _natural(p - Vector2(e, 0))
+	var hz := _natural(p + Vector2(0, e)) - _natural(p - Vector2(0, e))
+	var nrm := Vector3(-hx, 2.0 * e, -hz).normalized()
+	verts.append(v)
+	norms.append(nrm)
+	cols.append(_colour(p, v.y, nrm.y))
 
 
 ## A big island: a warped, roughly round coast with bays and headlands, broad
@@ -383,8 +691,8 @@ func _each_in(centre: Vector3, radius: float, f: Callable) -> void:
 				continue
 			var w := (1.0 - d * d)
 			f.call(j * SIDE + i, w * w)
-	# the island's rim stays under the sea so it never shows a cut edge
-	for j in range(j0, j1 + 1):
+	# an island's rim stays under the sea so it never shows a cut edge
+	for j in (range(j0, j1 + 1) if not kind in OPEN_KINDS else []):
 		for i in range(i0, i1 + 1):
 			if i <= 1 or j <= 1 or i >= CELLS - 1 or j >= CELLS - 1:
 				heights[j * SIDE + i] = minf(heights[j * SIDE + i], LOW)
@@ -823,9 +1131,28 @@ func _colour(p: Vector2, h: float, up: float) -> Color:
 		var dry := Color("a9c46a")
 		col = lush.lerp(dry, clampf(h / 8.0 + n * 0.3, 0.0, 1.0))
 		col = col.lerp(Color("efe0b4"), 1.0 - smoothstep(sand_line, sand_line + 0.18, h))
+	var fresh := _fresh(p)
+	if fresh > 0.0 and h < sand_line + 0.3:
+		# rivers and lakes: grassy banks down to a strip of mud and pebbles,
+		# and a dark, weedy bed (no sandy beaches inland)
+		var bank: Color
+		if h < -0.05:
+			bank = Color("7d7a5c").darkened(clampf(-h * 0.08, 0.0, 0.3))
+		else:
+			bank = Color("9a9068").lerp(Color("7fbf5f"), smoothstep(0.0, sand_line + 0.3, h + n * 0.08))
+		col = col.lerp(bank, fresh)
 	var rock := Color("a49d90").lerp(Color("8a847a"), clampf(n + 0.5, 0.0, 1.0))
 	col = col.lerp(rock, smoothstep(0.3, 0.45, slope + n * 0.06))
 	return col
+
+
+## 1 by fresh water (rivers, lakes), 0 by the sea.
+func _fresh(p: Vector2) -> float:
+	if not kind in OPEN_KINDS:
+		return 0.0
+	if _coast_dir == Vector2.ZERO:
+		return 1.0
+	return smoothstep(45.0, 90.0, p.dot(_coast_dir) - _coast_at)
 
 
 # ------------------------------------------------------------------ maps for shaders
@@ -861,11 +1188,15 @@ func shore_image(cap: float) -> Image:
 				if i < CELLS: v = minf(v, d[k + SIDE + 1] + b)
 				if i > 0: v = minf(v, d[k + SIDE - 1] + b)
 			d[k] = v
+	# alpha: fresh water (rivers, lakes: calm, little foam) rather than sea
 	var bytes := PackedByteArray()
-	bytes.resize(SIDE * SIDE)
-	for k in SIDE * SIDE:
-		bytes[k] = int(clampf(d[k] / cap, 0.0, 1.0) * 255.0)
-	return Image.create_from_data(SIDE, SIDE, false, Image.FORMAT_L8, bytes)
+	bytes.resize(SIDE * SIDE * 2)
+	for j in SIDE:
+		for i in SIDE:
+			var k := j * SIDE + i
+			bytes[k * 2] = int(clampf(d[k] / cap, 0.0, 1.0) * 255.0)
+			bytes[k * 2 + 1] = int(_fresh(_pos(i, j)) * 255.0)
+	return Image.create_from_data(SIDE, SIDE, false, Image.FORMAT_LA8, bytes)
 
 
 ## Ground height map for the city shader's contact shading.
