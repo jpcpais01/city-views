@@ -54,7 +54,7 @@ func _process(delta: float) -> void:
 		if _job.has("done"):
 			_finish(_job)
 			_job = {}
-		elif _work(_job, 3000):
+		elif _work(_job, FrameBudget.cap(3000)):
 			_job.done = true
 		return
 	if not _todo.is_empty():
@@ -108,7 +108,8 @@ func _queue_changed() -> void:
 
 func _scan_some() -> void:
 	var start := Time.get_ticks_usec()
-	while _scan < CHUNKS * CHUNKS and Time.get_ticks_usec() - start < 2000:
+	var budget := FrameBudget.cap(2000)
+	while _scan < CHUNKS * CHUNKS and Time.get_ticks_usec() - start < budget:
 		var c := Vector2i(_scan % CHUNKS, _scan / CHUNKS)
 		_scan += 1
 		var s := _chunk_sig(c, _near)

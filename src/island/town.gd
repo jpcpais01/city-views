@@ -530,16 +530,17 @@ func _process(delta: float) -> void:
 		_place_street(s, false)
 		return
 	# a street's lots are laid a few at a time, so a long street never stalls a frame
-	while Time.get_ticks_usec() - start < 2500:
+	var budget := FrameBudget.cap(2500)
+	while Time.get_ticks_usec() - start < budget:
 		if _job.is_empty():
 			_job = _next_job()
 			if _job.is_empty():
 				break
-		if _step(_job, start + 2500):
+		if _step(_job, start + budget):
 			_job = {}
 	_live = true
 	for c in _dirty_patches.keys():
-		if Time.get_ticks_usec() - start > 3000:
+		if Time.get_ticks_usec() - start > budget + 500:
 			break
 		_dirty_patches.erase(c)
 		_commit_patch(c)

@@ -5,6 +5,12 @@ uniform float night : hint_range(0.0, 1.0) = 0.0;
 uniform float lit_ratio : hint_range(0.0, 1.0) = 0.7;
 uniform vec3 warm_light : source_color = vec3(1.0, 0.74, 0.42);
 uniform vec3 frame_col : source_color = vec3(0.97, 0.97, 0.95);
+// what glass mirrors: the sky (World._update_sky keeps these in step with it)
+uniform vec3 refl_top : source_color = vec3(0.35, 0.62, 0.92);
+uniform vec3 refl_hor : source_color = vec3(0.78, 0.9, 0.98);
+uniform vec3 refl_sun_col : source_color = vec3(1.0, 0.9, 0.7);
+uniform vec3 refl_sun_dir = vec3(0.0, 0.8, 0.6);
+uniform float refl_amount = 1.0;
 
 #include "res://shaders/beam.gdshaderinc"
 #ifndef GROUND
@@ -20,6 +26,10 @@ uniform vec2 height_range = vec2(2.5, 0.5);
 uniform sampler2D farm_tex : filter_linear, repeat_disable;
 uniform float farm_angle = 0.0;
 uniform float grid_size = 384.0;
+// the painted town's tint while the Grow brush is in hand (Land.update_tint),
+// one texel per ground sample
+uniform bool show_zone = false;
+uniform sampler2D tint_tex : source_color, filter_linear, repeat_disable;
 #endif
 
 varying float v_emit;
@@ -37,6 +47,32 @@ float g_noise(vec2 p) {
 	f = f * f * (3.0 - 2.0 * f);
 	return mix(mix(g_hash(i), g_hash(i + vec2(1.0, 0.0)), f.x), mix(g_hash(i + vec2(0.0, 1.0)), g_hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
+
+#ifndef GROUND
+// What a pane of glass mirrors along `r` (world space): the sky, brightest
+// round the sun, the far side of town as a ragged band of rooftops along the
+// horizon (dotted with lit windows at night), and the ground below it. All
+// worked out from the direction alone, so it costs a few instructions a pixel.
+vec3 sky_reflect(vec3 r) {
+	float up = r.y;
+	float aw = fwidth(up) + 0.002;
+	vec3 sky = mix(refl_hor, refl_top, smoothstep(0.0, 0.55, up));
+	sky += refl_sun_col * pow(max(dot(r, refl_sun_dir), 0.0), 18.0) * 0.7 * (1.0 - night);
+	float az = atan(r.z, r.x) * 2.5465;
+	float a1 = floor(az * 4.0);
+	float a2 = floor(az * 9.0 + 0.5);
+	float roof = 0.015 + 0.13 * pow(g_hash(vec2(a1, 1.3)), 2.0);
+	roof = max(roof, 0.01 + 0.07 * g_hash(vec2(a2, 7.1)));
+	vec3 town = refl_hor * mix(0.5, 0.62, g_hash(vec2(a2, 3.3))) + vec3(0.02);
+	// lit windows in the far towers at night
+	vec2 wq = vec2(az * 60.0, up * 140.0);
+	float lit = step(0.86, g_hash(floor(wq))) * step(0.3, fract(wq.x)) * step(0.35, fract(wq.y));
+	town = mix(town * 0.35, town * 0.25 + warm_light * lit * 0.8, night);
+	vec3 ground = mix(vec3(0.16, 0.19, 0.15), refl_hor * 0.4, 0.4) * mix(1.0, 0.35, night);
+	vec3 low = mix(ground, town, smoothstep(-aw, aw, up + 0.01));
+	return mix(low, sky, smoothstep(roof - aw, roof + aw, up));
+}
+#endif
 
 void vertex() {
 	// vertex colours are authored in sRGB
@@ -321,6 +357,13 @@ void fragment() {
 		}
 	}
 #endif
+#ifdef GROUND
+	if (show_zone) {
+		vec2 side = vec2(textureSize(tint_tex, 0));
+		vec4 tint = texture(tint_tex, ((v_world.xz / grid_size + 0.5) * (side - 1.0) + 0.5) / side);
+		base = mix(base, tint.rgb, tint.a);
+	}
+#endif
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
 	// soft toy-like rim and a gentle bottom-darkening ambient term
 	base += rim * 0.05;
@@ -449,6 +492,20 @@ void fragment() {
 		}
 		ALBEDO = mix(base, glow * 0.35, lit);
 		EMISSION = glow * lit * 2.7;
+#ifndef GROUND
+		if (emit < 1.5 || emit > 2.8) {
+			// glass mirrors the sky and the town around it, more so at a glancing
+			// angle; a lit room shows through it at night
+			vec3 vw = normalize(v_world - CAMERA_POSITION_WORLD);
+			vec3 n = normalize(v_wnorm);
+			float ndv = clamp(-dot(vw, n), 0.0, 1.0);
+			float f = (0.24 + 0.6 * pow(1.0 - ndv, 2.0)) * (1.0 - lit * 0.85) * refl_amount;
+			ALBEDO *= 1.0 - f;
+			EMISSION += sky_reflect(reflect(vw, n)) * f;
+			// the engine's own blurry sky reflection would double it
+			SPECULAR = 0.3;
+		}
+#endif
 	}
 	if (beam_count > 0) {
 		// a passing lighthouse beam lights whatever it sweeps over

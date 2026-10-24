@@ -551,7 +551,7 @@ func _process(delta: float) -> void:
 		elif int(before / 0.1) != int(_laying[id] / 0.1):
 			_build(s)
 	for id in _pending.keys():
-		if Time.get_ticks_usec() - start > 3000:
+		if Time.get_ticks_usec() - start > FrameBudget.cap(3000):
 			break
 		var s: Street = _pending[id]
 		_pending.erase(id)

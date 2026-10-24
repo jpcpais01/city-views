@@ -493,6 +493,20 @@ func _maps_ground(coast: bool, box: Rect2i) -> void:
 		_height_tex.update(_height_img)
 
 
+var _tint_tex: ImageTexture
+
+
+## The Grow brush's tint over the painted ground, as it is painted.
+func _update_tint() -> void:
+	if not land.update_tint():
+		return
+	if _tint_tex == null or _tint_tex.get_size() != Vector2(land.tint_img.get_size()):
+		_tint_tex = ImageTexture.create_from_image(land.tint_img)
+		ground_mat.set_shader_parameter("tint_tex", _tint_tex)
+	else:
+		_tint_tex.update(land.tint_img)
+
+
 func set_brush(id: String) -> void:
 	if id != brush and not progress.can_use(id):
 		note.emit(progress.unlock_text(id), "warn")
@@ -506,7 +520,8 @@ func set_brush(id: String) -> void:
 # ------------------------------------------------------------------ frame
 
 func _process(delta: float) -> void:
-	land.rebuild_dirty()
+	_update_tint()
+	land.rebuild_dirty(FrameBudget.cap(3000))
 	_shore_wait -= delta
 	# while the town grows, the shadows and maps catch up about once a second
 	if _shore_dirty and not _stroke and land.is_settled() and (_shore_wait <= 0.0 or not town.is_busy()):
