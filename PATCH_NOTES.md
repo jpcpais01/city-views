@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-24 05:36 UTC
+- Office blocks now go up in Centre areas, and now and then on a City main street: pale stone, concrete or dark cladding with regular rows of wide windows.
+- Office blocks have a glazed lobby floor with a canopy over the entrance, and plant rooms and masts on the roof.
+- Offices bring workers into town instead of residents.
+
 ## 2026-10-24 04:02 UTC
 - Fixed see-through, inside-out buildings: big joined buildings and squeezed terraces now have solid walls facing the right way, and only join along fairly straight streets.
 - Fixed streets that met at a shallow angle spreading into huge wedges of asphalt, and kerbs or pavements standing across another road.
