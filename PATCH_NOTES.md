@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 03:52 UTC
+- Fixed streets that met at a shallow angle spreading into huge wedges of asphalt.
+- Kerbs and pavements no longer stand across another road where streets are drawn close together or cross at a slant.
+- Fixed see-through, open-sided buildings: tall neighbours now only join into one building along a fairly straight street, and only when they make one clean shape.
+- Plots at the edge of painted green no longer switch between house and park.
+
 ## 2026-10-24 03:29 UTC
 - The countryside is no longer bare grass: woods spread over the hills, with copses and lone trees across the meadows.
 - Pines take over higher up, in stands of their own, while broadleaf trees fill the lower ground.

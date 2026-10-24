@@ -439,6 +439,8 @@ func _set_stage(l: Lot, stage: int) -> void:
 const MERGE_STAGE := 3
 const MERGE_MAX := 4
 const MERGE_WIDTH := 10.0
+# the most the street may turn along a joined building (radians)
+const MERGE_TURN := 0.35
 
 
 ## Remakes a plot's building: a house, or the joined building it hosts.
@@ -451,6 +453,15 @@ func _rebuild(id: int) -> void:
 		for m in l.group:
 			if lots.has(m):
 				members.append(lots[m])
+		if members.size() < 2 or not HouseGen.outline_ok(HouseGen.block_outline(members)):
+			# plots that no longer make one clean building stand as houses again
+			l.group = []
+			for m: Lot in members:
+				m.host = 0
+				if m != l:
+					_rebuild(m.id)
+			_rebuild(id)
+			return
 		l.arrays = HouseGen.build_block(members, land, l.street_y, l.sd, l.main)
 		for m: Lot in members:
 			if m != l:
@@ -492,6 +503,16 @@ func _try_merge(l: Lot) -> bool:
 	for m in group:
 		width += lots[m].width if lots.has(m) else 0.0
 	if width > MERGE_WIDTH:
+		return false
+	# only plots along a fairly straight run of street make one building
+	if absf(angle_difference(l.yaw, h.yaw)) > MERGE_TURN or absf(angle_difference(l.yaw, p.yaw)) > MERGE_TURN * 0.6:
+		return false
+	var members: Array = []
+	for m in group:
+		if lots.has(m):
+			members.append(lots[m])
+	members.append(l)
+	if not HouseGen.outline_ok(HouseGen.block_outline(members)):
 		return false
 	# chance by place, so the same plots join up after a reload
 	var odds := 0.55 if mini(l.stage, p.stage) < 4 else 0.8
@@ -929,6 +950,13 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 	# terrace the front of the plot, where the house stands, near the street's level
 	var mid := (a + b) * 0.5 + inward * minf(depth * 0.35, 2.0)
 	var level := clampf(land.height_at(mid.x, mid.y), street_y - 0.02, street_y + 0.45)
+	# park or not by the plot's own middle, the same test that later decides
+	# whether a repaint replaces it, so a plot at the edge of painted green
+	# never flips back and forth
+	if kind == "house" and _green(l) > 0.5:
+		kind = "park"
+	elif kind == "park" and _green(l) <= 0.5:
+		kind = "house"
 	l.type = kind
 	# squares and churches stand on a level plot all the way back; parks keep their slopes
 	var front := depth if kind == "square" or kind == "church" else minf(depth * 0.72, 4.2)

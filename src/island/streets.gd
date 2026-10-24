@@ -18,6 +18,8 @@ const PAVE := 0.42
 const SKIRT := 0.2
 # radius of the rounded kerb at street corners
 const KERB_R := 1.1
+# the farthest a junction's corner starts along a street from where they meet
+const MAX_CUT := 2.2
 const KINDS := {
 	"main": {"w": 0.78, "dash": true},
 	"side": {"w": 0.56, "dash": false},
@@ -85,6 +87,27 @@ class Street:
 				by = lerpf(ys[i], ys[i + 1], t)
 				bs = i + t
 		return Vector3(best, by, bs)
+
+	## Whether p lies within `r` of the centre line (a quick pass first skips
+	## stretches of the street that are far away).
+	func within(p: Vector2, r: float) -> bool:
+		const RUN := 8
+		var n := pts.size()
+		var i := 0
+		while i < n - 1:
+			var e := mini(i + RUN, n - 1)
+			# no point of this stretch can be nearer than this
+			if p.distance_to(pts[i]) - RUN * Streets.SAMPLE > r:
+				i = e
+				continue
+			for k in range(i, e):
+				var a := pts[k]
+				var ab := pts[k + 1] - a
+				var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-6), 0.0, 1.0)
+				if p.distance_to(a + ab * t) < r:
+					return true
+			i = e
+		return false
 
 
 # ------------------------------------------------------------------ building streets
@@ -491,6 +514,7 @@ func _build(s: Street) -> void:
 					cuts[arm.sgn * (-1.0 if q == 0 else 1.0)].append(Vector2(minf(arm.f, fc), maxf(arm.f, fc)))
 			if jn.owner == s.id:
 				_build_junction(jn, buf)
+		_overlap_cuts(s, cuts)
 	# which rows to keep: every bend, slope change and pavement gap; straight even runs collapse
 	var rows := {0.0: true, upto: true}
 	var last := 0
@@ -571,6 +595,37 @@ func _build(s: Street) -> void:
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	m.surface_set_material(0, material)
 	mi.mesh = m
+
+
+## Where this street's pavement would lie on another street's carriageway
+## (streets drawn close alongside or meeting at a shallow angle), the
+## pavement gives way, so no kerb ever stands across a road.
+func _overlap_cuts(s: Street, cuts: Dictionary) -> void:
+	var out := s.w() + PAVE * 0.5
+	for o: Street in streets:
+		if o == s or not _boxes_overlap(s, o):
+			continue
+		var r := o.w() + 0.05
+		for side: float in [-1.0, 1.0]:
+			var open := -1
+			for i in s.pts.size():
+				var q := s.pts[i] + _side(s, i) * side * out
+				var hit := o.near_box(q, r) and o.within(q, r)
+				if hit and open < 0:
+					open = i
+				elif not hit and open >= 0:
+					cuts[side].append(Vector2(maxf(open - 0.75, 0.0), i - 0.25))
+					open = -1
+			if open >= 0:
+				cuts[side].append(Vector2(maxf(open - 0.75, 0.0), s.pts.size()))
+
+
+## Whether a point lies on some street's carriageway, well inside its kerbs.
+func _on_carriageway(p: Vector2) -> bool:
+	for o: Street in streets:
+		if o.near_box(p, o.w()) and o.within(p, o.w() - 0.08):
+			return true
+	return false
 
 
 static func _in_cuts(list: PackedVector2Array, f: float) -> bool:
@@ -736,7 +791,9 @@ func _shape_junction(jn: Dictionary) -> void:
 			continue
 		_kerb_run(jn.edge, A.st, A.f_end, c.fa, sa)
 		jn.edge.append_array(c.pts)
-		jn.corners.append(c.pts)
+		# a sliver between arms at a shallow angle gets no kerb of its own
+		if not c.open:
+			jn.corners.append(c.pts)
 		_kerb_run(jn.edge, B.st, c.fb, B.f_end, sb)
 
 
@@ -745,7 +802,8 @@ func _shape_junction(jn: Dictionary) -> void:
 ## almost in line (or the gap is the outside of a bend) the kerb swings round
 ## the junction's middle instead.
 func _corner_curve(j: Vector2, A: Dictionary, B: Dictionary) -> Dictionary:
-	if A.st == B.st:
+	# one street running on through (not the same street coming back round)
+	if A.st == B.st and absf(A.f - B.f) < 1.0:
 		return {"same": true}
 	var a: Vector2 = A.dir
 	var b: Vector2 = B.dir
@@ -763,8 +821,10 @@ func _corner_curve(j: Vector2, A: Dictionary, B: Dictionary) -> Dictionary:
 		var r := KERB_R * clampf(th / 1.2, 0.35, 1.0)
 		var det := -a.cross(b)
 		var d := nb * (wb + r) - na * (wa + r)
-		ta = maxf(b.cross(d) / det, 0.0)
-		tb = maxf(a.cross(d) / det, 0.0)
+		# arms meeting at a shallow angle would push the corner far down both
+		# streets: stop it a short way along, letting their asphalt overlap
+		ta = clampf(b.cross(d) / det, 0.0, MAX_CUT)
+		tb = clampf(a.cross(d) / det, 0.0, MAX_CUT)
 	var fa := clampf(A.f + A.sgn * ta / SAMPLE, 0.0, A.st.pts.size() - 1.0)
 	var fb := clampf(B.f + B.sgn * tb / SAMPLE, 0.0, B.st.pts.size() - 1.0)
 	A.cut[1] = absf(fa - A.f) * SAMPLE
@@ -778,6 +838,8 @@ func _corner_curve(j: Vector2, A: Dictionary, B: Dictionary) -> Dictionary:
 		var det := -a.cross(b)
 		var dc := nb * wb - na * wa
 		var c := j + na * wa + a * (b.cross(dc) / det)
+		if c.distance_to(j) > MAX_CUT + wa:
+			c = (pa2 + pb2) * 0.5
 		var steps := 6 if th > 0.9 else 4
 		for k in steps + 1:
 			var t := float(k) / steps
@@ -794,7 +856,7 @@ func _corner_curve(j: Vector2, A: Dictionary, B: Dictionary) -> Dictionary:
 			var t := float(k) / steps
 			var p := j + Vector2.from_angle(a0 + sweep * t) * lerpf(r0, r1, t)
 			pts.append(Vector3(p.x, lerpf(pa.y, pb.y, t), p.y))
-	return {"same": false, "pts": pts, "fa": fa, "fb": fb}
+	return {"same": false, "pts": pts, "fa": fa, "fb": fb, "open": th < 0.45}
 
 
 ## A point on a street's kerb line (asphalt height) at index f on `side`.
@@ -859,7 +921,7 @@ func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 			if n3.dot(p3 - c3) < 0.0:
 				n3 = -n3
 			var o3 := p3 + n3 * PAVE
-			if k > 0:
+			if k > 0 and not _on_carriageway(Vector2((p3.x + prev_p.x + o3.x + prev_o.x) * 0.25, (p3.z + prev_p.z + o3.z + prev_o.z) * 0.25)):
 				buf.quad(prev_p, p3, p3 + Vector3.UP * CURB, prev_p + Vector3.UP * CURB, kerb, 0.0, -(n3 + prev_n))
 				buf.quad(prev_p + Vector3.UP * CURB, p3 + Vector3.UP * CURB, o3 + Vector3.UP * CURB, prev_o + Vector3.UP * CURB, pave, MeshKit.SLABS, Vector3.UP)
 				buf.quad(prev_o + Vector3.UP * CURB, o3 + Vector3.UP * CURB, o3 + Vector3.DOWN * SKIRT, prev_o + Vector3.DOWN * SKIRT, kerb, 0.0, n3 + prev_n)
