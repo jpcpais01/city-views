@@ -25,6 +25,9 @@ const WALL_GAP := 0.3
 const NEAR := 4.5
 # the most yards one chunk holds
 const MOST := 40
+# where a corner may shift to when the spot itself is too tight; never so
+# far that its little patch reaches a neighbouring yard's
+const NUDGES: Array[Vector2] = [Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.5), Vector2(0, -0.5)]
 # open ground counts as inside the town when buildings or streets lie
 # within this many metres of it in most directions
 const ENCLOSE := 11.0
@@ -46,10 +49,7 @@ var _seen := -1
 
 func _process(delta: float) -> void:
 	if not _todo.is_empty():
-		for k in 2:
-			if _todo.is_empty():
-				break
-			_build(_todo.pop_back())
+		_build(_todo.pop_back())
 		return
 	_check -= delta
 	if _check > 0.0:
@@ -135,6 +135,15 @@ func _build(c: Vector2i) -> void:
 			var p := Vector2(x0 + (i + 0.5 + (rng.randf() - 0.5) * 0.3) * GAP, z0 + (j + 0.5 + (rng.randf() - 0.5) * 0.3) * GAP)
 			var room := []
 			var owner: Town.Lot = _owner_at(p, room)
+			if owner == null and room.is_empty():
+				# too near a street or a wall: a small corner a little aside may fit
+				for nudge: Vector2 in NUDGES:
+					owner = _owner_at(p + nudge, room)
+					if owner:
+						p += nudge
+						room[0] = 1
+						break
+					room.clear()
 			if owner == null:
 				# open ground deep inside a block: a pocket park every so often
 				if room.is_empty() or room[0] != -1 or (i + j) % 2 != 0 or not _enclosed(p):
@@ -235,7 +244,7 @@ func _enclosed(p: Vector2) -> bool:
 	var homes := 0
 	for k in 8:
 		var dir := Vector2.from_angle(TAU * k / 8.0)
-		for d in range(5, int(ENCLOSE) + 1):
+		for d in range(1, int(ENCLOSE) + 1):
 			var c := Town._cell(p + dir * d)
 			if c.x < 0 or c.y < 0 or c.x >= Town.RES or c.y >= Town.RES:
 				break
@@ -245,7 +254,7 @@ func _enclosed(p: Vector2) -> bool:
 				if o > 0:
 					homes += 1
 				break
-	return hits >= 6 and (homes >= 4 or world.land.zone_at(p.x, p.y) >= 0.3)
+	return hits >= 6 and (homes >= 2 or world.land.zone_at(p.x, p.y) >= 0.15)
 
 
 ## A pocket park on open ground in the middle of a block: a mown lawn with
