@@ -82,6 +82,12 @@ func _ready() -> void:
 			var top := int(OS.get_environment("CV_RINGS"))
 			for k in 4:
 				island.land.paint_level(Vector3(f.x, 0, f.z), r * (1.0 - k * 0.22), float(top - 3 + k), 2.0)
+		if OS.get_environment("CV_DISTRICTS") != "":
+			# an industrial quarter to one side and an office quarter to the other
+			print("districts around ", f)
+			island.land.paint_level(Vector3(f.x - r * 0.6, 0, f.z), r * 0.4, 4.0, 9.0, HouseGen.INDUSTRY)
+			island.land.paint_level(Vector3(f.x + r * 0.6, 0, f.z), r * 0.4, 5.0, 9.0, HouseGen.OFFICES)
+			island.land.paint_level(Vector3(f.x, 0, f.z + r * 0.6), r * 0.35, 3.0, 9.0, HouseGen.SHOPS)
 		if OS.get_environment("CV_GREEN") != "":
 			# a park painted at x,z,radius
 			var g := OS.get_environment("CV_GREEN").split(",")

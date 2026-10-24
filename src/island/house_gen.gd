@@ -30,6 +30,10 @@ const TOWER_SCHEMES := [
 ]
 
 enum { HARBOUR, PASTEL, BRICK, STONE_SLATE, SOUTH, NORDIC }
+## the districts painted with the Grow brush (Land.USES)
+enum { HOMES, SHOPS, OFFICES, INDUSTRY }
+const SHED_WALLS := [Color("a9b2b8"), Color("8e9aa6"), Color("c9c2b0"), Color("b4614a"), Color("7f97a8"), Color("d6d0c2")]
+const SHED_ROOFS := [Color("6f767c"), Color("5d6872"), Color("8a8f92"), Color("4f5a63")]
 const KIT_NAMES := ["harbour", "pastel", "brick", "stone", "south", "nordic"]
 # roof weights: [ridge along the street, gable end to the street, hip, flat]
 const KITS := [
@@ -112,8 +116,10 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var kit: int = l.kit
 	var K: Dictionary = KITS[kit]
 	l.use = "home"
-	if l.stage >= 5:
-		# apartments and towers are blocks, even on a plot of their own
+	if l.district == INDUSTRY:
+		return build_industry(l, land, street_y, seed_value)
+	if l.stage >= 5 or l.district == OFFICES:
+		# apartments, towers and offices are blocks, even on a plot of their own
 		return build_block([l], land, street_y, seed_value, main)
 	# a house grows through stages: cottage, two-floor house, terrace, taller terrace, tall terrace
 	var dense := l.stage >= 2
@@ -174,8 +180,9 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var floors: int = [1, 2, 2, 3, 4][clampi(l.stage, 0, 4)]
 	if l.stage == 2 and (row if rowed else rng).randf() < 0.35:
 		floors = 3
-	# a busy main street keeps shops on the ground floor
-	var shop := main and dense and floors >= 2 and rng.randf() < 0.6
+	# a busy main street keeps shops on the ground floor, and in a shopping
+	# district every house has one
+	var shop := (main and dense and floors >= 2 and rng.randf() < 0.6) or l.district == SHOPS
 	l.floors = floors
 	l.shop = shop
 	var hgt := floors * FH + 0.06
@@ -495,11 +502,17 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	# four to five floors in a city, up to seven in a centre, eight to ten
 	# for apartments and twelve to sixteen for a tower
 	var floors: int = [4 + rng.randi() % 2, 5 + rng.randi() % 3, 8 + rng.randi() % 3, 12 + rng.randi() % 5][clampi(stage - 3, 0, 3)]
+	var district: int = h.district
+	if district == OFFICES and stage < 3:
+		# a low office building on the edge of a business district
+		floors = 2 + stage
 	if stage >= 6 and ls.size() >= 2:
 		# a skyscraper: twenty to forty floors, more over a wider plot
 		floors = 20 + rng.randi() % 12 + mini(ls.size() - 2, 2) * 4
 	# in a centre, and now and then on a city's main street, the big building is offices
-	var office: bool = rng.randf() < [0.2 if main else 0.0, 0.45, 0.3, 0.6][clampi(stage - 3, 0, 3)]
+	var office: bool = rng.randf() < [0.2 if main else 0.0, 0.45, 0.3, 0.6][clampi(stage - 3, 0, 3)] or district == OFFICES
+	if district == SHOPS:
+		office = false
 	var tower := stage >= 6
 	# where tall plots have joined up downtown, the tower is a skyscraper
 	var sky := tower and ls.size() >= 2
@@ -553,7 +566,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		wall = tones[rng.randi() % tones.size()]
 		glass_col = scheme[1]
 		win_w = scheme[2]
-		office = scheme[3]
+		office = scheme[3] or district == OFFICES
 		we = MeshKit.BRICKS if scheme[4] else 0.0
 		trim = wall.lightened(0.3) if not scheme[4] else Color(0.95, 0.93, 0.88)
 	var all_floors := floors
@@ -594,7 +607,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			mk.pop()
 			continue
 		l.use = "home"
-		var shop := (main or rng.randf() < 0.45) and run > 1.3
+		var shop := (main or district == SHOPS or rng.randf() < 0.45) and run > 1.3
 		l.floors = all_floors
 		l.shop = shop
 		# the ground floor in a heavier base: stone under brick, a darker render elsewhere
@@ -674,8 +687,8 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			if sky and rng.randf() < 0.55:
 				# a spire, with a beacon on top
 				var tall := rng.randf_range(2.2, 4.0)
-				mk.cylinder(Vector3(mc.x, hgt + tall * 0.5, mc.y), 0.07, tall, 4, Color(0.82, 0.84, 0.86), false)
-				mk.box(Vector3(mc.x, hgt + tall + 0.05, mc.y), Vector3(0.09, 0.09, 0.09), Color(1.0, 0.35, 0.3), null, false, 2.0)
+				mk.cylinder(Vector3(mc.x, hgt, mc.y), 0.09, tall, 4, Color(0.82, 0.84, 0.86), false, null, 0.015)
+				mk.box(Vector3(mc.x, hgt + tall, mc.y), Vector3(0.08, 0.08, 0.08), Color(1.0, 0.35, 0.3), null, false, 2.0)
 			elif rng.randf() < 0.4:
 				mk.cylinder(Vector3(mc.x, hgt + 0.9, mc.y), 0.03, 1.8, 4, IRON, false)
 		pts = shaft
@@ -1017,3 +1030,89 @@ static func _tree(mk: MeshKit, rng: RandomNumberGenerator, at: Vector3, land: La
 	var leaf: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()]
 	mk.blob(at + Vector3(0, 0.75 * s, 0), Vector3(0.42, 0.4, 0.42) * s, leaf, 0.1)
 	mk.blob(at + Vector3(0.18 * s, 0.98 * s, 0.05), Vector3(0.28, 0.26, 0.28) * s, leaf.lightened(0.08), 0.1)
+
+
+# ------------------------------------------------------------------ industry
+
+## A works on an industrial plot: a corrugated shed filling most of it, with
+## a sawtooth roof of north lights as it grows, a big loading door and a
+## concrete yard in front; tanks or silos alongside, and a chimney stack
+## on the bigger works.
+static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value: int) -> Array:
+	var mk := MeshKit.new(seed_value)
+	mk.quiet_sprites = true
+	var rng := mk.rng
+	l.use = "industry"
+	l.shop = false
+	l.floors = 1
+	var big := l.stage >= 3
+	var yard := 0.35 + rng.randf() * 0.3
+	var hw := maxf(l.width - 0.3, 1.2)
+	var hd := clampf(l.room(-hw * 0.5, hw * 0.5) - yard - 0.2, 1.2, 5.2)
+	var hgt := 0.9 + minf(l.stage, 4) * 0.22 + rng.randf() * 0.2
+	var right := Vector2(cos(l.yaw), -sin(l.yaw))
+	var fwd := Vector2(sin(l.yaw), cos(l.yaw))
+	var lo := INF
+	var hi := -INF
+	for c in [Vector2(-hw * 0.5, -yard), Vector2(hw * 0.5, -yard), Vector2(hw * 0.5, -yard - hd), Vector2(-hw * 0.5, -yard - hd)]:
+		var p: Vector2 = l.origin + right * c.x + fwd * c.y
+		var g := land.height_at(p.x, p.y)
+		lo = minf(lo, g)
+		hi = maxf(hi, g)
+	var y0 := maxf(street_y, (l.level if l.level > -INF else (lo + hi) * 0.5) + 0.04)
+	l.plinth = y0 - lo
+	l.foot = Rect2(-hw * 0.5, -yard - hd, hw, yard + hd)
+	var wall: Color = SHED_WALLS[rng.randi() % SHED_WALLS.size()]
+	var roof: Color = SHED_ROOFS[rng.randi() % SHED_ROOFS.size()]
+	mk.push_at(Vector3(l.origin.x, y0, l.origin.y), l.yaw)
+	if y0 - lo > 0.04:
+		mk.shadow = false
+		mk.box(Vector3(0, (lo - y0) * 0.5 - 0.04, -yard - hd * 0.5), Vector3(hw + 0.04, y0 - lo + 0.1, hd + 0.04), STONE.darkened(0.1))
+		mk.shadow = true
+	# the concrete yard between the street and the shed
+	mk.shadow = false
+	mk.box_faces(Vector3(0, 0.01, -yard * 0.5), Vector3(hw, 0.02, yard), Color(0.74, 0.73, 0.7), MeshKit.TOP)
+	mk.shadow = true
+	var cz := -yard - hd * 0.5
+	mk.box_faces(Vector3(0, hgt * 0.5, cz), Vector3(hw, hgt, hd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, MeshKit.SIDING)
+	if big and hd > 1.6:
+		# a sawtooth roof: steep glazed faces looking one way, long slopes the other
+		var teeth := maxi(2, int(hd / 0.9))
+		var step := hd / teeth
+		for t in teeth:
+			var z1 := -yard - t * step
+			var z0 := z1 - step
+			var rise := minf(step * 0.55, 0.45)
+			mk.quad(Vector3(-hw * 0.5, hgt, z0), Vector3(hw * 0.5, hgt, z0), Vector3(hw * 0.5, hgt + rise, z1), Vector3(-hw * 0.5, hgt + rise, z1), Vector3(0, step, -rise), roof)
+			mk.quad(Vector3(-hw * 0.5, hgt, z1), Vector3(hw * 0.5, hgt, z1), Vector3(hw * 0.5, hgt + rise, z1), Vector3(-hw * 0.5, hgt + rise, z1), Vector3.BACK, OFFICE_GLASS, 1.0)
+			for sx: float in [-1.0, 1.0]:
+				mk.tri(Vector3(sx * hw * 0.5, hgt, z0), Vector3(sx * hw * 0.5, hgt, z1), Vector3(sx * hw * 0.5, hgt + rise, z1), wall, 0.0, 0.0, Vector3(sx, 0, 0))
+	else:
+		# a shallow roof behind a parapet, with a vent or two
+		mk.box_faces(Vector3(0, hgt + 0.01, cz), Vector3(hw, 0.02, hd), roof, MeshKit.TOP)
+		mk.box(Vector3(hw * 0.2, hgt + 0.15, cz), Vector3(0.35, 0.3, 0.35), Color(0.7, 0.72, 0.74))
+	# the loading door, and a little office window beside it
+	var door := minf(hw * 0.45, 1.2)
+	mk.box_faces(Vector3(-hw * 0.18, minf(hgt * 0.4, 0.5), -yard + 0.01), Vector3(door, minf(hgt * 0.8, 1.0), 0.02), Color(0.55, 0.58, 0.6) if rng.randf() < 0.6 else Color("d08a2e"), MeshKit.FRONT)
+	mk.window_row(Vector3(hw * 0.3, hgt * 0.55, -yard), Vector3.BACK, hw * 0.3, 2, 0.3, 0.26, OFFICE_GLASS, false)
+	# tanks or silos alongside, on a plot with room for them
+	if l.stage >= 1 and rng.randf() < 0.55 and hw > 2.0:
+		var n := 1 + rng.randi() % 2
+		var r := 0.28 + rng.randf() * 0.12
+		var tank: Color = [Color(0.88, 0.88, 0.86), Color(0.75, 0.78, 0.8), Color("b7c7b0")][rng.randi() % 3]
+		for k in n:
+			var x := hw * 0.5 - r - 0.08 - k * (r * 2.0 + 0.1)
+			mk.cylinder(Vector3(x, 0.0, -yard * 0.5 + 0.02), r, hgt * (0.9 + rng.randf() * 0.5), 8, tank, true, tank.darkened(0.1))
+	# a chimney stack with a red and white top on the bigger works
+	if big and rng.randf() < 0.65:
+		var cx := -hw * 0.5 + 0.35
+		var ch := hgt + 1.6 + rng.randf() * 1.6
+		mk.cylinder(Vector3(cx, 0.0, cz - hd * 0.3), 0.16, ch - 0.4, 8, Color("a35a45"), false, null, 0.13)
+		mk.cylinder(Vector3(cx, ch - 0.4, cz - hd * 0.3), 0.13, 0.4, 8, Color(0.95, 0.95, 0.93), true, Color(0.2, 0.2, 0.2), 0.125)
+	# a container or two stacked in the yard
+	if rng.randf() < 0.5 and yard > 0.45:
+		var cc := [Color("c8553d"), Color("2f8f83"), Color("e3a33b"), Color("3d5f8f")]
+		mk.box(Vector3(-hw * 0.5 + 0.55, 0.14, -yard * 0.5), Vector3(0.9, 0.26, 0.3), cc[rng.randi() % cc.size()])
+	mk.pop()
+	return [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,
+		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]

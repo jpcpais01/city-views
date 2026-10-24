@@ -124,6 +124,8 @@ class Lot:
 	var corner := 0.0
 	## what the building is used for: home (with or without a shop) or office
 	var use := "home"
+	## the district painted under it (HouseGen HOMES, SHOPS, OFFICES or INDUSTRY)
+	var district := 0
 	## what its shop sells, if it has one (HouseGen.TRADES)
 	var trade := ""
 	## how tall the stone base under the house stands where the ground falls away
@@ -235,7 +237,14 @@ func zone_changed(c: Vector2, r: float) -> void:
 			var s: Streets.Street = streets.by_id(l.street)
 			if s:
 				var cap := _cap_at(s, l.capq, l.side)
-				if cap != l.cap:
+				var district := land.use_at(l.origin.x, l.origin.y)
+				if district != l.district:
+					# a new district: the plot stands on its own and is built afresh
+					l.district = district
+					_split(l)
+					l.cap = cap
+					_set_stage(l, mini(l.stage, cap))
+				elif cap != l.cap:
 					l.cap = cap
 					if l.stage > cap:
 						_set_stage(l, cap)
@@ -299,7 +308,9 @@ func describe(l: Lot) -> Dictionary:
 		return {"title": CIVIC_NAMES.get(l.type, l.type.capitalize()), "lines": [quarter]}
 	var title: String = STAGE_NAMES[clampi(l.stage, 0, STAGE_NAMES.size() - 1)].capitalize()
 	var joined := l.group.size() > 1
-	if l.use == "office":
+	if l.use == "industry":
+		title = ["Workshop", "Workshop", "Warehouse", "Factory", "Factory", "Works", "Works"][clampi(l.stage, 0, 6)]
+	elif l.use == "office":
 		title = "Office block" if joined else "Offices"
 	elif l.trade != "":
 		title = "%s with flats above" % TRADE_NAMES.get(l.trade, "Shop") if l.floors > 1 else TRADE_NAMES.get(l.trade, "Shop")
@@ -312,10 +323,16 @@ func describe(l: Lot) -> Dictionary:
 	var people := 0
 	for id in (l.group if joined else [l.id]):
 		var o: Lot = lots.get(id, l)
-		people += o.floors if o.use == "office" else maxi(1, o.floors * 2 - int(o.shop))
-	lines.append(("%d workers" if l.use == "office" else "%d residents") % people)
+		people += workers(o) if o.use != "home" else maxi(1, o.floors * 2 - int(o.shop))
+	lines.append(("%d residents" if l.use == "home" else "%d jobs") % people)
 	lines.append(quarter)
 	return {"title": title, "lines": lines}
+
+
+## The jobs an office or works brings: a few per office floor, more as a
+## works grows.
+static func workers(l: Lot) -> int:
+	return l.floors * 2 if l.use == "office" else 4 + l.stage * 3
 
 
 func house_count() -> int:
@@ -590,7 +607,7 @@ func _try_merge(l: Lot) -> bool:
 	if l.host != 0 or not l.group.is_empty() or l.stage < MERGE_STAGE:
 		return false
 	var p := _next_to(l, -1)
-	if p == null or p.stage < MERGE_STAGE:
+	if p == null or p.stage < MERGE_STAGE or p.district != l.district or l.district == HouseGen.INDUSTRY:
 		return false
 	var h: Lot = lots.get(p.host) if p.host != 0 else p
 	if h == null:
@@ -895,6 +912,7 @@ func _inner_lot(s: Streets.Street, f: float, c: Vector2, park: bool) -> bool:
 		l.level = ground + 0.02
 		land.pad(poly, ground + 0.02, 1.2, func(p: Vector2) -> bool: return _near_street(p) or _taken_by_other(p, own))
 	l.kit = HouseGen.kit_at(land, origin)
+	l.district = land.use_at(origin.x, origin.y)
 	l.sd = int(floor(origin.x * 8.0)) * 73856093 ^ int(floor(origin.y * 8.0)) * 19349663
 	l.street_y = ground + 0.02
 	# a cottage or a small house: back lanes never grow tall
@@ -1139,6 +1157,7 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 	l.sd = sd
 	l.street_y = street_y
 	l.main = s.major()
+	l.district = land.use_at(l.origin.x, l.origin.y)
 	l.cap = cap
 	# a new house starts as a cottage, unless this plot had grown before
 	l.stage = mini(_take_kept(l.origin, l.width), cap)

@@ -23,6 +23,8 @@ const PAY_EVERY := 5.0
 var world: IslandWorld
 var coins := START_COINS
 var residents := 0
+## workplaces: offices and industry
+var jobs := 0
 var homes := 0
 var shops := 0
 var parks := 0
@@ -65,7 +67,7 @@ func _process(delta: float) -> void:
 
 ## Coins the town pays every few seconds.
 func income() -> float:
-	return snappedf(residents * 0.02 + shops * 0.15, 0.1)
+	return snappedf(residents * 0.02 + jobs * 0.03 + shops * 0.15, 0.1)
 
 
 func add_coins(amount: float) -> void:
@@ -99,6 +101,7 @@ func recount(silent: bool) -> void:
 	if world == null or world.town == null:
 		return
 	var r := 0
+	var j := 0
 	var h := 0
 	var sh := 0
 	var pk := 0
@@ -110,8 +113,11 @@ func recount(silent: bool) -> void:
 		match l.type:
 			"house":
 				h += 1
-				# offices bring workers rather than residents: a few per floor
-				r += l.floors if l.use == "office" else maxi(1, l.floors * 2 - int(l.shop))
+				# offices and industry bring jobs rather than residents
+				if l.use == "office" or l.use == "industry":
+					j += Town.workers(l)
+				else:
+					r += maxi(1, l.floors * 2 - int(l.shop))
 				sh += int(l.shop)
 				kits[l.kit] = true
 				hb += int(l.kit == HouseGen.HARBOUR)
@@ -121,8 +127,9 @@ func recount(silent: bool) -> void:
 	var m := 0.0
 	for s: Streets.Street in world.streets.streets:
 		m += maxf(0.0, s.pts.size() - 1.0) * Streets.SAMPLE
-	var changed := r != residents or h != homes or pk != parks or sq != squares or ch != churches or absf(m - street_m) > 0.5
+	var changed := r != residents or j != jobs or h != homes or pk != parks or sq != squares or ch != churches or absf(m - street_m) > 0.5
 	residents = r
+	jobs = j
 	homes = h
 	shops = sh
 	parks = pk
