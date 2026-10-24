@@ -410,6 +410,24 @@ func _draw() -> void:
 			_circle(P.call(0.5, 0.55), 0.17 * s, Color(1, 1, 1, 0.9))
 			_circle(P.call(0.5, 0.55), 0.11 * s, c)
 			_circle(P.call(0.76, 0.39), 0.035 * s, a)
+		"car":
+			# a little hatchback side on: body, cabin, wheels
+			_rr(Rect2(P.call(0.1, 0.46), Vector2(0.8, 0.24) * s), 0.09 * s, c)
+			_rr(Rect2(P.call(0.26, 0.28), Vector2(0.44, 0.26) * s), 0.09 * s, c)
+			_rr(Rect2(P.call(0.33, 0.34), Vector2(0.13, 0.12) * s), 0.03 * s, Color(1, 1, 1, 0.9))
+			_rr(Rect2(P.call(0.5, 0.34), Vector2(0.13, 0.12) * s), 0.03 * s, Color(1, 1, 1, 0.9))
+			_circle(P.call(0.82, 0.54), 0.04 * s, a)
+			for x in [0.3, 0.7]:
+				_circle(P.call(x, 0.72), 0.11 * s, c)
+				_circle(P.call(x, 0.72), 0.05 * s, Color(1, 1, 1, 0.9))
+		"eye":
+			var pts := PackedVector2Array()
+			for i in 24:
+				var t := TAU * i / 24.0
+				pts.append(P.call(0.5 + cos(t) * 0.4, 0.5 + sin(t) * 0.22))
+			draw_colored_polygon(pts, c)
+			_circle(P.call(0.5, 0.5), 0.15 * s, Color(1, 1, 1, 0.92))
+			_circle(P.call(0.5, 0.5), 0.08 * s, c)
 		"menu":
 			for i in 3:
 				_rr(Rect2(P.call(0.22, 0.28 + i * 0.19), Vector2(0.56, 0.08) * s), 0.04 * s, c)
