@@ -219,9 +219,12 @@ func _spawn(total: float) -> Dictionary:
 	var m := {"s": s, "f": _rng.randf_range(1.0, s.pts.size() - 2.0), "dir": 1.0 if _rng.randf() < 0.5 else -1.0, "since": 0.0,
 		"v": v, "xf": Transform3D(), "grow": 0.0, "lane": _rng.randi() % lanes(s), "len": LENGTHS[kind],
 		"pace": _rng.randf_range(0.85, 1.12) * (0.8 if kind == "bus" or kind == "truck" else 1.0), "speed": 0.0,
-		"ahead": INF, "wait": 0.0, "stop": _rng.randf_range(12.0, 30.0) if kind == "bus" else INF}
-	if kind != "car" and kind != "van":
-		# the big ones keep to the inside lane
+		"ahead": INF, "wait": 0.0, "bus": kind == "bus"}
+	if kind == "bus":
+		# buses keep to the kerb, where their stops are
+		m.lane = lanes(s) - 1
+	elif kind != "car" and kind != "van":
+		# lorries keep to the inside lane
 		m.lane = 0
 	# not on top of one already there
 	for c in _cars:
@@ -266,18 +269,19 @@ func _drive(c: Dictionary, graph: Dictionary, delta: float) -> bool:
 		want = 0.0
 	c.speed = move_toward(c.speed, want, delta * (2.5 if want > c.speed else 6.0))
 	var step: float = c.speed * delta
-	if c.stop != INF:
-		c.stop -= step
-		if c.stop <= 0.0:
-			c.stop = _rng.randf_range(18.0, 34.0)
-			c.wait = 2.2
+	var was: float = c.f
 	if not StreetWalk.advance(streets, graph, c, step, 0.4, _rng):
 		return false
 	if c.s != s:
 		# into a new street: pick a lane there
 		var ns: Streets.Street = c.s
-		c.lane = 0 if c.len > 0.8 else _rng.randi() % lanes(ns)
+		c.lane = lanes(ns) - 1 if c.bus else 0 if c.len > 0.8 else _rng.randi() % lanes(ns)
 		s = ns
+	elif c.bus:
+		# a bus pulls in at each stop on its side of the street
+		for stop in s.stops:
+			if stop.y == c.dir and (stop.x - was) * c.dir > 0.0 and (stop.x - c.f) * c.dir <= 0.0:
+				c.wait = 2.5
 	var at := StreetWalk.place(streets, c, lane_offset(s, c.lane) * c.dir)
 	var pos: Vector3 = at[0]
 	var fwd: Vector3 = at[1]

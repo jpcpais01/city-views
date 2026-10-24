@@ -981,6 +981,14 @@ func _road_kinds() -> void:
 				off_avenue += 1
 			if h.closest(e).x < h.reach() + 1.0 and h.closest(s.pts[s.pts.size() / 2]).x > 6.0 and absf(s.pts[s.pts.size() / 2].y - 22.0) < 3.0:
 				off_highway += 1
+	# bus stops along the avenue, clear of its junctions, and none on the highway
+	var near_junction := 0
+	for st in a.stops:
+		for jn in island.streets.junctions():
+			if jn.at.distance_to(island.streets._ptf(a, st.x)) < 2.5:
+				near_junction += 1
+	check(a.stops.size() >= 1 and h.stops.is_empty(), "the avenue has bus stops (%d), the highway none" % a.stops.size())
+	check(near_junction == 0, "no bus stop stands in a junction (%d)" % near_junction)
 	var on_avenue := 0
 	var on_highway := 0
 	var main := true
