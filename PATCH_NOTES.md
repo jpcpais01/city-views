@@ -7,6 +7,11 @@
 - Houses, streets and gardens are much lighter on your phone: centre lines are painted on the road, and window sills on back walls run as one ledge per floor.
 - Co-op rooms made before this update can't be joined any more: start a fresh room to build together on the big maps.
 
+## 2026-10-24 12:45 UTC
+- Updates inside the game: when a new version is out, a small card offers it a few seconds after you start.
+- On Android, tap Update to download it with a progress bar, then confirm Android's install screen. The first time, Android asks you to allow installs from City Views.
+- On Windows, tap Update and then Restart: the game saves, swaps in the new version and opens again by itself.
+
 ## 2026-10-24 12:16 UTC
 - Gentler islands: hills are half as tall and the land rolls more smoothly, leaving more room for towns to spread.
 - Every house window now has a real stone sill beneath it and a hood above, giving the walls depth.
