@@ -126,6 +126,8 @@ class Lot:
 	var use := "home"
 	## the district painted under it (HouseGen HOMES, SHOPS, OFFICES or INDUSTRY)
 	var district := 0
+	## the top of a works' chimney stack, in the world (INF if none), for its smoke
+	var smoke := Vector3.INF
 	## what its shop sells, if it has one (HouseGen.TRADES)
 	var trade := ""
 	## how tall the stone base under the house stands where the ground falls away

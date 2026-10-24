@@ -27,6 +27,8 @@ var growth: Growth
 var town: Town
 var cars: Traffic
 var lights: StreetLights
+var smoke: Smoke
+var planes: Planes
 var folk: People
 var wildlife: Life
 var ships: Ships
@@ -126,6 +128,13 @@ func _ready() -> void:
 	ships.material = city_mat
 	ships.world = self
 	add_child(ships)
+	smoke = Smoke.new()
+	smoke.town = town
+	add_child(smoke)
+	planes = Planes.new()
+	planes.material = city_mat
+	planes.world = self
+	add_child(planes)
 	_make_clouds()
 	_make_ring()
 	sync = IslandSync.new()
