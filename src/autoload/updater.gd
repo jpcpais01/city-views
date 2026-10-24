@@ -7,6 +7,9 @@ extends CanvasLayer
 
 const REPO := "jpcpais01/city-views"
 const API := "https://api.github.com/repos/%s/releases/latest" % REPO
+## the patch notes as they stand in a release's tagged source
+const NOTES := "https://raw.githubusercontent.com/%s/%s/PATCH_NOTES.md"
+const NOTES_MAX := 40
 const RECHECK := 900.0  # the Windows zip lands a few minutes after the APK
 
 const INK := Color("2b3440")
@@ -35,6 +38,13 @@ var _sub: Label
 var _bar: ProgressBar
 var _go: Button
 var _close: Button
+var _notes_http: HTTPRequest
+# what the new version adds, as BBCode; empty until it has been fetched
+var _notes := ""
+var _notes_btn: Button
+var _notes_box: ScrollContainer
+var _notes_label: RichTextLabel
+var _notes_open := false
 var _dismissed := false
 # a check the player asked for is under way, so its answer is reported
 var _manual := false
@@ -170,6 +180,8 @@ func _on_release(result: int, code: int, _headers: PackedStringArray, body: Pack
 	_asset_url = url
 	_page_url = str(data.get("html_url", ""))
 	_state = State.OFFER
+	if fresh or _notes == "":
+		_fetch_notes(tag)
 	if fresh or manual:
 		_dismissed = false
 	if not _dismissed:
@@ -219,9 +231,12 @@ func _build_card() -> void:
 	_card.custom_minimum_size = Vector2(330, 0)
 	root.add_child(_card)
 
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 8)
+	_card.add_child(outer)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	_card.add_child(row)
+	outer.add_child(row)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 2)
@@ -238,6 +253,21 @@ func _build_card() -> void:
 	_sub.add_theme_font_size_override("font_size", 14)
 	_sub.add_theme_color_override("font_color", SOFT)
 	col.add_child(_sub)
+	# "What's new" folds open a list of everything the update brings
+	_notes_btn = Button.new()
+	_notes_btn.flat = true
+	_notes_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_notes_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_notes_btn.custom_minimum_size.y = 30
+	_notes_btn.add_theme_font_override("font", bold)
+	_notes_btn.add_theme_font_size_override("font_size", 15)
+	for s in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		_notes_btn.add_theme_color_override(s, ACCENT.darkened(0.12))
+	for s in ["normal", "hover", "pressed", "focus"]:
+		_notes_btn.add_theme_stylebox_override(s, StyleBoxEmpty.new())
+	_notes_btn.pressed.connect(func(): _set_notes_open(not _notes_open))
+	_notes_btn.visible = false
+	col.add_child(_notes_btn)
 	_bar = ProgressBar.new()
 	_bar.show_percentage = false
 	_bar.custom_minimum_size = Vector2(0, 6)
@@ -278,6 +308,24 @@ func _build_card() -> void:
 	_close.pressed.connect(_hide_card)
 	row.add_child(_close)
 
+	_notes_box = ScrollContainer.new()
+	_notes_box.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_notes_box.visible = false
+	outer.add_child(_notes_box)
+	_notes_label = RichTextLabel.new()
+	_notes_label.bbcode_enabled = true
+	_notes_label.fit_content = true
+	_notes_label.scroll_active = false
+	_notes_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_notes_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_notes_label.add_theme_font_override("normal_font", load("res://assets/fonts/Nunito.ttf"))
+	_notes_label.add_theme_font_override("bold_font", bold)
+	_notes_label.add_theme_font_size_override("normal_font_size", 15)
+	_notes_label.add_theme_font_size_override("bold_font_size", 15)
+	_notes_label.add_theme_color_override("default_color", INK)
+	_notes_box.add_child(_notes_label)
+	_refresh_notes()
+
 
 func _pop_in() -> void:
 	if _card.visible and _card.modulate.a > 0.99:
@@ -309,6 +357,73 @@ func _show_offer() -> void:
 	_go.text = "Update"
 	_go.disabled = false
 	_pop_in()
+
+
+# ------------------------------------------------------------------ what's new
+
+func _fetch_notes(tag: String) -> void:
+	if _notes_http == null:
+		_notes_http = HTTPRequest.new()
+		_notes_http.timeout = 20.0
+		_notes_http.request_completed.connect(_on_notes)
+		add_child(_notes_http)
+	if _notes_http.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		return
+	_notes_http.request(NOTES % [REPO, tag], ["User-Agent: CityViews/" + current])
+
+
+func _on_notes(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		return
+	var mine := ""
+	if FileAccess.file_exists("res://PATCH_NOTES.md"):
+		mine = FileAccess.get_file_as_string("res://PATCH_NOTES.md")
+	_notes = new_notes(mine, body.get_string_from_utf8())
+	_refresh_notes()
+
+
+## The entries in the newer patch notes that this build's own notes don't
+## have yet, kept under their hour headings, as BBCode (newest first).
+static func new_notes(mine: String, theirs: String) -> String:
+	var have := {}
+	for line in mine.split("\n"):
+		if line.begins_with("- "):
+			have[line.strip_edges()] = true
+	var out := ""
+	var head := ""
+	var count := 0
+	for line in theirs.split("\n"):
+		if line.begins_with("## "):
+			head = line.substr(3).strip_edges()
+		elif line.begins_with("- ") and not have.has(line.strip_edges()):
+			if count >= NOTES_MAX:
+				out += "[color=#6b7785]…and more[/color]\n"
+				break
+			if head != "":
+				out += "%s[b]%s[/b]\n" % ["\n" if out != "" else "", head]
+				head = ""
+			out += "•  %s\n" % line.substr(2).strip_edges()
+			count += 1
+	return out.strip_edges()
+
+
+func _refresh_notes() -> void:
+	if _card == null:
+		return
+	_notes_label.text = _notes
+	_notes_btn.visible = _notes != ""
+	_set_notes_open(_notes_open and _notes != "")
+
+
+func _set_notes_open(on: bool) -> void:
+	_notes_open = on
+	_notes_btn.text = "What's new  ▴" if on else "What's new  ▾"
+	_notes_box.visible = on
+	var view := get_viewport().get_visible_rect().size
+	_notes_box.custom_minimum_size.y = minf(300.0, view.y * 0.5) if on else 0.0
+	# wider while open so the notes read comfortably, never past the screen
+	_card.custom_minimum_size.x = minf(480.0, view.x * 0.9) if on else 330.0
+	_card.reset_size()
 
 
 func _show_failed(msg: String) -> void:
