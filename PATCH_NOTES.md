@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 17:30 UTC
+- Bridges: draw a street, avenue or highway across a river, lake or bay and it crosses on a concrete bridge, with piers in the water and boats able to pass under.
+- Bridge decks have parapets along their edges and arch a little over long crossings, with ramps rising gently from the banks.
+- Quays: a street that runs along the water gets a stone quay wall with a coping and railing, and deep water right up to it.
+- Piers now keep clear of bridges.
+
 ## 2026-10-24 16:40 UTC
 - New roads on the Street brush: pick Street, Avenue or Highway from the bar above the brushes.
 - Avenues are wide boulevards with a planted strip down the middle and two marked lanes each way. Shops line them, and side streets grow off them.
