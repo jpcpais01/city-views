@@ -29,6 +29,7 @@ func _ready() -> void:
 	await _island_levels()
 	await _island_skyline()
 	await _road_kinds()
+	await _bridges()
 	await _island_inner()
 	await _island_wilds()
 	await _island_progress()
@@ -733,6 +734,47 @@ func _road_kinds() -> void:
 	for s: Streets.Street in island.streets.streets:
 		kinds[s.kind] = kinds.get(s.kind, 0) + 1
 	check(kinds.get("avenue", 0) == 1 and kinds.get("highway", 0) == 1, "avenues and highways come back from a save (%s)" % kinds)
+	island.queue_free()
+	await get_tree().process_frame
+
+
+## A street drawn across the river is a bridge: its deck stands clear of the
+## water, which still flows under it; one along the bank gets a quay wall.
+func _bridges() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(7, "river")
+	var land := island.land
+	var rv: PackedVector2Array = land._river
+	var mid := 0
+	for k in rv.size():
+		if rv[k].length() < rv[mid].length():
+			mid = k
+	var t := (rv[mid + 1] - rv[mid - 1]).normalized()
+	var across := Vector2(-t.y, t.x)
+	var pts := PackedVector2Array()
+	for k in 41:
+		pts.append(rv[mid] + across * (k - 20) * 1.0)
+	var s := island.streets.add_stroke(pts, "main")
+	island.streets.flush()
+	check(s != null and s.spans.size() == 1, "a street across the river becomes a bridge (%d spans)" % (s.spans.size() if s else -1))
+	if s and s.spans.size() == 1:
+		var c := s.pts.size() / 2
+		check(s.ys[c] >= Streets.DECK and land.height_at(s.pts[c].x, s.pts[c].y) < -0.5, "its deck stands clear of the water, still flowing under it (%.2f over %.2f)" % [s.ys[c], land.height_at(s.pts[c].x, s.pts[c].y)])
+		island._apply_save(JSON.parse_string(JSON.stringify(island.to_dict())))
+		var back: Streets.Street = island.streets.streets[0]
+		check(back.spans.size() == 1 and land.height_at(back.pts[c].x, back.pts[c].y) < -0.5, "and it is still a bridge after a reload")
+	# a street running along the bank, just clear of the water
+	var bank := PackedVector2Array()
+	for k in range(mid - 6, mid + 7):
+		var tk := (rv[k + 1] - rv[k - 1]).normalized()
+		bank.append(rv[k] + Vector2(-tk.y, tk.x) * (land._river_w[k] + 2.5) + t * 30.0)
+	var q := island.streets.add_stroke(bank, "main")
+	island.streets.flush()
+	var quays := 0
+	for f in q.quay:
+		quays += int(f != 0)
+	check(quays > q.pts.size() / 3, "a street along the bank gets a quay (%d of %d samples)" % [quays, q.pts.size()])
 	island.queue_free()
 	await get_tree().process_frame
 

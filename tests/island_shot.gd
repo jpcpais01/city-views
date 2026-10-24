@@ -101,6 +101,35 @@ func _ready() -> void:
 			if l.type != "house":
 				print("  %s at %.1f,%.1f" % [l.type, l.origin.x, l.origin.y])
 		print("kits: ", kits)
+	if OS.get_environment("CV_QUAY") != "":
+		# a street along the river bank, just clear of the water, then grown
+		var rv: PackedVector2Array = island.land._river
+		var best := 0
+		for k in rv.size():
+			if rv[k].distance_to(Vector2(f.x, f.z)) < rv[best].distance_to(Vector2(f.x, f.z)):
+				best = k
+		var pts := PackedVector2Array()
+		for k in range(best - 6, best + 7):
+			var t := (rv[k + 1] - rv[k - 1]).normalized()
+			pts.append(rv[k] + Vector2(-t.y, t.x) * (island.land._river_w[k] + float(OS.get_environment("CV_QUAY"))))
+		island.streets.add_stroke(pts, "main")
+		island.streets.flush()
+		island.land.paint_zone(Vector3(pts[6].x, 0, pts[6].y), 30.0, 1.0)
+		island.land.paint_level(Vector3(pts[6].x, 0, pts[6].y), 30.0, 4.0, 2.0)
+		island.growth.focus = pts[6]
+		island.growth.grow_all(20)
+		island.streets.flush()
+		island.town.fill_all()
+		island.town.evolve_all()
+		island.rig.focus(Vector3(pts[6].x, 0, pts[6].y))
+	if OS.get_environment("CV_BRIDGE") != "":
+		# look at the first bridge
+		for st: Streets.Street in island.streets.streets:
+			if not st.spans.is_empty():
+				var mid := st.pts[int((st.spans[0].x + st.spans[0].y) * 0.5)]
+				print("bridge at ", mid)
+				island.rig.focus(Vector3(mid.x, 0, mid.y))
+				break
 	if OS.get_environment("CV_SHIP") != "":
 		# a ship of that kind halfway along its run, for a look at it
 		island.ships.spawn(int(OS.get_environment("CV_SHIP")), true)

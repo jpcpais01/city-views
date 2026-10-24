@@ -151,9 +151,15 @@ func _pier_fits(p: Vector2, standing: bool) -> bool:
 		return false
 	if not standing and (world.town.is_built(p) or world.town.is_built(back)):
 		return false
+	# clear of streets all the way out (a bridge may cross the water here)
 	for s: Streets.Street in world.streets.streets:
-		if s.near_box(p, 3.0) and s.closest(p).x < s.reach() + 0.6:
-			return false
+		if not s.near_box(p, PIER_LEN + 3.0):
+			continue
+		var t := 0.0
+		while t <= PIER_LEN:
+			if s.closest(p + d * t).x < s.reach() + 0.8:
+				return false
+			t += 1.5
 	return true
 
 
