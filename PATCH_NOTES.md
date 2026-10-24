@@ -1,36 +1,17 @@
 # City Views patch notes
 
-## 2026-10-24 17:30 UTC
-- Bridges: draw a street, avenue or highway across a river, lake or bay and it crosses on a concrete bridge, with piers in the water and boats able to pass under.
-- Bridge decks have parapets along their edges and arch a little over long crossings, with ramps rising gently from the banks.
-- Quays: a street that runs along the water gets a stone quay wall with a coping and railing, and deep water right up to it.
-- Piers now keep clear of bridges.
+## 2026-10-24 14:23 UTC
+- Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers of twelve floors and more on a podium, in glass, white, stone or brick.
+- New roads on the Street brush: Avenues have a planted middle, two lanes each way and shops along them; Highways carry four fast lanes with nobody living along them. They open at 150 and 400 residents.
+- Bridges: a road drawn across a river, lake or bay crosses on a concrete bridge with parapets and piers, and the water still flows under it.
+- Quays: a street running along the water gets a stone quay wall with a railing and deep water right up to it.
+- Tall buildings and window sills are much lighter for your phone: a whole city filling the screen stays well inside the limits.
 
-## 2026-10-24 16:40 UTC
-- New roads on the Street brush: pick Street, Avenue or Highway from the bar above the brushes.
-- Avenues are wide boulevards with a planted strip down the middle and two marked lanes each way. Shops line them, and side streets grow off them.
-- Highways carry four fast lanes across the country, with shoulders instead of pavements. Nobody lives along them and no side streets branch off.
-- Avenues open at 150 residents and highways at 400. They cost more per metre than a street.
-
-## 2026-10-24 15:50 UTC
-- Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers of twelve floors and more.
-- Towers stand on a podium with shops at street level, set back above it, with a plant storey on top and a mast on some.
-- Towers come in dark or teal glass, white, warm stone or brick, and apartment blocks are rendered in warm colours.
-- Tall buildings are much lighter for your phone: a whole city filling the screen now stays well inside the limits.
-- Window sills are now a single bevelled ledge, half the cost and still catching the light.
-
-## 2026-10-24 15:00 UTC
-- New kinds of map: pick River valley, Coast, Lake country or Island when you start a new map from the menu.
-- Open maps are no longer islands: the countryside runs on past the edge to the horizon, with a winding river, lakes and a flood plain made for a city.
-- On a Coast map the river widens into an estuary and meets the sea, with beaches and ships passing offshore.
-- Rivers and lakes have grassy, muddy banks and calm, greener water with only a thin lace of foam.
-- A new map now starts as a river valley, with the camera on dry, level ground by the river.
-
-## 2026-10-24 14:10 UTC
-- Much bigger maps: a new island is now 384 m across, nine times the land, with room for a real city and countryside around it.
-- Your current island carries over exactly as it was, sitting in the middle of the bigger sea.
-- Rolling, rounded hills and a smarter ground mesh that spends detail only where the land needs it, so big maps stay smooth to play.
-- Houses, streets and gardens are much lighter on your phone: centre lines are painted on the road, and window sills on back walls run as one ledge per floor.
+## 2026-10-24 13:41 UTC
+- Much bigger maps: 384 m across, nine times the land. Your current island carries over exactly as it was, in the middle of a bigger sea.
+- New kinds of map: pick River valley, Coast, Lake country or Island when you start a new map from the menu. A new map starts as a river valley.
+- Open maps are no longer islands: the countryside runs on to the horizon, with a winding river, lakes and a flood plain, and on a Coast map an estuary with ships offshore.
+- Rivers and lakes have grassy banks and calm, greener water, and a smarter ground mesh keeps the big maps smooth to play.
 - Co-op rooms made before this update can't be joined any more: start a fresh room to build together on the big maps.
 
 ## 2026-10-24 12:45 UTC
