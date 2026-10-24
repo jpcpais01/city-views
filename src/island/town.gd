@@ -110,6 +110,8 @@ class Lot:
 	var corner := 0.0
 	## what the building is used for: home (with or without a shop) or office
 	var use := "home"
+	## what its shop sells, if it has one (HouseGen.TRADES)
+	var trade := ""
 	## the back of the plot in its own frame, left to right: (x along the
 	## street, z going in from it, negative), as deep as the block allows
 	var back := PackedVector2Array()

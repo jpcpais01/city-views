@@ -211,7 +211,7 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 		var y := fl * FH + FH * 0.55
 		if fl == 0:
 			if shop:
-				_shopfront(mk, rng, hw, front, wall)
+				l.trade = _shopfront(mk, rng, hw, front, wall)
 			elif count > 1:
 				# the door takes one bay of the ground floor
 				var len := hw - 0.6
@@ -286,20 +286,36 @@ static func _office_front(mk: MeshKit, rng: RandomNumberGenerator, run: float, f
 	mk.window_grid(Vector3(0, FH, 0.0), Vector3.BACK, run, count, floors - 1, run / count - 0.1, OFFICE_GLASS)
 
 
-static func _shopfront(mk: MeshKit, rng: RandomNumberGenerator, hw: float, front: float, wall: Color) -> void:
+## What a shop sells, by chance: each has its own front.
+const TRADES := ["shop", "shop", "cafe", "cafe", "bakery", "grocer", "pharmacy"]
+
+
+## A shopfront across the ground floor (house-local, front face at z =
+## `front`), dressed for its trade. Returns the trade.
+static func _shopfront(mk: MeshKit, rng: RandomNumberGenerator, hw: float, front: float, wall: Color) -> String:
+	var trade: String = TRADES[rng.randi() % TRADES.size()]
 	var awn: Color = Palette.AWNINGS[rng.randi() % Palette.AWNINGS.size()]
+	match trade:
+		"bakery":
+			awn = Color("c98a4b")
+		"pharmacy":
+			awn = Color("3fae6a")
+		"grocer":
+			awn = Color("3fae8c") if rng.randf() < 0.5 else Color("e85d5d")
 	var z := front + 0.012
 	# a painted frame round the whole front
 	mk.box_faces(Vector3(0, 0.29, front + 0.01), Vector3(hw - 0.1, 0.5, 0.02), awn.darkened(0.4), MeshKit.FRONT)
+	# a bakery's windows glow warm with the ovens behind
+	var glass: Color = Color(1.0, 0.86, 0.6) if trade == "bakery" else Palette.GLASS_LIGHT
 	for s: float in [-1.0, 1.0]:
-		mk.window(Vector3(s * hw * 0.27, 0.32, z), Vector3.BACK, hw * 0.34, 0.36, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), false)
+		mk.window(Vector3(s * hw * 0.27, 0.32, z), Vector3.BACK, hw * 0.34, 0.36, glass, Color(0, 0, 0, 0), trade == "bakery")
 	mk.box_faces(Vector3(0, 0.24, front + 0.02), Vector3(0.26, 0.44, 0.02), Color(0.95, 0.93, 0.88), MeshKit.FRONT)
 	mk.window(Vector3(0, 0.27, front + 0.032), Vector3.BACK, 0.16, 0.32, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), true)
-	# striped awning, tilted out over the pavement
+	# striped awning, tilted out over the pavement (a pharmacy keeps a plain one)
 	var stripes := 5
 	var aw := hw - 0.14
 	for k in stripes:
-		var col := awn if k % 2 == 0 else Color(0.98, 0.97, 0.94)
+		var col := awn if k % 2 == 0 or trade == "pharmacy" else Color(0.98, 0.97, 0.94)
 		var sx := -aw * 0.5 + (k + 0.5) * aw / stripes
 		mk.push(Transform3D(Basis(Vector3.RIGHT, 0.45), Vector3(sx, 0.6, front + 0.02)))
 		mk.box_faces(Vector3(0, 0, 0.17), Vector3(aw / stripes, 0.025, 0.34), col, MeshKit.TOP | MeshKit.FRONT | (MeshKit.LEFT if k == 0 else 0) | (MeshKit.RIGHT if k == stripes - 1 else 0))
@@ -307,6 +323,26 @@ static func _shopfront(mk: MeshKit, rng: RandomNumberGenerator, hw: float, front
 	# sign board above the awning
 	mk.box_faces(Vector3(0, 0.74, front + 0.025), Vector3(hw * 0.62, 0.13, 0.05), wall.lightened(0.6), MeshKit.FRONT | MeshKit.TOP)
 	mk.box_faces(Vector3(0, 0.74, front + 0.051), Vector3(hw * 0.46, 0.05, 0.004), awn.darkened(0.25), MeshKit.FRONT, 2.0)
+	match trade:
+		"cafe":
+			# a couple of tables with parasols out on the pavement
+			for s: float in [-1.0, 1.0]:
+				var tx := s * hw * 0.25
+				mk.box_faces(Vector3(tx, 0.1, front + 0.26), Vector3(0.12, 0.02, 0.12), Color(0.95, 0.95, 0.93), MeshKit.TOP | MeshKit.FRONT)
+				mk.pole(Vector3(tx, 0.0, front + 0.26), 0.008, 0.32, 4, IRON)
+				mk.cone(Vector3(tx, 0.28, front + 0.26), 0.17, 0.08, 6, awn if s > 0.0 else Color(0.98, 0.97, 0.94))
+		"grocer":
+			# crates of fruit and greens under the awning
+			var fruit := [Color("e8503a"), Color("f2b33d"), Color("6fb35a"), Color("f08a24")]
+			for k in 3:
+				var cx := (k - 1) * 0.2
+				mk.box_faces(Vector3(cx, 0.08, front + 0.13), Vector3(0.17, 0.16, 0.16), Color("a87b50"), MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+				mk.box_faces(Vector3(cx, 0.165, front + 0.13), Vector3(0.15, 0.012, 0.14), fruit[(k + rng.randi()) % fruit.size()], MeshKit.TOP)
+		"pharmacy":
+			# a green cross standing out from the wall, lit at night
+			mk.box(Vector3(hw * 0.5 - 0.12, 0.86, front + 0.12), Vector3(0.03, 0.16, 0.05), Color("3fd17a"), null, false, 2.0)
+			mk.box(Vector3(hw * 0.5 - 0.12, 0.86, front + 0.12), Vector3(0.03, 0.05, 0.16), Color("3fd17a"), null, false, 2.0)
+	return trade
 
 
 ## Painted shutters either side of each window in a row.
@@ -497,7 +533,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		mk.box_faces(Vector3(0, FH * 0.5, 0.004), Vector3(run, FH, 0.008), base, MeshKit.FRONT)
 		var count := maxi(1, int(run / 0.55))
 		if shop:
-			_shopfront(mk, rng, run, 0.0, wall)
+			l.trade = _shopfront(mk, rng, run, 0.0, wall)
 		else:
 			var door: Color = K.doors[rng.randi() % K.doors.size()]
 			mk.box_faces(Vector3(0, 0.3, 0.015), Vector3(0.34, 0.56, 0.03), door, MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT | MeshKit.TOP)
