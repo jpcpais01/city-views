@@ -334,7 +334,9 @@ func _update_sky() -> void:
 	night = 1.0 - smoothstep(-0.12, 0.15, sun_dir.y)
 	sun.light_color = scol
 	sun.light_energy = energy * max(horizon_fade, 0.15)
-	sun.look_at_from_position(Vector3.ZERO, -light_dir.rotated(Vector3.UP, 0.6), Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.BACK)
+	# the player can swing the whole arc round the compass (Settings > Sun direction)
+	var turn := 0.6 + deg_to_rad(float(Game.settings.get("sun_angle", 0.0)))
+	sun.look_at_from_position(Vector3.ZERO, -light_dir.rotated(Vector3.UP, turn), Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.BACK)
 	env.ambient_light_energy = amb * float(OS.get_environment("CV_AMB")) if OS.get_environment("CV_AMB") != "" else amb
 	env.fog_light_color = hor.lerp(top, 0.25)
 	# the haze glows towards the sun when it is low

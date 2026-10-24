@@ -44,6 +44,8 @@ const NEIGHBOURS := 10.0
 
 ## The ground was levelled for new houses.
 signal reshaped
+## a building just shot up to its top level under the Magic brush: where, and how tall
+signal magicked(at: Vector3, size: Vector3)
 
 var land: Land
 var streets: Streets
@@ -84,6 +86,9 @@ const RISE_TIME := 0.75
 # the town's own clock, for when houses next grow
 var _clock := 0.0
 var _evolve_wait := 0.0
+# houses the Magic brush sent straight to their top level, done a few a frame
+var _magic: Array = []
+var _magic_ids := {}
 # stages that houses already had (from a save, or before an undo rebuilt the
 # town), by plot position: they come back at that stage
 var _kept_stages := {}
@@ -286,24 +291,16 @@ func is_built(p: Vector2) -> bool:
 	return _occ[c.y * RES + c.x] != 0
 
 
-## How tall a lot's building stands above its plot, roughly, for picking it.
-static func _pick_height(l: Lot) -> float:
-	match l.type:
-		"house":
-			return maxf(l.floors, 1) * FH + 0.9
-		"church":
-			return 5.0
-		"hall":
-			return 3.4
-		"school", "market":
-			return 2.4
-	return 0.4
-
-
-## The lot whose building (or open ground, for a park or square) a ray from
-## `from` along `dir` meets first, or null. A plot that is part of a joined
-## building gives back the building's first plot.
+## The lot whose building a ray from `from` along `dir` meets first, or
+## null. The ray is tested against the buildings' own triangles, so a tap
+## picks what is drawn under the finger, not a plot it happens to pass over;
+## open ground (a park, a square, a bare plot) counts where the ray lands.
+## A plot that is part of a joined building gives back the building's first plot.
 func lot_on_ray(from: Vector3, dir: Vector3, reach := 400.0) -> Lot:
+	# the plots the ray passes over, in order, until it reaches the ground
+	var seen := {}
+	var order: Array = []
+	var ground: Lot = null
 	var t := 0.0
 	while t < reach:
 		var p := from + dir * t
@@ -312,16 +309,44 @@ func lot_on_ray(from: Vector3, dir: Vector3, reach := 400.0) -> Lot:
 		if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
 			continue
 		var id := _occ[c.y * RES + c.x]
-		if id <= 0 or not lots.has(id):
-			continue
-		var l: Lot = lots[id]
-		if l.host != 0 and lots.has(l.host):
-			l = lots[l.host]
-		if p.y <= l.street_y + _pick_height(l):
-			return l
+		var l: Lot = null
+		if id > 0 and lots.has(id):
+			l = lots[id]
+			if l.host != 0 and lots.has(l.host):
+				l = lots[l.host]
+			if not seen.has(l.id):
+				seen[l.id] = true
+				order.append([t - 0.15, l])
 		if p.y < land.height_at(p.x, p.z):
-			return null
-	return null
+			ground = l
+			break
+	var best: Lot = null
+	var best_t := t
+	for e in order:
+		if e[0] > best_t:
+			break
+		var l: Lot = e[1]
+		var d := _ray_hit(l, from, dir)
+		if d < best_t:
+			best_t = d
+			best = l
+	return best if best else ground
+
+
+## How far along the ray it first meets the lot's building (INF if not).
+func _ray_hit(l: Lot, from: Vector3, dir: Vector3) -> float:
+	var best := INF
+	if l.arrays.is_empty():
+		return best
+	for k in [0, 4]:
+		var v: PackedVector3Array = l.arrays[k]
+		var i := 0
+		while i + 2 < v.size():
+			var hit: Variant = Geometry3D.ray_intersects_triangle(from, dir, v[i], v[i + 1], v[i + 2])
+			if hit != null:
+				best = minf(best, from.distance_to(hit))
+			i += 3
+	return best
 
 
 const TRADE_NAMES := {"shop": "Shop", "cafe": "Café", "bakery": "Bakery", "grocer": "Grocer", "pharmacy": "Pharmacy"}
@@ -538,6 +563,18 @@ func _process(delta: float) -> void:
 				break
 		if _step(_job, start + budget):
 			_job = {}
+	# Magic: each house straight to the top its plot allows
+	while not _magic.is_empty() and Time.get_ticks_usec() - start < budget:
+		var id: int = _magic.pop_front()
+		_magic_ids.erase(id)
+		var l: Lot = lots.get(id)
+		if l == null or l.type != "house" or l.stage >= l.cap:
+			continue
+		_set_stage(l, l.cap)
+		l.next_up = _clock + _delay(l, Vector2.ZERO)
+		var b: Lot = lots.get(l.host, l)
+		var hi := HouseGen.FH * maxf(b.floors, 1) + 1.0
+		magicked.emit(Vector3(b.origin.x, b.street_y, b.origin.y), Vector3(maxf(b.width, 3.0), hi, maxf(b.depth, 3.0)))
 	_live = true
 	for c in _dirty_patches.keys():
 		if Time.get_ticks_usec() - start > budget + 500:
@@ -569,6 +606,23 @@ func _evolve_one() -> void:
 		return
 	_set_stage(best, best.stage + 1)
 	best.next_up = _clock + _delay(best, around)
+
+
+## Sends every house within `r` of c that can still grow straight to its
+## top level (a few a frame, see _process). Gives back how many stages that
+## adds, for what it costs; with `dry` only counts them.
+func magic(c: Vector2, r: float, dry := false) -> int:
+	var stages := 0
+	for l: Lot in lots.values():
+		if l.type != "house" or l.stage >= l.cap or _magic_ids.has(l.id):
+			continue
+		if l.origin.distance_squared_to(c) > r * r:
+			continue
+		stages += l.cap - l.stage
+		if not dry:
+			_magic.append(l.id)
+			_magic_ids[l.id] = true
+	return stages
 
 
 ## The average stage of the houses near a lot (x) and how many there are (y).

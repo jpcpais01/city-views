@@ -722,7 +722,7 @@ func _build(s: Street) -> void:
 		var d1 := (s.pts[i + 1] - s.pts[i]).normalized()
 		var bend := absf(d0.angle_to(d1)) > 0.08
 		var grade_change := absf((s.ys[i + 1] - s.ys[i]) - (s.ys[i] - s.ys[i - 1])) > 0.007
-		if bend or grade_change or (i - last) * SAMPLE >= 6.0:
+		if bend or grade_change or (i - last) * SAMPLE >= 10.0:
 			rows[float(i)] = true
 			last = i
 	for i in range(1, mini(s.quay.size(), last_i + 1)):
@@ -857,6 +857,11 @@ func _build(s: Street) -> void:
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE - 0.09), CURB + 0.16, side * (w + PAVE - 0.09), CURB + 0.19, HouseGen.IRON, 0.0, out3)
 				continue
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
+	# a dead end rounds off in a half circle, like a turning head
+	if not _laying.has(s.id):
+		for f: float in [0.0, upto]:
+			if _dead_end(s, int(f)) and not _in_cuts(s.spans, f) and not _in_cuts(skip, f):
+				_build_cap(s, buf, f, asphalt, pave, kerb)
 	# bus stops, once the street is laid out and knows its junctions
 	if not _laying.has(s.id):
 		s.stops = BusStops.place(s, skip, cuts)
@@ -1278,6 +1283,63 @@ func links() -> Dictionary:
 					_links[b.id].append([m.y, a, m.x])
 		_links_dirty = false
 	return _links
+
+
+## Whether the street stops at sample i with nothing to meet: no other
+## street there, not back on itself, not by the water and not off the map.
+func _dead_end(s: Street, i: int) -> bool:
+	var n := s.pts.size()
+	if i != 0 and i != n - 1:
+		return false
+	var p := s.pts[i]
+	if absf(p.x) > Land.HALF - 3.0 or absf(p.y) > Land.HALF - 3.0:
+		return false
+	if not s.quay.is_empty() and s.quay[i] != 0:
+		return false
+	if p.distance_to(s.pts[n - 1 - i]) < s.reach() + 0.5:
+		return false
+	for o: Street in streets:
+		if o != s and o.near_box(p, o.reach() + 0.5) and o.closest(p).x < o.reach() + 0.5:
+			return false
+	return true
+
+
+## A half circle of road at a dead end, with the kerb and pavement
+## carried round it.
+func _build_cap(s: Street, buf: MeshBuf, f: float, asphalt: Color, pave: Color, kerb: Color) -> void:
+	const SEGS := 7
+	var n := s.pts.size()
+	var w := s.w()
+	var median: float = KINDS[s.kind].median
+	var verge: bool = KINDS[s.kind].verge
+	var c := _ptf(s, f)
+	var side := _sidef(s, f)
+	var out := (s.pts[0] - s.pts[1]).normalized() if f < 0.5 else (s.pts[n - 1] - s.pts[n - 2]).normalized()
+	var y := _yf(s, f) + 0.03
+	var c3 := Vector3(c.x, y, c.y)
+	var at := func(th: float, r: float, dy: float) -> Vector3:
+		var v := side * cos(th) + out * sin(th)
+		return Vector3(c.x + v.x * r, y + dy, c.y + v.y * r)
+	for k in SEGS:
+		var t0 := PI * k / SEGS
+		var t1 := PI * (k + 1) / SEGS
+		var tm := (t0 + t1) * 0.5
+		var o := side * cos(tm) + out * sin(tm)
+		var o3 := Vector3(o.x, 0.0, o.y)
+		buf.tri(c3, at.call(t0, w, 0.0), at.call(t1, w, 0.0), asphalt, MeshKit.ASPHALT, true)
+		if verge:
+			buf.quad(at.call(t0, w, 0.0), at.call(t1, w, 0.0), at.call(t1, w + 0.12, 0.0), at.call(t0, w + 0.12, 0.0), kerb, 0.0, Vector3.UP)
+			buf.quad(at.call(t0, w + 0.12, 0.0), at.call(t1, w + 0.12, 0.0), at.call(t1, w + 0.3, -SKIRT), at.call(t0, w + 0.3, -SKIRT), kerb.darkened(0.1), 0.0, o3 + Vector3.UP)
+			continue
+		# the kerb as a short slope up to the pavement, which saves a face
+		buf.quad(at.call(t0, w, 0.0), at.call(t1, w, 0.0), at.call(t1, w + 0.05, CURB), at.call(t0, w + 0.05, CURB), kerb, 0.0, Vector3.UP - o3)
+		buf.quad(at.call(t0, w + 0.05, CURB), at.call(t1, w + 0.05, CURB), at.call(t1, w + PAVE, CURB), at.call(t0, w + PAVE, CURB), pave, MeshKit.SLABS, Vector3.UP)
+		buf.quad(at.call(t0, w + PAVE, CURB), at.call(t1, w + PAVE, CURB), at.call(t1, w + PAVE, -SKIRT), at.call(t0, w + PAVE, -SKIRT), kerb, 0.0, o3)
+	if median > 0.0:
+		# the planted strip's blunt end gets a kerb too
+		var a := c - side * median
+		var b := c + side * median
+		buf.quad(Vector3(a.x, y, a.y), Vector3(b.x, y, b.y), Vector3(b.x, y + CURB, b.y), Vector3(a.x, y + CURB, a.y), kerb, 0.0, Vector3(out.x, 0.0, out.y))
 
 
 func _ptf(s: Street, f: float) -> Vector2:

@@ -1,5 +1,16 @@
 # City Views patch notes
 
+## 2026-10-24 23:30 UTC
+- Sun direction in Settings: slide it round the compass to choose which way the sun crosses your sky, so the morning light, long sunset shadows and night moon come from the side you like. It works with every time of day.
+- On PC the game now opens in true full screen instead of a maximized window. F11 or Alt+Enter switches to a window and back.
+
+## 2026-10-24 23:02 UTC
+- Clouds no longer slip behind rivers, lakes and the sea when they drift over water.
+- Dead-end streets now finish in a rounded turning head, with the kerb and pavement carried round, instead of stopping square.
+- Tapping a building picks the one you see under your finger: the tap follows the buildings' real walls and roofs instead of the plots on the ground, so a low house in front or a yard no longer gets in the way. The building you picked glows while its card is up.
+- New Magic brush (opens at 120 residents): paint over houses and each one shoots straight up to the top level painted there, in a burst of golden sparkles, for 2 coins a level.
+- Streets the town grows by itself no longer run into highways: they stop short of them, and highways only meet the roads you draw.
+
 ## 2026-10-24 22:02 UTC
 - Hyper graphics in photo mode: the camera button now renders at twice the resolution, with a shadow map four times as detailed, the softest shadow edges, ambient occlusion that darkens the corners, gaps and building feet where real skylight can't reach, finer sky reflections and a gentle glow by day. Normal play is unchanged, and Settings can turn it off.
 - The camera glides over hills and valleys: it follows the lie of the land around the view instead of the spot under it, and eases up and down instead of jolting. Town goals now sit under your city's name.
