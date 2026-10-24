@@ -15,6 +15,10 @@ extends Node3D
 ## shops below, a tall town house) until it reaches its cap. A house only
 ## outgrows its neighbours by a little, so the town grows up from its busy
 ## streets outwards, and a cottage left behind among tall houses catches up.
+##
+## In a city or a centre, neighbouring plots that have grown tall join up:
+## two to four of them become one wider, taller building over all their
+## plots, shaped by them, the way a town's old plots fill with blocks.
 
 const CELL := 0.5
 const RES := 256
@@ -95,6 +99,10 @@ class Lot:
 	var patch := Vector2i.ZERO
 	var arrays: Array = []
 	var cells := PackedInt32Array()
+	## a taller building spanning this plot and its neighbours: the first
+	## plot's id on the others, and on the first the plots it spans, in order
+	var host := 0
+	var group: Array = []
 	## the back of the plot in its own frame, left to right: (x along the
 	## street, z going in from it, negative), as deep as the block allows
 	var back := PackedVector2Array()
@@ -136,6 +144,9 @@ func setup(l: Land, st: Streets, mat: Material) -> void:
 func clear() -> void:
 	# a town rebuilt from the same streets (after an undo) keeps how far its houses had grown
 	_kept_stages.merge(stages(), true)
+	for l: Lot in lots.values():
+		l.host = 0
+		l.group = []
 	for id in lots.keys():
 		_drop(lots[id])
 	_occ.fill(0)
@@ -263,6 +274,7 @@ func _drop(l: Lot) -> void:
 			_occ[k] = 0
 	lots.erase(l.id)
 	_dirty_patches[l.patch] = true
+	_split(l)
 
 
 # ------------------------------------------------------------------ town map
@@ -407,9 +419,106 @@ func _delay(l: Lot, around: Vector2) -> float:
 
 func _set_stage(l: Lot, stage: int) -> void:
 	l.stage = clampi(stage, 0, l.cap)
-	l.arrays = HouseGen.build(l, land, l.street_y, l.sd, l.main)
+	if l.stage < MERGE_STAGE:
+		_split(l)
+	elif not _try_merge(l):
+		# it may be the one its taller neighbour ahead was waiting for
+		var after := _next_to(l, 1)
+		if after and after.host == 0 and after.group.is_empty() and after.stage >= MERGE_STAGE:
+			_try_merge(after)
+	_rebuild(l.host if l.host != 0 else l.id)
+
+
+# ------------------------------------------------------------------ joined buildings
+
+const MERGE_STAGE := 3
+const MERGE_MAX := 4
+const MERGE_WIDTH := 10.0
+
+
+## Remakes a plot's building: a house, or the joined building it hosts.
+func _rebuild(id: int) -> void:
+	var l: Lot = lots.get(id)
+	if l == null:
+		return
+	if l.group.size() > 1:
+		var members: Array = []
+		for m in l.group:
+			if lots.has(m):
+				members.append(lots[m])
+		l.arrays = HouseGen.build_block(members, land, l.street_y, l.sd, l.main)
+		for m: Lot in members:
+			if m != l:
+				m.arrays = []
+				_dirty_patches[m.patch] = true
+	else:
+		l.arrays = HouseGen.build(l, land, l.street_y, l.sd, l.main)
 	_dirty_patches[l.patch] = true
 	reshaped.emit()
+
+
+## The plot next along the same side of the same street, before (-1) or after
+## (+1) this one, if they share a side line.
+func _next_to(l: Lot, dirn: int) -> Lot:
+	var mine := l.quad[0] if dirn < 0 else l.quad[1]
+	for o: Lot in lots.values():
+		if o != l and o.street == l.street and o.side == l.side and o.type == "house":
+			var theirs := o.quad[1] if dirn < 0 else o.quad[0]
+			if theirs.distance_to(mine) < 0.35:
+				return o
+	return null
+
+
+## Joins a tall house onto the building of the tall house before it, now and
+## then (more often in a centre), up to four plots and ten metres wide.
+func _try_merge(l: Lot) -> bool:
+	if l.host != 0 or not l.group.is_empty() or l.stage < MERGE_STAGE:
+		return false
+	var p := _next_to(l, -1)
+	if p == null or p.stage < MERGE_STAGE:
+		return false
+	var h: Lot = lots.get(p.host) if p.host != 0 else p
+	if h == null:
+		return false
+	var group: Array = h.group if not h.group.is_empty() else [h.id]
+	if group.size() >= MERGE_MAX or group[group.size() - 1] != p.id:
+		return false
+	var width := l.width
+	for m in group:
+		width += lots[m].width if lots.has(m) else 0.0
+	if width > MERGE_WIDTH:
+		return false
+	# chance by place, so the same plots join up after a reload
+	var odds := 0.55 if mini(l.stage, p.stage) < 4 else 0.8
+	if _hash(roundi(l.origin.x * 10.0), l.origin.y, 9.1) > odds:
+		return false
+	group.append(l.id)
+	h.group = group
+	l.host = h.id
+	_rebuild(h.id)
+	return true
+
+
+## Takes a plot out of the joined building it is part of; the rest stand as
+## houses again (and may join up afresh).
+func _split(l: Lot) -> void:
+	var h: Lot = lots.get(l.host) if l.host != 0 else (l if not l.group.is_empty() else null)
+	if h == null:
+		l.host = 0
+		return
+	var members: Array = h.group.duplicate()
+	h.group = []
+	for m in members:
+		var o: Lot = lots.get(m)
+		if o == null:
+			continue
+		o.host = 0
+		if o != l:
+			_rebuild(o.id)
+	for m in members:
+		var o: Lot = lots.get(m)
+		if o and o != l and o.stage >= MERGE_STAGE:
+			_try_merge(o)
 
 
 ## Every house straight to its cap (tests, and a town shown fully grown).
@@ -736,6 +845,8 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 		l.arrays = CivicGen.build(l, land, street_y, sd)
 	reshaped.emit()
 	_dirty_patches[l.patch] = true
+	if kind == "house" and l.stage >= MERGE_STAGE:
+		_try_merge(l)
 	return l
 
 

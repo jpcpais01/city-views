@@ -717,6 +717,28 @@ func window_row(center: Vector3, out: Vector3, length: float, count: int, w: flo
 	detail = was
 
 
+## Framed windows on `floors` storeys of a wall, all on one quad: from `foot`
+## (the wall's foot, centred) up `floors` storeys of 0.62, `count` across,
+## each window placed in its storey as window_row places a row of 0.32 tall
+## ones. The shader cuts out the gaps.
+func window_grid(foot: Vector3, out: Vector3, length: float, count: int, floors: int, w: float, glass: Color) -> void:
+	if count <= 0 or floors <= 0:
+		return
+	var was := detail
+	detail = true
+	var side := Vector3.UP.cross(out).normalized() * length * 0.5
+	var p := foot + out * 0.01
+	var top := Vector3(0, floors * 0.62, 0)
+	var cell := length / count
+	var code := 200.0 + mini(count, 90)
+	var seed := floorf(rng.randf() * 100.0)
+	var y := floors * 100.0 + seed
+	var col := Color(glass.r, glass.g, glass.b, clampf((w + 0.09) / cell, 0.02, 1.0))
+	quad_uv(p - side, p + side, p + side + top, p - side + top, out, col,
+		Vector2(code, y), Vector2(code + 0.98, y), Vector2(code + 0.98, y + 0.98), Vector2(code, y + 0.98))
+	detail = was
+
+
 ## Thin trim lines running round a w x d block every `spacing` up from y0
 ## (floor bands, mullions): one quad per wall, the gaps cut out by the shader.
 func bands(y0: float, w: float, d: float, spacing: float, count: int, thick: float, col: Color) -> void:
