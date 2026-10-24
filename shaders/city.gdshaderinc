@@ -244,6 +244,24 @@ void fragment() {
 		}
 		emit = 0.0;
 	}
+	if (emit > 199.5 && emit < 299.5) {
+		// windows on several floors of a wall on one quad: x = 200 + count + u,
+		// y = floors * 100 + seed + v, COLOR.a = how much of each window's cell
+		// it fills; each floor's window sits where a single row's would
+		float n = floor(emit) - 200.0;
+		float cu = fract(emit) / 0.98 * n;
+		float lu = (fract(cu) - 0.5) / max(COLOR.a, 0.01) + 0.5;
+		float floors = floor(floor(rnd) / 100.0);
+		float seed = mod(floor(rnd), 100.0);
+		float cv = fract(rnd) / 0.98 * floors;
+		float lv = (fract(cv) - 0.139) / 0.742;
+		if (lu < 0.0 || lu > 1.0 || lv < 0.0 || lv > 1.0) {
+			discard;
+		}
+		float r2 = fract(sin(seed * 12.9898 + floor(cu) * 78.233 + floor(cv) * 37.719) * 43758.5453);
+		emit = 4.0 + lu * 0.98;
+		rnd = floor(r2 * 100.0) + lv * 0.98;
+	}
 	if (emit > 19.5) {
 		// a whole row of windows on one quad: x = 20 + count (+100 if frameless) + u,
 		// y = seed + v, COLOR.a = how much of each window's cell it fills

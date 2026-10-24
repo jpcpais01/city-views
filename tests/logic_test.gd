@@ -210,6 +210,16 @@ func _island_levels() -> void:
 			grown += 1 if l.stage > 0 else 0
 			over = over or l.stage > l.cap
 	check(grown > 4 and not over, "houses grow over time up to their area's level (%d grew)" % grown)
+	island.town.evolve_all()
+	var joined := 0
+	var spans := 0
+	var low := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.group.size() > 1:
+			joined += 1
+			spans += l.group.size()
+			low += 1 if l.origin.x < 0.0 else 0
+	check(joined >= 2 and low == 0, "tall neighbours in the centre join into wider buildings (%d buildings over %d plots)" % [joined, spans])
 	var before := island.town.stages()
 	island._apply_save(JSON.parse_string(JSON.stringify(island.to_dict())))
 	island.town.fill_all()
@@ -315,6 +325,9 @@ func _island_budget() -> void:
 			pts.append(a.lerp(line[1], k / 40.0) + Vector2(0, sin(k / 40.0 * PI) * 3.0))
 		island.streets.add_stroke(pts)
 	island.land.paint_zone(Vector3.ZERO, 70.0, 2.0)
+	if OS.get_environment("CV_BUDGET_LEVEL") != "":
+		# the same island at another Grow level, to see what it costs
+		island.land.paint_level(Vector3.ZERO, 70.0, float(OS.get_environment("CV_BUDGET_LEVEL")), 2.0)
 	island.growth.focus = Vector2.ZERO
 	var made := island.growth.grow_all()
 	island.streets.flush()

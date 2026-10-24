@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 03:05 UTC
+- In City and Centre areas, neighbouring tall houses now join up over time into wider buildings of four to seven floors, spanning two to four plots.
+- Joined buildings follow their plots' shape: the front bends with the street and the back steps with the block. Shops or doors line each plot's ground floor, and stacks of balconies run up the front.
+- Older quarters top their blocks with a slate attic floor set back behind the parapet. Elsewhere, roofs get a stair house and a water tank.
+- Windows on taller buildings now cost far fewer triangles, so dense centres stay smooth.
+
 ## 2026-10-24 02:44 UTC
 - Plots now take the shape of the space behind them, so houses fill odd corners, curved streets and narrow blocks instead of leaving them empty.
 - Houses adapt to their plot. A detached house slides over to the deeper side, and a terrace keeps its full front but squeezes its back to fit, with a flat roof.
