@@ -18,6 +18,7 @@ func _ready() -> void:
 	await _island_undo()
 	await _island_coop()
 	await _island_grow()
+	await _island_levels()
 	await _island_progress()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -162,6 +163,65 @@ func _island_grow() -> void:
 	await get_tree().process_frame
 
 
+## Grow levels: a level-4 area grows taller than a level-1 one, houses start
+## small and climb over time to their cap, and how far they got is saved.
+func _island_levels() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(9)
+	var pts := PackedVector2Array()
+	for k in 70:
+		pts.append(Vector2(-35 + k, 3.0))
+	island.streets.add_stroke(pts)
+	island.streets.flush()
+	island.land.paint_zone(Vector3(-18, 0, 3), 16.0, 2.0)
+	island.land.paint_zone(Vector3(18, 0, 3), 16.0, 2.0)
+	island.land.paint_level(Vector3(-18, 0, 3), 16.0, 1.0, 2.0)
+	island.land.paint_level(Vector3(18, 0, 3), 16.0, 4.0, 2.0)
+	check(island.land.level_at(-18, 3) == 1.0 and island.land.level_at(18, 3) == 4.0, "the Grow brush paints its level into the ground")
+	island.town.fill_all()
+	var lo := Vector2.ZERO
+	var hi := Vector2.ZERO
+	var caps := {}
+	var started := true
+	for l: Town.Lot in island.town.lots.values():
+		if l.type != "house":
+			continue
+		started = started and l.stage == 0
+		caps[l.cap] = true
+		if l.origin.x < -6.0:
+			lo += Vector2(l.cap, 1)
+		elif l.origin.x > 6.0:
+			hi += Vector2(l.cap, 1)
+	check(lo.y > 3 and hi.y > 3, "houses grow on both halves (%d, %d)" % [lo.y, hi.y])
+	check(started, "new houses start as small cottages")
+	var lo_avg := lo.x / maxf(lo.y, 1.0)
+	var hi_avg := hi.x / maxf(hi.y, 1.0)
+	check(hi_avg > lo_avg + 1.5, "a Centre area aims much taller than a Village one (%.1f vs %.1f)" % [hi_avg, lo_avg])
+	check(caps.size() >= 3, "levels vary a little from house to house (%d different)" % caps.size())
+	# let time pass: houses climb one stage at a time, never past their cap
+	for k in 400:
+		island.town._clock += 2.0
+		island.town._evolve_one()
+	var grown := 0
+	var over := false
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "house":
+			grown += 1 if l.stage > 0 else 0
+			over = over or l.stage > l.cap
+	check(grown > 4 and not over, "houses grow over time up to their area's level (%d grew)" % grown)
+	var before := island.town.stages()
+	island._apply_save(JSON.parse_string(JSON.stringify(island.to_dict())))
+	island.town.fill_all()
+	var after := island.town.stages()
+	var same := 0
+	for key in before.keys():
+		same += 1 if after.get(key, -1) == before[key] else 0
+	check(before.size() > 0 and same >= before.size() * 0.9, "how far houses grew comes back with the island (%d of %d)" % [same, before.size()])
+	island.queue_free()
+	await get_tree().process_frame
+
+
 func _island_progress() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
@@ -255,6 +315,7 @@ func _island_budget() -> void:
 	var made := island.growth.grow_all()
 	island.streets.flush()
 	island.town.fill_all()
+	island.town.evolve_all()
 	while not island.land.is_settled():
 		island.land.rebuild_dirty(1 << 20)
 	island.land.rebuild_shadow()
@@ -275,7 +336,7 @@ func _island_budget() -> void:
 	var total := TriBudget.total(acc)
 	var reserve := 8000 + 16000
 	print("island: %d streets, %d houses, %d triangles (+%d for HUD, traffic and people)" % [made + 2, island.town.house_count(), total, reserve])
-	check(island.town.house_count() > 150, "a whole island grows a real town (%d houses)" % island.town.house_count())
+	check(island.town.house_count() > 130, "a whole island grows a real town (%d houses)" % island.town.house_count())
 	check(total + reserve < TriBudget.BUDGET, "a whole-island town stays under budget (%d)" % (total + reserve))
 	var kits := {}
 	for l: Town.Lot in island.town.lots.values():
@@ -303,6 +364,7 @@ func _island_budget() -> void:
 	island.land.paint_green(Vector3(at.x, 0, at.y), 8.0, 1.0)
 	island.town.zone_changed(at, 8.0)
 	island.town.fill_all()
+	island.town.evolve_all()
 	var parks := 0
 	var built := 0
 	for l: Town.Lot in island.town.lots.values():

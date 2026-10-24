@@ -18,11 +18,14 @@ const BRUSH_INFO := {
 }
 const ICONS := {"street": "road", "grow": "house", "green": "park", "clear": "bulldoze"}
 const SIZES := [["S", 3.0], ["M", 5.0], ["L", 8.5]]
+const LEVELS := ["Village", "Town", "City", "Centre"]
 
 var island: IslandWorld
 var _brush_keys := {}
 var _size_btn: Button
 var _size_i := 1
+var _level_bar: Control
+var _level_keys: Array[Button] = []
 var _help: Label
 var _title_chip: Label
 var _locks := {}
@@ -478,6 +481,7 @@ func _build_brushes() -> void:
 		Sfx.play("click", 0.9 + _size_i * 0.15, -4.0)
 		_refresh_brushes())
 	row.add_child(_size_btn)
+	_build_levels()
 	# undo / redo float on the left above the brushes
 	var over := HBoxContainer.new()
 	over.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -495,6 +499,43 @@ func _build_brushes() -> void:
 	over.add_child(_redo_btn)
 	island.history_changed.connect(_refresh_history)
 	_refresh_history()
+
+
+## While the Grow brush is in hand: how far the town may grow up where it is
+## painted, from a village of cottages to a centre of tall terraces.
+func _build_levels() -> void:
+	var holder := CenterContainer.new()
+	holder.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	holder.offset_top = -188
+	holder.offset_bottom = -118
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(holder)
+	_level_bar = holder
+	var m := PanelContainer.new()
+	_glassify(m)
+	holder.add_child(m)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m.add_child(row)
+	for i in LEVELS.size():
+		var b := _key(104, 50)
+		var h := HBoxContainer.new()
+		h.set_anchors_preset(Control.PRESET_FULL_RECT)
+		h.alignment = BoxContainer.ALIGNMENT_CENTER
+		h.add_theme_constant_override("separation", 4)
+		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(h)
+		var ic := _icon("level%d" % (i + 1), 34)
+		ic.custom_minimum_size = Vector2(34, 34)
+		h.add_child(ic)
+		h.add_child(_label(LEVELS[i], 14, true, INK))
+		b.pressed.connect(func():
+			Sfx.play("click", 0.85 + i * 0.12, -4.0)
+			island.grow_level = i + 1
+			_refresh_brushes())
+		row.add_child(b)
+		_level_keys.append(b)
 
 
 func _refresh_history() -> void:
@@ -523,8 +564,14 @@ func _refresh_brushes() -> void:
 		_brush_keys[id].set_pressed_no_signal(id == island.brush)
 	island.brush_radius = SIZES[_size_i][1]
 	_size_btn.text = SIZES[_size_i][0]
+	if _level_bar:
+		_level_bar.visible = island.brush == "grow" and not _photo
+		for i in _level_keys.size():
+			_level_keys[i].set_pressed_no_signal(island.grow_level == i + 1)
 	if island.brush != "":
 		_help.text = BRUSH_INFO[island.brush][1]
+		if island.brush == "grow":
+			_help.text = "Paint beside a street. %s: %s" % [LEVELS[island.grow_level - 1], ["cottages and small houses", "houses and low terraces", "terraces with shops", "tall terraces, shops everywhere"][island.grow_level - 1]]
 	else:
 		_help.text = "Draw streets, or shape the land: pick a brush"
 

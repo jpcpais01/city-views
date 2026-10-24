@@ -28,6 +28,11 @@ var _base := PackedFloat32Array()
 var zone := PackedFloat32Array()
 # where the player has asked for green (parks and gardens instead of houses), 0..1
 var green := PackedFloat32Array()
+# how far the town may grow up in each place, as painted with the Grow brush:
+# 1 village .. 4 centre (0 where never painted, which counts as a town, 2)
+var level := PackedFloat32Array()
+const LEVEL_DEFAULT := 2.0
+const LEVEL_TINTS := [Color("f4e3b0"), Color("f4e3b0"), Color("f3cf8c"), Color("efb173"), Color("ea8f66")]
 # tint the painted area strongly (while the Grow brush is in hand)
 var show_zone := false:
 	set(v):
@@ -71,6 +76,8 @@ func generate(seed_value: int) -> void:
 	zone.fill(0.0)
 	green.resize(SIDE * SIDE)
 	green.fill(0.0)
+	level.resize(SIDE * SIDE)
+	level.fill(0.0)
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
@@ -193,6 +200,28 @@ func zone_at(x: float, z: float) -> float:
 	return _sample(zone, x, z)
 
 
+## Paint the growing level `lv` (1..4): unpainted ground takes it at once,
+## painted ground moves towards it, so strokes blend at their edges.
+func paint_level(centre: Vector3, radius: float, lv: float, amount: float) -> void:
+	_each_in(centre, radius, func(k: int, w: float) -> void:
+		if w < 0.02:
+			return
+		if level[k] < 0.5:
+			level[k] = lv
+		else:
+			level[k] = move_toward(level[k], lv, amount * minf(w * 3.0, 1.0)))
+
+
+## The level the town may grow to here, 1..4 (from the nearest sample).
+func level_at(x: float, z: float) -> float:
+	var fx := (x + HALF) / STEP
+	var fz := (z + HALF) / STEP
+	var i := clampi(int(round(fx)), 0, CELLS)
+	var j := clampi(int(round(fz)), 0, CELLS)
+	var lv := level[j * SIDE + i]
+	return lv if lv >= 0.5 else LEVEL_DEFAULT
+
+
 ## Paint (amount > 0) or wipe green: parks where houses would go.
 func paint_green(centre: Vector3, radius: float, amount: float) -> void:
 	_each_in(centre, radius, func(k: int, w: float) -> void:
@@ -216,9 +245,9 @@ func _sample(a: PackedFloat32Array, x: float, z: float) -> float:
 
 
 ## Ease the ground towards a level (the height where the stroke started).
-func flatten(centre: Vector3, radius: float, level: float, amount: float) -> void:
+func flatten(centre: Vector3, radius: float, to: float, amount: float) -> void:
 	_each_in(centre, radius, func(k: int, w: float) -> void:
-		heights[k] = lerpf(heights[k], level, clampf(amount * w, 0.0, 1.0)))
+		heights[k] = lerpf(heights[k], to, clampf(amount * w, 0.0, 1.0)))
 
 
 func _each_in(centre: Vector3, radius: float, f: Callable) -> void:
@@ -318,9 +347,9 @@ func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend
 	_mark(i0, j0, i1, j1)
 
 
-## Level a building plot: flat at `level` inside the outline, easing back to
+## Level a building plot: flat at height `y` inside the outline, easing back to
 ## the natural ground over `blend` around it (a terrace cut into a hillside).
-func pad(outline: PackedVector2Array, level: float, blend: float, keep_off := Callable()) -> void:
+func pad(outline: PackedVector2Array, y: float, blend: float, keep_off := Callable()) -> void:
 	var lo := outline[0]
 	var hi := outline[0]
 	for p in outline:
@@ -343,7 +372,7 @@ func pad(outline: PackedVector2Array, level: float, blend: float, keep_off := Ca
 			if d >= blend or (keep_off.is_valid() and keep_off.call(p)):
 				continue
 			var g := j * SIDE + i
-			heights[g] = lerpf(heights[g], level, 1.0 - smoothstep(0.0, 1.0, d / blend))
+			heights[g] = lerpf(heights[g], y, 1.0 - smoothstep(0.0, 1.0, d / blend))
 	_mark(i0, j0, i1, j1)
 
 
@@ -434,7 +463,13 @@ func _build_chunk(c: Vector2i) -> void:
 			var col := _colour(p, h, nrm.y)
 			var zn := zone[gj * SIDE + gi]
 			if zn > 0.0 and h > 0.0:
-				col = col.lerp(Color("f4e3b0"), zn * 0.45) if show_zone else col.lerp(Color("b5c97a"), zn * 0.18)
+				if show_zone:
+					# while growing, the painted ground shows its level: warmer is taller
+					var lv := level[gj * SIDE + gi]
+					var t: Color = LEVEL_TINTS[clampi(int(round(lv if lv >= 0.5 else LEVEL_DEFAULT)), 1, 4)]
+					col = col.lerp(t, zn * (0.45 + 0.07 * lv))
+				else:
+					col = col.lerp(Color("b5c97a"), zn * 0.18)
 			var gn := green[gj * SIDE + gi]
 			if gn > 0.0 and h > 0.0:
 				# park lawns, a lusher green
@@ -591,6 +626,23 @@ func green_edits() -> Dictionary:
 	return out
 
 
+func level_edits() -> Dictionary:
+	var out := {}
+	for k in level.size():
+		if level[k] >= 0.5:
+			out[k] = snappedf(level[k], 0.01)
+	return out
+
+
+func apply_level(e: Dictionary) -> void:
+	for k in e:
+		var i := int(k)
+		if i >= 0 and i < level.size():
+			level[i] = clampf(float(e[k]), 0.0, 4.0)
+	for c in _chunks.keys():
+		_dirty[c] = true
+
+
 func apply_green(e: Dictionary) -> void:
 	for k in e:
 		var i := int(k)
@@ -611,13 +663,15 @@ func apply_zone(e: Dictionary) -> void:
 
 ## Heights, growing area and green all at once, as snapshot() took them.
 func snapshot() -> Array:
-	return [heights.duplicate(), zone.duplicate(), green.duplicate()]
+	return [heights.duplicate(), zone.duplicate(), green.duplicate(), level.duplicate()]
 
 
 func restore(snap: Array) -> void:
 	heights = snap[0].duplicate()
 	zone = snap[1].duplicate()
 	green = snap[2].duplicate()
+	if snap.size() > 3:
+		level = snap[3].duplicate()
 	_mark(0, 0, CELLS, CELLS)
 	for c in _chunks.keys():
 		_dirty[c] = true
@@ -630,7 +684,7 @@ func base_height(k: int) -> float:
 
 
 ## Sets single samples (from another builder), redrawing only where they are.
-## `layer` is heights (as offsets from the natural ground), zone or green.
+## `layer` is heights (as offsets from the natural ground), zone, green or level.
 func set_samples(layer: String, values: Dictionary) -> void:
 	for k in values:
 		var i: int = k
@@ -644,6 +698,8 @@ func set_samples(layer: String, values: Dictionary) -> void:
 				zone[i] = clampf(v, 0.0, 1.0)
 			"green":
 				green[i] = clampf(v, 0.0, 1.0)
+			"level":
+				level[i] = clampf(v, 0.0, 4.0)
 		var x := i % SIDE
 		var z := i / SIDE
 		_mark(x, z, x, z)

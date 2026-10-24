@@ -7,6 +7,14 @@ extends Node3D
 ## stop short of junction corners and of other streets. Each lot gets a house
 ## that fits it and its slope. Houses are merged into one mesh per patch of
 ## land, remade a few at a time as the town grows.
+##
+## Houses evolve. Each plot has a cap, the stage it may grow to: about the
+## level painted there with the Grow brush, give or take a little, a touch
+## higher on main streets. Every house starts as a cottage and, every so
+## often, climbs a stage (a two-floor house, a terrace, a taller terrace with
+## shops below, a tall town house) until it reaches its cap. A house only
+## outgrows its neighbours by a little, so the town grows up from its busy
+## streets outwards, and a cottage left behind among tall houses catches up.
 
 const CELL := 0.5
 const RES := 256
@@ -17,6 +25,12 @@ const FRONTAGE := 2.6
 const MAX_DEPTH := 6.0
 const MIN_DEPTH := 2.4
 const FH := 0.62
+## how built-up each stage is (terraced from stage 2 up)
+const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0]
+const STAGE_NAMES := ["cottage", "house", "townhouse", "terrace", "tall terrace"]
+# seconds between a house's stages, before its own variation
+const EVOLVE_TIME := 14.0
+const NEIGHBOURS := 10.0
 
 ## The ground was levelled for new houses.
 signal reshaped
@@ -43,6 +57,12 @@ var _patches := {}
 var _reserved := {}
 const RESERVED := -(1 << 30)
 var _dirty_patches := {}
+# the town's own clock, for when houses next grow
+var _clock := 0.0
+var _evolve_wait := 0.0
+# stages that houses already had (from a save, or before an undo rebuilt the
+# town), by plot position: they come back at that stage
+var _kept_stages := {}
 
 
 class Lot:
@@ -62,6 +82,15 @@ class Lot:
 	## floors and a shop on the ground floor, for houses
 	var floors := 0
 	var shop := false
+	## the stage the house may grow to, and the stage it has reached (0 cottage .. 4)
+	var cap := 0
+	## where the cap was read (from the painted level)
+	var capq := Vector2.ZERO
+	var stage := 0
+	var next_up := 0.0
+	var street_y := 0.0
+	var main := false
+	var sd := 0
 	var patch := Vector2i.ZERO
 	var arrays: Array = []
 	var cells := PackedInt32Array()
@@ -80,6 +109,8 @@ func setup(l: Land, st: Streets, mat: Material) -> void:
 
 
 func clear() -> void:
+	# a town rebuilt from the same streets (after an undo) keeps how far its houses had grown
+	_kept_stages.merge(stages(), true)
 	for id in lots.keys():
 		_drop(lots[id])
 	_occ.fill(0)
@@ -132,6 +163,16 @@ func zone_changed(c: Vector2, r: float) -> void:
 	for s: Streets.Street in streets.streets:
 		if s.near_box(c, r + 4.0):
 			_todo[s.id] = s
+	# a repainted level moves the caps of the houses under the brush
+	for l: Lot in lots.values():
+		if l.type == "house" and l.origin.distance_to(c) < r + 2.0:
+			var s: Streets.Street = streets.by_id(l.street)
+			if s:
+				var cap := _cap_at(s, l.capq, l.side)
+				if cap != l.cap:
+					l.cap = cap
+					if l.stage > cap:
+						_set_stage(l, cap)
 
 
 ## Whether anything stands at p: a lot, a street or its pavement.
@@ -273,7 +314,8 @@ func _free_cells(quad: PackedVector2Array, owner: int, inward: Vector2) -> Packe
 
 # ------------------------------------------------------------------ laying out lots
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_clock += delta
 	var start := Time.get_ticks_usec()
 	if not _new_streets.is_empty():
 		_place_street(_new_streets.pop_front())
@@ -291,6 +333,96 @@ func _process(_delta: float) -> void:
 			break
 		_dirty_patches.erase(c)
 		_commit_patch(c)
+	_evolve_wait -= delta
+	if _evolve_wait <= 0.0 and _job.is_empty() and _new_streets.is_empty() and _dirty_patches.is_empty():
+		_evolve_wait = 0.2
+		_evolve_one()
+
+
+# ------------------------------------------------------------------ evolving
+
+## Grows the one house most overdue to climb a stage, if any is ready.
+func _evolve_one() -> void:
+	var best: Lot = null
+	for l: Lot in lots.values():
+		if l.type == "house" and l.stage < l.cap and l.next_up <= _clock and (best == null or l.next_up < best.next_up):
+			best = l
+	if best == null:
+		return
+	var around := _neighbours(best)
+	# never more than a little taller than the houses around it
+	if around.y >= 3.0 and best.stage > around.x + 0.75:
+		best.next_up = _clock + _delay(best, around)
+		return
+	_set_stage(best, best.stage + 1)
+	best.next_up = _clock + _delay(best, around)
+
+
+## The average stage of the houses near a lot (x) and how many there are (y).
+func _neighbours(l: Lot) -> Vector2:
+	var sum := 0.0
+	var n := 0
+	for o: Lot in lots.values():
+		if o != l and o.type == "house" and o.origin.distance_squared_to(l.origin) < NEIGHBOURS * NEIGHBOURS:
+			sum += o.stage
+			n += 1
+	return Vector2(sum / n if n > 0 else 0.0, n)
+
+
+## How long a house waits before its next stage: longer as it gets bigger,
+## shorter on main streets and where it has fallen behind its neighbours.
+func _delay(l: Lot, around: Vector2) -> float:
+	var t := EVOLVE_TIME * lerpf(0.6, 1.6, _hash(l.id, l.stage, 3.3)) * (1.0 + l.stage * 0.4)
+	if l.main:
+		t *= 0.7
+	if around.y >= 3.0 and around.x > l.stage + 1.2:
+		t *= 0.35
+	return t
+
+
+func _set_stage(l: Lot, stage: int) -> void:
+	l.stage = clampi(stage, 0, l.cap)
+	l.arrays = HouseGen.build(l, land, l.street_y, l.sd, l.main)
+	_dirty_patches[l.patch] = true
+	reshaped.emit()
+
+
+## Every house straight to its cap (tests, and a town shown fully grown).
+func evolve_all() -> void:
+	for l: Lot in lots.values():
+		if l.type == "house" and l.stage != l.cap:
+			_set_stage(l, l.cap)
+	for c in _dirty_patches.keys():
+		_commit_patch(c)
+	_dirty_patches.clear()
+
+
+## How far each house has grown, by plot, for saving.
+func stages() -> Dictionary:
+	var out := {}
+	for l: Lot in lots.values():
+		if l.type == "house" and l.stage > 0:
+			out[_plot_key(l.origin)] = l.stage
+	return out
+
+
+## Houses come back at these stages as their plots are laid out again.
+func keep_stages(d: Dictionary) -> void:
+	_kept_stages = d.duplicate()
+
+
+static func _plot_key(p: Vector2) -> String:
+	return "%d_%d" % [roundi(p.x * 10.0), roundi(p.y * 10.0)]
+
+
+## The stage a plot may grow to: the painted level, give or take a little,
+## and a touch higher on a main street.
+func _cap_at(s: Streets.Street, p: Vector2, side: float) -> int:
+	var lv := land.level_at(p.x, p.y)
+	var j := (_hash(roundi(p.x * 7.0), p.y, side * 5.0) - 0.5) * 1.3 + (_wobble(p) - 0.5) * 0.4
+	if s.kind == "main":
+		j += 0.35
+	return clampi(roundi(lv - 0.45 + j), 0, 4)
 
 
 func _next_job() -> Dictionary:
@@ -349,7 +481,10 @@ func _step(job: Dictionary, until: int) -> bool:
 				job.f = f
 				return false
 			var p := streets._ptf(s, f)
-			var dense := _density(s, p)
+			# plots are laid out for what they may grow into
+			var q := p + streets._sidef(s, f) * side * (s.reach() + 1.5)
+			var cap := _cap_at(s, q, side)
+			var dense: float = STAGE_DENSE[cap]
 			if land.zone_at(p.x, p.y) < 0.3:
 				f += 1.0
 				continue
@@ -370,7 +505,9 @@ func _step(job: Dictionary, until: int) -> bool:
 					if f1 > c.x - 0.6 and f < c.y + 0.6:
 						blocked = true
 				if not blocked:
-					lot = _try_lot(s, f, f1, side, off, dense, kind)
+					lot = _try_lot(s, f, f1, side, off, dense, kind, cap)
+					if lot:
+						lot.capq = q
 				# no room for something grand here: a plain lot instead
 				if lot or kind == "house" or kind == "park":
 					break
@@ -414,7 +551,7 @@ func _civic_near(p: Vector2, type: String, r: float) -> Variant:
 	return null
 
 
-func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, dense: float, kind := "house") -> Lot:
+func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, dense: float, kind := "house", cap := 0) -> Lot:
 	var a := streets._ptf(s, f0) + streets._sidef(s, f0) * side * off
 	var b := streets._ptf(s, f1) + streets._sidef(s, f1) * side * off
 	var fm := (f0 + f1) * 0.5
@@ -470,6 +607,14 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 			l.kit = HouseGen.kit_at(land, l.origin)
 			# seeded by place, so the same lot always grows the same house
 			var sd := int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663
+			l.sd = sd
+			l.street_y = street_y
+			l.main = s.kind == "main"
+			l.cap = cap
+			# a new house starts as a cottage, unless this plot had grown before
+			l.stage = mini(int(_kept_stages.get(_plot_key(l.origin), 0)), cap)
+			_kept_stages.erase(_plot_key(l.origin))
+			l.next_up = _clock + _delay(l, Vector2.ZERO)
 			if kind == "house":
 				l.arrays = HouseGen.build(l, land, street_y, sd, s.kind == "main")
 			else:
@@ -511,16 +656,6 @@ func _green(l: Lot) -> float:
 func _zone(l: Lot) -> float:
 	var c := (l.quad[0] + l.quad[2]) * 0.5
 	return land.zone_at(c.x, c.y)
-
-
-## How built-up the town wants to be here: along main streets and where the
-## player has painted thickly, rows of tall terraces; elsewhere, houses apart.
-func _density(s: Streets.Street, p: Vector2) -> float:
-	var d := clampf((land.zone_at(p.x, p.y) - 0.3) / 0.7, 0.0, 1.0) * 0.6
-	if s.kind == "main":
-		d += 0.35
-	d += (_wobble(p) - 0.5) * 0.3
-	return clampf(d, 0.0, 1.0)
 
 
 static func _wobble(p: Vector2) -> float:

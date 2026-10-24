@@ -6,8 +6,9 @@ extends Node
 ## The town's houses follow from those, on every builder's own island; the
 ## town only grows its own side streets where its own builder painted.
 ##
-## In the room: island/land/c<k> and island/zone/c<k>, island/green/c<k> per
-## ground sample (offset from the natural ground, or the painted amount) and
+## In the room: island/land/c<k> and island/zone/c<k>, island/green/c<k>,
+## island/level/c<k> per ground sample (offset from the natural ground, the
+## painted amount, or the painted growing level) and
 ## island/streets/<key> per street.
 
 const SEND_EVERY := 0.5
@@ -18,6 +19,7 @@ var active := false
 var _h := PackedFloat32Array()
 var _z := PackedFloat32Array()
 var _g := PackedFloat32Array()
+var _l := PackedFloat32Array()
 var _s := {}
 var _timer := 0.0
 
@@ -25,7 +27,7 @@ var _timer := 0.0
 ## Everything on this island, as a room holds it.
 func full_state() -> Dictionary:
 	var land := world.land
-	var out := {"land": {}, "zone": {}, "green": {}, "streets": {}}
+	var out := {"land": {}, "zone": {}, "green": {}, "level": {}, "streets": {}}
 	for k in land.heights.size():
 		var d := land.heights[k] - land.base_height(k)
 		if absf(d) > 0.005:
@@ -34,6 +36,8 @@ func full_state() -> Dictionary:
 			out.zone["c%d" % k] = snappedf(land.zone[k], 0.01)
 		if land.green[k] > 0.005:
 			out.green["c%d" % k] = snappedf(land.green[k], 0.01)
+		if land.level[k] >= 0.5:
+			out.level["c%d" % k] = snappedf(land.level[k], 0.01)
 	for s: Streets.Street in world.streets.streets:
 		out.streets[s.key] = world.streets.street_data(s)
 	return out
@@ -45,6 +49,7 @@ func begin() -> void:
 	_h = land.heights.duplicate()
 	_z = land.zone.duplicate()
 	_g = land.green.duplicate()
+	_l = land.level.duplicate()
 	_s.clear()
 	for s: Streets.Street in world.streets.streets:
 		_s[s.key] = JSON.stringify(world.streets.street_data(s))
@@ -87,6 +92,9 @@ func changes() -> Dictionary:
 				if absf(land.green[k] - _g[k]) > 0.004:
 					_g[k] = land.green[k]
 					out["green/c%d" % k] = snappedf(land.green[k], 0.01) if land.green[k] > 0.005 else null
+				if absf(land.level[k] - _l[k]) > 0.004:
+					_l[k] = land.level[k]
+					out["level/c%d" % k] = snappedf(land.level[k], 0.01) if land.level[k] >= 0.5 else null
 	var seen := {}
 	for s: Streets.Street in world.streets.streets:
 		seen[s.key] = true
@@ -126,7 +134,7 @@ func _apply(parts: PackedStringArray, data: Variant) -> void:
 		elif parts.size() == 2:
 			_street(parts[1], data)
 		return
-	if not head in ["land", "zone", "green"]:
+	if not head in ["land", "zone", "green", "level"]:
 		return
 	var values := {}
 	if parts.size() == 1:
@@ -165,6 +173,10 @@ func _samples(layer: String, values: Dictionary) -> void:
 				if absf(v - land.green[k]) < 0.006:
 					continue
 				_g[k] = v
+			"level":
+				if absf(v - land.level[k]) < 0.006:
+					continue
+				_l[k] = v
 		vals[k] = v
 		var p := Vector2((k % Land.SIDE) * Land.STEP - Land.HALF, (k / Land.SIDE) * Land.STEP - Land.HALF)
 		lo = lo.min(p)

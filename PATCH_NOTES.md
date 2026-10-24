@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 02:20 UTC
+- The Grow brush now has four levels: Village, Town, City and Centre. Pick one from the bar above the brushes to set how tall that part of town can get.
+- Each house aims for about the level painted around it, with some natural variety, so neighbourhoods feel mixed instead of uniform.
+- Houses now start as small cottages and grow over time, one storey at a time, into terraces and taller townhouses. Buildings behind their neighbours catch up faster, and main streets grow first.
+- How far each house has grown is saved with your island and shared in co-op.
+
 ## 2026-10-24 02:08 UTC
 - The Grow brush works reliably now. A single tap beside a street is enough, and the town starts growing while you are still painting.
 - The Grow and Green brushes cover a wider area, reaching past the pavements to where new houses and side streets go.

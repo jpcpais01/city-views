@@ -342,6 +342,23 @@ func _draw() -> void:
 			_circle(P.call(0.37, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
 			_circle(P.call(0.63, 0.42), 0.05 * s, Color(0.15, 0.3, 0.2))
 			draw_arc(P.call(0.5, 0.52), 0.18 * s, 0.3, PI - 0.3, 12, Color(0.15, 0.3, 0.2), 0.05 * s, true)
+		"level1", "level2", "level3", "level4":
+			# a little street of buildings, taller with each level
+			var lv := int(kind.substr(5))
+			var hs: Array = [[0.3, 0.25, 0.3], [0.45, 0.3, 0.4], [0.6, 0.45, 0.55], [0.8, 0.6, 0.7]][lv - 1]
+			var cols := [Color("e9b46a"), Color("d9785f"), Color("7fa6c9")]
+			for k in 3:
+				var hgt: float = hs[k]
+				var x0 := 0.1 + k * 0.27
+				_rr(Rect2(P.call(x0, 0.88 - hgt), Vector2(0.25, hgt) * s), 0.03 * s, cols[k])
+				# a roof on the low houses, windows on the tall
+				if hgt < 0.4:
+					draw_colored_polygon(PackedVector2Array([P.call(x0 - 0.02, 0.89 - hgt), P.call(x0 + 0.27, 0.89 - hgt), P.call(x0 + 0.125, 0.76 - hgt)]), Color("8a5a44"))
+				else:
+					var y := 0.88 - hgt + 0.08
+					while y < 0.78:
+						_rr(Rect2(P.call(x0 + 0.06, y), Vector2(0.13, 0.05) * s), 0.01 * s, Color(1, 1, 1, 0.75))
+						y += 0.13
 		"camera":
 			_rr(Rect2(P.call(0.36, 0.2), Vector2(0.28, 0.14) * s), 0.04 * s, c)
 			_rr(Rect2(P.call(0.12, 0.3), Vector2(0.76, 0.5) * s), 0.1 * s, c)
