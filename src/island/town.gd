@@ -108,6 +108,8 @@ class Lot:
 	## which side of the plot (-1 left, +1 right in its own frame) runs along
 	## another street, on a corner; 0 if neither
 	var corner := 0.0
+	## what the building is used for: home (with or without a shop) or office
+	var use := "home"
 	## the back of the plot in its own frame, left to right: (x along the
 	## street, z going in from it, negative), as deep as the block allows
 	var back := PackedVector2Array()

@@ -110,7 +110,8 @@ func recount(silent: bool) -> void:
 		match l.type:
 			"house":
 				h += 1
-				r += maxi(1, l.floors * 2 - int(l.shop))
+				# offices bring workers rather than residents: a few per floor
+				r += l.floors if l.use == "office" else maxi(1, l.floors * 2 - int(l.shop))
 				sh += int(l.shop)
 				kits[l.kit] = true
 				hb += int(l.kit == HouseGen.HARBOUR)
