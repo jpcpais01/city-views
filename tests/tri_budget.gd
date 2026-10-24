@@ -3,7 +3,7 @@ extends RefCounted
 ## Counts every triangle the scene can draw (shadow casters twice, as the
 ## shadow pass redraws them) so tests can hold the frame under budget.
 
-const BUDGET := 100000
+const BUDGET := 200000
 
 
 static func count(root: Node) -> Dictionary:

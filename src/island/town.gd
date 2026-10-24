@@ -70,6 +70,8 @@ var _dirty_patches := {}
 var _shown := {}
 var _rising := {}
 var _live := false
+## goes up whenever any building is drawn anew (for what is built round them)
+var revision := 0
 ## how long a new building takes to rise, with a little bounce at the top
 const RISE_TIME := 0.75
 # the town's own clock, for when houses next grow
@@ -122,6 +124,13 @@ class Lot:
 	var use := "home"
 	## what its shop sells, if it has one (HouseGen.TRADES)
 	var trade := ""
+	## how tall the stone base under the house stands where the ground falls away
+	var plinth := 0.0
+	## the height its plot was levelled to when laid out (-INF if never)
+	var level := -INF
+	## the ground its building covers, in its own frame (x along the street, z
+	## going in, negative); empty when the building and its garden fill the plot
+	var foot := Rect2()
 	## the back of the plot in its own frame, left to right: (x along the
 	## street, z going in from it, negative), as deep as the block allows
 	var back := PackedVector2Array()
@@ -879,7 +888,9 @@ func _inner_lot(s: Streets.Street, f: float, c: Vector2, park: bool) -> bool:
 	var ground := land.height_at(c.x, c.y)
 	l.type = "park" if park else "house"
 	if not park:
-		land.pad(poly, ground + 0.02, 1.2, _near_street)
+		var own := l.id
+		l.level = ground + 0.02
+		land.pad(poly, ground + 0.02, 1.2, func(p: Vector2) -> bool: return _near_street(p) or _taken_by_other(p, own))
 	l.kit = HouseGen.kit_at(land, origin)
 	l.sd = int(floor(origin.x * 8.0)) * 73856093 ^ int(floor(origin.y * 8.0)) * 19349663
 	l.street_y = ground + 0.02
@@ -1110,9 +1121,15 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 		kind = "house"
 	l.type = kind
 	# squares and public buildings stand on a level plot all the way back; parks keep their slopes
-	var front := depth if kind != "house" else minf(depth * 0.72, 4.2)
+	# the whole plot is levelled, banks easing out well past it, so houses on a
+	# slope stand on their own terrace and need little or no stone base
 	if kind != "park":
-		land.pad(PackedVector2Array([a, b, b + nb * front, a + na * front]), level, 1.4, _near_street)
+		# (the banks keep off streets and off plots already built on, so a
+		# neighbour's terrace is never dragged up or down by this one)
+		var own := l.id
+		l.level = level
+		land.pad(PackedVector2Array([a, b, b + nb * depth, a + na * depth]), level, 2.4,
+			func(p: Vector2) -> bool: return _near_street(p) or _taken_by_other(p, own))
 	l.kit = HouseGen.kit_at(land, l.origin)
 	# seeded by place, so the same lot always grows the same house
 	var sd := int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663
@@ -1134,11 +1151,20 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 	return l
 
 
-## Whether a ground point is on or right beside a street (levelling keeps off it).
-func _near_street(p: Vector2) -> bool:
+## Whether a ground point is on a plot other than lot `own`.
+func _taken_by_other(p: Vector2, own: int) -> bool:
 	var c := _cell(p)
-	for dz in range(-2, 3):
-		for dx in range(-2, 3):
+	if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
+		return false
+	var o := _occ[c.y * RES + c.x]
+	return o > 0 and o != own
+
+
+## Whether a ground point is on or right beside a street (levelling keeps off it).
+func _near_street(p: Vector2, r := 2) -> bool:
+	var c := _cell(p)
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
 			var x := c.x + dx
 			var z := c.y + dz
 			if x >= 0 and z >= 0 and x < RES and z < RES and _occ[z * RES + x] < 0:
@@ -1177,6 +1203,7 @@ static func _hash(a: int, f: float, b: float) -> float:
 # ------------------------------------------------------------------ meshes
 
 func _commit_patch(c: Vector2i) -> void:
+	revision += 1
 	var sets: Array = []
 	for i in 18:
 		sets.append(null)

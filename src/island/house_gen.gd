@@ -139,7 +139,22 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 		var g := land.height_at(p.x, p.y)
 		lo = minf(lo, g)
 		hi = maxf(hi, g)
-	var y0 := maxf(street_y, (lo + hi) * 0.5 + 0.04)
+	# the floor sits just above the ground the plot was levelled to (or the
+	# ground under it, on a plot never levelled), never below the street
+	var y0 := maxf(street_y, (l.level if l.level > -INF else (lo + hi) * 0.5) + 0.04)
+	# the house's own footprint is dug or banked up to just under its floor,
+	# easing out a little round it (never out over the pavement in front), so
+	# the stone base below only shows where the plot drops away at its edges
+	var foot := PackedVector2Array()
+	for c in [Vector2(hx - hw * 0.5 - 0.3, -setback + 0.02), Vector2(hx + hw * 0.5 + 0.3, -setback + 0.02), Vector2(hx + hw * 0.5 + 0.3, -setback - hd - 0.3), Vector2(hx - hw * 0.5 - 0.3, -setback - hd - 0.3)]:
+		foot.append(l.origin + right * c.x + fwd * c.y)
+	var o := l.origin
+	land.pad(foot, y0 - 0.04, 1.0, func(p: Vector2) -> bool: return (p - o).dot(fwd) > -0.05)
+	lo = INF
+	for c in [Vector2(hx - hw * 0.5, -setback), Vector2(hx + hw * 0.5, -setback), Vector2(hx + hw * 0.5, -setback - hd), Vector2(hx - hw * 0.5, -setback - hd)]:
+		var p: Vector2 = l.origin + right * c.x + fwd * c.y
+		lo = minf(lo, land.height_at(p.x, p.y))
+	l.plinth = y0 - lo
 	# brick and stone terraces are built as matching rows down each side of a street
 	var row := RandomNumberGenerator.new()
 	row.seed = hash([l.street, int(l.side), kit])
@@ -262,9 +277,10 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 			_wing(mk, rng, K, hx + wing.x * hw * 0.25, -setback - hd, hw, wing, floors, dense, wall, we, roof)
 	if not dense:
 		_garden(mk, rng, l, hx, hw, hd, setback, door_x + hx, land, y0, wing)
-	elif l.depth - setback - hd - wing.y > 1.4 and rng.randf() < 0.5:
-		var tz := -setback - hd - wing.y - (l.depth - setback - hd - wing.y) * 0.5
-		_tree(mk, rng, Vector3(lerpf(-0.4, 0.4, rng.randf()) * l.width, 0.0, tz), land, l, y0)
+		l.foot = Rect2()
+	else:
+		# a townhouse leaves the rest of its plot to the yards round it
+		l.foot = Rect2(hx - hw * 0.5, -setback - hd - wing.y, hw, setback + hd + wing.y)
 	# a street lamp on the pavement every few houses
 	if posmod(seed_value, 3) == 0 and not l.inner:
 		CivicGen._lamp(mk, Vector3(l.width * 0.5, street_y - y0, 0.36))
@@ -467,6 +483,10 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	# in a centre, and now and then on a city's main street, the big building is offices
 	var office := rng.randf() < (0.45 if stage >= 4 else (0.2 if main else 0.0))
 	var pts := block_outline(ls)
+	var box := Rect2(pts[0], Vector2.ZERO)
+	for p in pts:
+		box = box.expand(p)
+	h.foot = box
 	var fronts := pts.slice(0, ls.size() + 1)
 	var backs := pts.slice(ls.size() + 1)
 	# the ground under it, and the floor it stands on
