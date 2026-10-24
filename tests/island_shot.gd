@@ -2,7 +2,7 @@ extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one), CV_GROW=radius (paints and grows the town),
-## CV_MARK=kind (looks at that landmark once it stands), CV_PHOTO=1 (photo mode), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
+## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_PHOTO=1 (photo mode), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
 
 
 func _ready() -> void:
@@ -49,6 +49,9 @@ func _ready() -> void:
 		var r := float(OS.get_environment("CV_GROW"))
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 1.0)
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r * 0.8, 1.0)
+		if OS.get_environment("CV_LEVEL") != "":
+			# the Grow level painted over the town (1 village .. 4 centre)
+			island.land.paint_level(Vector3(f.x, 0, f.z), r, float(OS.get_environment("CV_LEVEL")), 2.0)
 		if OS.get_environment("CV_GREEN") != "":
 			# a park painted at x,z,radius
 			var g := OS.get_environment("CV_GREEN").split(",")

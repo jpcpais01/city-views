@@ -23,7 +23,8 @@ const FRONT_GAP := 0.06
 # how deep the strip along a street is that only its own lots may use
 const FRONTAGE := 2.6
 const MAX_DEPTH := 6.0
-const MIN_DEPTH := 2.4
+## how deep a plot must be across the middle of its frontage; its ends may taper
+const MIN_DEPTH := 1.8
 const FH := 0.62
 ## how built-up each stage is (terraced from stage 2 up)
 const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0]
@@ -94,6 +95,30 @@ class Lot:
 	var patch := Vector2i.ZERO
 	var arrays: Array = []
 	var cells := PackedInt32Array()
+	## the back of the plot in its own frame, left to right: (x along the
+	## street, z going in from it, negative), as deep as the block allows
+	var back := PackedVector2Array()
+
+	## How deep the plot is at x across the frontage.
+	func depth_at(x: float) -> float:
+		if back.size() < 2:
+			return depth
+		if x <= back[0].x:
+			return -back[0].y
+		for k in back.size() - 1:
+			if x <= back[k + 1].x:
+				if back[k + 1].x - back[k].x < 0.001:
+					return -back[k + 1].y
+				return -lerpf(back[k].y, back[k + 1].y, inverse_lerp(back[k].x, back[k + 1].x, x))
+		return -back[back.size() - 1].y
+
+	## The plot's shallowest depth anywhere between x0 and x1.
+	func room(x0: float, x1: float) -> float:
+		var d := minf(depth_at(x0), depth_at(x1))
+		for p in back:
+			if p.x > x0 and p.x < x1:
+				d = minf(d, -p.y)
+		return d
 
 
 func setup(l: Land, st: Streets, mat: Material) -> void:
@@ -411,6 +436,29 @@ func keep_stages(d: Dictionary) -> void:
 	_kept_stages = d.duplicate()
 
 
+## How far the house on the plot at p had grown before, if one stood there:
+## the same spot, or near enough, since plots can shift a little when the
+## ground they were levelled on comes back from a save.
+func _take_kept(p: Vector2, width: float) -> int:
+	if _kept_stages.is_empty():
+		return 0
+	var key := _plot_key(p)
+	if not _kept_stages.has(key):
+		key = ""
+		var best := minf(width * 0.5, 1.2)
+		for k: String in _kept_stages:
+			var xz := k.split("_")
+			var d := p.distance_to(Vector2(float(xz[0]) * 0.1, float(xz[1]) * 0.1))
+			if d < best:
+				best = d
+				key = k
+		if key == "":
+			return 0
+	var stage := int(_kept_stages[key])
+	_kept_stages.erase(key)
+	return stage
+
+
 static func _plot_key(p: Vector2) -> String:
 	return "%d_%d" % [roundi(p.x * 10.0), roundi(p.y * 10.0)]
 
@@ -561,71 +609,134 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 	# side lines square to the street, so neighbouring lots share them exactly
 	var na := streets._sidef(s, f0) * side
 	var nb := streets._sidef(s, f1) * side
-	var depth := MAX_DEPTH if s.kind == "main" else MAX_DEPTH - 0.8
-	# share the block with the street behind: lots meet back to back halfway
-	var front_mid := (a + b) * 0.5
-	var t := 0.5
-	while t < depth * 2.0 + 0.5:
-		var c := _cell(front_mid + inward * t)
-		if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES or _occ[c.y * RES + c.x] < 0:
-			depth = minf(depth, snappedf(t * 0.5 - 0.1, 0.5))
-			break
-		t += 0.25
+	var deepest := MAX_DEPTH if s.kind == "main" else MAX_DEPTH - 0.8
+	var ds := _depths(s, a, b, na, nb, deepest)
+	var n := ds.size()
 	var least := MIN_DEPTH
 	if kind == "church":
 		least = 3.5
 	elif kind == "square":
 		least = 3.0
-	while depth >= least:
-		var quad := PackedVector2Array([a, b, b + nb * depth, a + na * depth])
-		var cells := _free_cells(quad, s.id, inward)
-		if not cells.is_empty() and _ground_ok(quad):
-			var l := Lot.new()
-			l.id = _next_id
-			_next_id += 1
-			l.street = s.id
-			l.side = side
-			l.quad = quad
-			l.origin = (a + b) * 0.5
-			# local +Z faces the street
-			l.yaw = atan2(-inward.x, -inward.y)
-			l.width = minf(a.distance_to(b), quad[2].distance_to(quad[3]) * 0.5 + a.distance_to(b) * 0.5)
-			l.depth = depth
-			l.dense = dense
-			l.cells = cells
-			for k in cells:
-				_occ[k] = l.id
-			l.patch = Vector2i(int(floor((l.origin.x + Land.HALF) / PATCH)), int(floor((l.origin.y + Land.HALF) / PATCH)))
-			lots[l.id] = l
-			var street_y := streets._yf(s, fm) + 0.03 + Streets.CURB
-			# terrace the front of the plot, where the house stands, near the street's level
-			var mid := (a + b) * 0.5 + inward * minf(depth * 0.35, 2.0)
-			var level := clampf(land.height_at(mid.x, mid.y), street_y - 0.02, street_y + 0.45)
-			l.type = kind
-			# squares and churches stand on a level plot all the way back; parks keep their slopes
-			var front := depth if kind == "square" or kind == "church" else minf(depth * 0.72, 4.2)
-			if kind != "park":
-				land.pad(PackedVector2Array([a, b, b + nb * front, a + na * front]), level, 1.4, _near_street)
-			l.kit = HouseGen.kit_at(land, l.origin)
-			# seeded by place, so the same lot always grows the same house
-			var sd := int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663
-			l.sd = sd
-			l.street_y = street_y
-			l.main = s.kind == "main"
-			l.cap = cap
-			# a new house starts as a cottage, unless this plot had grown before
-			l.stage = mini(int(_kept_stages.get(_plot_key(l.origin), 0)), cap)
-			_kept_stages.erase(_plot_key(l.origin))
-			l.next_up = _clock + _delay(l, Vector2.ZERO)
-			if kind == "house":
-				l.arrays = HouseGen.build(l, land, street_y, sd, s.kind == "main")
-			else:
-				l.arrays = CivicGen.build(l, land, street_y, sd)
-			reshaped.emit()
-			_dirty_patches[l.patch] = true
-			return l
-		depth -= 0.5
+	# squares, churches and parks are laid out square; houses take the shape
+	# of the block behind them, tapering where it narrows
+	if kind != "house":
+		var flat := INF
+		for d in ds:
+			flat = minf(flat, d)
+		ds.fill(flat)
+	var core := INF
+	for k in range(n / 4, n - n / 4):
+		core = minf(core, ds[k])
+	for attempt in 3:
+		if core < least:
+			return null
+		var poly := PackedVector2Array([a, b])
+		for k in range(n - 1, -1, -1):
+			var u := k / float(n - 1)
+			poly.append(a.lerp(b, u) + na.lerp(nb, u).normalized() * maxf(ds[k], 0.3))
+		var cells := _free_cells(poly, s.id, inward)
+		if not cells.is_empty() and _ground_ok(poly):
+			return _make_lot(s, a, b, na, nb, fm, side, poly, core, cells, dense, kind, cap)
+		for k in n:
+			ds[k] *= 0.8
+		core *= 0.8
 	return null
+
+
+## How deep the block is behind each half metre of a frontage from a to b:
+## up to another plot, a landmark's ground or another street's frontage, or
+## halfway to the street behind, so plots meet back to back.
+func _depths(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vector2, deepest: float) -> PackedFloat32Array:
+	var w := a.distance_to(b)
+	var n := maxi(3, ceili(w / 0.5) + 1)
+	# just inside the side lines, clear of the neighbours' cells
+	var inset := minf(0.26, w * 0.2) / maxf(w, 0.01)
+	var ds := PackedFloat32Array()
+	for k in n:
+		var u := lerpf(inset, 1.0 - inset, k / float(n - 1))
+		var p := a.lerp(b, u)
+		var nrm := na.lerp(nb, u).normalized()
+		var lim := deepest
+		var t := 0.25
+		while t < deepest * 2.0 + 0.5:
+			var c := _cell(p + nrm * t)
+			if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
+				lim = minf(lim, t - 0.25)
+				break
+			var i := c.y * RES + c.x
+			var o := _occ[i]
+			if o < 0 and o != RESERVED:
+				lim = minf(lim, snappedf(t * 0.5 - 0.1, 0.25))
+				break
+			if t > lim:
+				if o != 0:
+					break
+			elif o != 0 or (_front[i] != 0 and _front[i] != s.id and t > FRONTAGE):
+				lim = t - 0.25
+				break
+			t += 0.25
+		ds.append(maxf(lim, 0.0))
+	# no sudden steps from one half metre to the next
+	for k in range(1, n):
+		ds[k] = minf(ds[k], ds[k - 1] + 0.75)
+	for k in range(n - 2, -1, -1):
+		ds[k] = minf(ds[k], ds[k + 1] + 0.75)
+	return ds
+
+
+func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vector2, fm: float, side: float, poly: PackedVector2Array,
+		depth: float, cells: PackedInt32Array, dense: float, kind: String, cap: int) -> Lot:
+	var inward := streets._sidef(s, fm) * side
+	var l := Lot.new()
+	l.id = _next_id
+	_next_id += 1
+	l.street = s.id
+	l.side = side
+	l.quad = poly
+	l.origin = (a + b) * 0.5
+	# local +Z faces the street
+	l.yaw = atan2(-inward.x, -inward.y)
+	l.width = a.distance_to(b)
+	l.depth = depth
+	var right := Vector2(cos(l.yaw), -sin(l.yaw))
+	var fwd := Vector2(sin(l.yaw), cos(l.yaw))
+	for k in range(2, poly.size()):
+		var q := poly[k] - l.origin
+		l.back.append(Vector2(q.dot(right), q.dot(fwd)))
+	if l.back.size() > 1 and l.back[0].x > l.back[l.back.size() - 1].x:
+		l.back.reverse()
+	l.dense = dense
+	l.cells = cells
+	for k in cells:
+		_occ[k] = l.id
+	l.patch = Vector2i(int(floor((l.origin.x + Land.HALF) / PATCH)), int(floor((l.origin.y + Land.HALF) / PATCH)))
+	lots[l.id] = l
+	var street_y := streets._yf(s, fm) + 0.03 + Streets.CURB
+	# terrace the front of the plot, where the house stands, near the street's level
+	var mid := (a + b) * 0.5 + inward * minf(depth * 0.35, 2.0)
+	var level := clampf(land.height_at(mid.x, mid.y), street_y - 0.02, street_y + 0.45)
+	l.type = kind
+	# squares and churches stand on a level plot all the way back; parks keep their slopes
+	var front := depth if kind == "square" or kind == "church" else minf(depth * 0.72, 4.2)
+	if kind != "park":
+		land.pad(PackedVector2Array([a, b, b + nb * front, a + na * front]), level, 1.4, _near_street)
+	l.kit = HouseGen.kit_at(land, l.origin)
+	# seeded by place, so the same lot always grows the same house
+	var sd := int(floor(l.origin.x * 8.0)) * 73856093 ^ int(floor(l.origin.y * 8.0)) * 19349663
+	l.sd = sd
+	l.street_y = street_y
+	l.main = s.kind == "main"
+	l.cap = cap
+	# a new house starts as a cottage, unless this plot had grown before
+	l.stage = mini(_take_kept(l.origin, l.width), cap)
+	l.next_up = _clock + _delay(l, Vector2.ZERO)
+	if kind == "house":
+		l.arrays = HouseGen.build(l, land, street_y, sd, s.kind == "main")
+	else:
+		l.arrays = CivicGen.build(l, land, street_y, sd)
+	reshaped.emit()
+	_dirty_patches[l.patch] = true
+	return l
 
 
 ## Whether a ground point is on or right beside a street (levelling keeps off it).
@@ -651,12 +762,12 @@ func _ground_ok(quad: PackedVector2Array) -> bool:
 
 
 func _green(l: Lot) -> float:
-	var c := (l.quad[0] + l.quad[1]) * 0.5 + (l.quad[3] - l.quad[0]).normalized() * 2.5
+	var c := l.origin - Vector2(sin(l.yaw), cos(l.yaw)) * 2.5
 	return land.green_at(c.x, c.y)
 
 
 func _zone(l: Lot) -> float:
-	var c := (l.quad[0] + l.quad[2]) * 0.5
+	var c := l.origin - Vector2(sin(l.yaw), cos(l.yaw)) * l.depth * 0.5
 	return land.zone_at(c.x, c.y)
 
 

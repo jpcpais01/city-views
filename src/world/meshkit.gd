@@ -625,8 +625,8 @@ func _gable_roof_impl(c: Vector3, w: float, d: float, h: float, over: float, col
 		var side := Vector3.LEFT if gx == gx0 else Vector3.RIGHT
 		tri(Vector3(gx, c.y, c.z + d * 0.5), Vector3(gx, c.y, c.z - d * 0.5), Vector3(gx, yr - 0.02, c.z), gable_col, 0.0, 0.0, side)
 	if not small:
-		# ridge cap
-		box(Vector3(c.x, yr + 0.01, c.z), Vector3(x1 - x0 + 0.04, 0.07, 0.12), col.darkened(0.15))
+		# ridge cap (its ends are a few pixels at most, left open)
+		box_faces(Vector3(c.x, yr + 0.01, c.z), Vector3(x1 - x0 + 0.04, 0.07, 0.12), col.darkened(0.15), TOP | FRONT | BACK)
 
 
 ## Hip / pyramid roof on a w x d footprint at height y.
