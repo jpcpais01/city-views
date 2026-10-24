@@ -1,7 +1,7 @@
 # City Views patch notes
 
-## 2026-10-24 14:23 UTC
-- Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers of twelve floors and more on a podium, in glass, white, stone or brick.
+## 2026-10-24 14:29 UTC
+- Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers on a podium. Where Skyline plots join up downtown, they rise as stepped skyscrapers of twenty to forty floors, many with a spire.
 - New roads on the Street brush: Avenues have a planted middle, two lanes each way and shops along them; Highways carry four fast lanes with nobody living along them. They open at 150 and 400 residents.
 - Bridges: a road drawn across a river, lake or bay crosses on a concrete bridge with parapets and piers, and the water still flows under it.
 - Quays: a street running along the water gets a stone quay wall with a railing and deep water right up to it.
