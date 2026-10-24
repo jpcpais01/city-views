@@ -219,7 +219,7 @@ func _make_goal() -> Dictionary:
 		opts.append([1.0, {"type": "styles", "target": styles + 1, "icon": "star",
 			"text": "Build in %d different styles" % (styles + 1), "reward": Game._nice(pay * 1.4)}])
 	opts.append([0.8, {"type": "harbour", "base": harbour, "target": harbour + 4, "icon": "lighthouse",
-		"text": "Build 4 more homes by the sea", "reward": Game._nice(pay * 1.3)}])
+		"text": "Build 4 more homes by the water", "reward": Game._nice(pay * 1.3)}])
 	var pool: Array = []
 	var total := 0.0
 	for o in opts:

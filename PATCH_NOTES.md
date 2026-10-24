@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 15:00 UTC
+- New kinds of map: pick River valley, Coast, Lake country or Island when you start a new map from the menu.
+- Open maps are no longer islands: the countryside runs on past the edge to the horizon, with a winding river, lakes and a flood plain made for a city.
+- On a Coast map the river widens into an estuary and meets the sea, with beaches and ships passing offshore.
+- Rivers and lakes have grassy, muddy banks and calm, greener water with only a thin lace of foam.
+- A new map now starts as a river valley, with the camera on dry, level ground by the river.
+
 ## 2026-10-24 14:10 UTC
 - Much bigger maps: a new island is now 384 m across, nine times the land, with room for a real city and countryside around it.
 - Your current island carries over exactly as it was, sitting in the middle of the bigger sea.

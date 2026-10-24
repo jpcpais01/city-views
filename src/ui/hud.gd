@@ -65,6 +65,8 @@ var _password: LineEdit
 var _room_code: LineEdit
 var _name_edit: LineEdit
 var _confirm_new := false
+var _new_kind := "river"
+var _kind_btns := {}
 var _undo_btn: Button
 var _menu_card: PanelContainer
 var _redo_btn: Button
@@ -86,7 +88,7 @@ const SOFT := Color("6b7785")
 const CARD := Color(1, 1, 1, 0.9)
 const ACCENT := Color("ff7a6b")
 const MINT := Color("3fae8c")
-const MENU_TABS := [["island", "Island"], ["coop", "Co-op"], ["account", "Account"], ["settings", "Settings"], ["notes", "What's new"]]
+const MENU_TABS := [["island", "City"], ["coop", "Co-op"], ["account", "Account"], ["settings", "Settings"], ["notes", "What's new"]]
 const GLASS := Color(0.9, 0.93, 0.98)
 const GLASS_DARK := Color(0.1, 0.13, 0.18)
 
@@ -332,9 +334,9 @@ func _build_world_page(page: VBoxContainer) -> void:
 		Game.player_name = t if t.strip_edges() != "" else "Mayor")
 	prof.add_child(_name_edit)
 	prof.add_child(_wrap_label("Builders in your co-op room see this name."))
-	var about := _section(page, "This island")
+	var about := _section(page, "This city")
 	_island_name_menu = LineEdit.new()
-	_island_name_menu.placeholder_text = "Your island"
+	_island_name_menu.placeholder_text = "Your city"
 	_island_name_menu.max_length = IslandWorld.NAME_MAX
 	_island_name_menu.text_submitted.connect(func(t): island.set_island_name(t))
 	_island_name_menu.focus_exited.connect(func(): island.set_island_name(_island_name_menu.text))
@@ -342,17 +344,28 @@ func _build_world_page(page: VBoxContainer) -> void:
 	_refresh_island_name()
 	_island_summary = _wrap_label("", 17, true, INK)
 	about.add_child(_island_summary)
-	_new_btn = _button("Start a new island", func(): pass)
+	var kinds := GridContainer.new()
+	kinds.columns = 2
+	kinds.add_theme_constant_override("h_separation", 8)
+	kinds.add_theme_constant_override("v_separation", 8)
+	about.add_child(kinds)
+	for k: String in Land.KINDS:
+		var b := _button(Land.KIND_NAMES[k], func(): _pick_kind(k))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		kinds.add_child(b)
+		_kind_btns[k] = b
+	_pick_kind(_new_kind)
+	_new_btn = _button("Start a new map", func(): pass)
 	_new_btn.pressed.connect(_on_new_island)
 	about.add_child(_new_btn)
-	about.add_child(_wrap_label("A fresh landscape replaces this island. Tap twice to confirm."))
+	about.add_child(_wrap_label("Pick a landscape: a river through open country, a coast with an estuary, lakes, or an island in the sea. It replaces this map. Tap twice to confirm."))
 
 
 ## A name that reads like a title until tapped, then edits in place.
 func _name_field(px: int) -> LineEdit:
 	var e := LineEdit.new()
 	e.max_length = IslandWorld.NAME_MAX
-	e.placeholder_text = "Your island"
+	e.placeholder_text = "Your city"
 	e.expand_to_text_length = true
 	e.flat = true
 	e.caret_blink = true
@@ -392,7 +405,7 @@ func _refresh_stats() -> void:
 
 
 func _on_title(title: String) -> void:
-	show_toast("Your island is now a %s!" % title, "title")
+	show_toast("Your city is now a %s!" % title, "title")
 	Sfx.play("unlock", 0.8)
 	_confetti()
 
@@ -437,17 +450,38 @@ func _save_cloud() -> void:
 	island.save_cloud()
 
 
+## Which landscape "Start a new map" makes.
+func _pick_kind(k: String) -> void:
+	_new_kind = k
+	for key: String in _kind_btns:
+		var b: Button = _kind_btns[key]
+		var on := key == k
+		for st in ["normal", "hover", "pressed"]:
+			if on:
+				b.add_theme_stylebox_override(st, _box(ACCENT, 25, 16, st != "pressed"))
+			else:
+				b.remove_theme_stylebox_override(st)
+		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
+			if on:
+				b.add_theme_color_override(fc, Color.WHITE)
+			else:
+				b.remove_theme_color_override(fc)
+	if _confirm_new:
+		_confirm_new = false
+		_new_btn.text = "Start a new map"
+
+
 func _on_new_island() -> void:
 	if not _confirm_new:
 		_confirm_new = true
-		_new_btn.text = "Tap again to start over"
+		_new_btn.text = "Tap again: new %s" % Land.KIND_NAMES[_new_kind].to_lower()
 		return
 	_confirm_new = false
-	_new_btn.text = "Start a new island"
+	_new_btn.text = "Start a new map"
 	if Net.in_room():
 		Net.leave_room()
 	Sfx.play("unlock", 1.0, -6.0)
-	island.new_island(randi() % 1000000)
+	island.new_island(randi() % 1000000, _new_kind)
 	_set_menu(false)
 
 
@@ -1058,7 +1092,7 @@ func _set_menu(open: bool) -> void:
 		return
 	_menu.visible = open
 	_confirm_new = false
-	_new_btn.text = "Start a new island"
+	_new_btn.text = "Start a new map"
 	if open:
 		_name_edit.text = Game.player_name
 		_show_page(_page)

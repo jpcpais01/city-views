@@ -22,9 +22,18 @@ uniform float grid_size = 128.0;
 
 varying vec3 w_pos;
 
-// metres from the waterline (distance field traced from the terrain's real shore)
-float shore_dist(vec2 xz) {
-	return texture(shore_tex, xz / grid_size + 0.5).r * 16.0;
+// metres from the waterline (distance field traced from the terrain's real shore);
+// past the map's edge (the land running on to the horizon) it is guessed from
+// how deep the water is, `far` (open water where that isn't known)
+float shore_dist(vec2 xz, float far) {
+	vec2 uv = xz / grid_size + 0.5;
+	float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+	return mix(far, texture(shore_tex, uv).r * 16.0, inside);
+}
+
+// 1 on rivers and lakes, 0 on the sea (past the map, as at its nearest edge)
+float fresh_at(vec2 xz) {
+	return texture(shore_tex, xz / grid_size + 0.5).a;
 }
 
 // direction (xy), wavelength, steepness
@@ -37,8 +46,8 @@ const vec4 WAVES[4] = vec4[](
 
 float wave_fade(vec2 xz) {
 	// calmer far from the island so the horizon stays clean, and in the shallows
-	float sd = shore_dist(xz);
-	return (1.0 - smoothstep(120.0, 260.0, length(xz))) * wave_scale * (0.25 + 0.75 * smoothstep(0.0, 5.0, sd));
+	float sd = shore_dist(xz, 16.0);
+	return (1.0 - smoothstep(120.0, 260.0, length(xz))) * wave_scale * (0.25 + 0.75 * smoothstep(0.0, 5.0, sd)) * (1.0 - 0.85 * fresh_at(xz));
 }
 
 // Gerstner swell at xz: returns the offset; tangents written to tx / tz
@@ -118,7 +127,8 @@ void fragment() {
 	float sz;
 	vec3 sp = scene_world(SCREEN_UV, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, sz);
 	float depth0 = clamp(w_pos.y - sp.y, 0.0, 40.0);
-	depth0 = min(depth0, 0.75 + 0.22 * shore_dist(w_pos.xz));
+	float sd = shore_dist(w_pos.xz, clamp(depth0 * 7.0, 0.0, 16.0));
+	depth0 = min(depth0, 0.75 + 0.22 * sd);
 
 	// bend the view through the surface; refuse samples of things above the water
 	vec2 ruv = SCREEN_UV + n_view.xz * 0.045 * clamp(depth0 * 0.8, 0.0, 1.0);
@@ -131,7 +141,7 @@ void fragment() {
 	}
 	// the seabed can't be deeper than its slope from the shore allows; anything
 	// further down is a hairline seam between ground tiles, so read it as seabed
-	float max_depth = 0.75 + 0.22 * shore_dist(w_pos.xz);
+	float max_depth = 0.75 + 0.22 * sd;
 	float depth = clamp(w_pos.y - rp.y, 0.0, max_depth);
 	float path = clamp(VERTEX.z - rz, 0.0, max_depth * 3.0 + 0.5);
 
@@ -144,7 +154,9 @@ void fragment() {
 
 	// light absorption along the path through the water (Beer-Lambert)
 	vec3 trans = exp(-absorb * (path * 0.55 + depth * 0.8));
-	vec3 body = scatter_col * mix(1.0, 0.25, night);
+	float fresh = fresh_at(w_pos.xz);
+	// river and lake water: greener and murkier than the sea
+	vec3 body = mix(scatter_col, vec3(0.03, 0.17, 0.2), fresh) * mix(1.0, 0.25, night);
 	vec3 col = below * trans + body * (1.0 - trans);
 	// sun through the crests: the four swells add up to a regular lattice, so only
 	// the true peaks glow, in drifting patches that break the repetition up
@@ -155,13 +167,15 @@ void fragment() {
 
 	// foam: a soft lace at the waterline plus bands rolling towards the beach
 	float nz = nz2(w_pos.xz * 0.2 + vec2(t * 0.04, -t * 0.027)) * 0.6 + nz2(w_pos.xz * 0.5 - t * 0.05) * 0.4;
-	float sd = shore_dist(w_pos.xz);
 	float edge = 1.0 - smoothstep(0.0, 0.05 + nz * 0.07, depth0);
 	// only where the real shore is: a shallow seabed further out stays clear
 	edge *= 1.0 - smoothstep(0.8, 2.2, sd);
 	float roll = sin(sd * 3.4 + t * 1.7 + nz * 2.2) * 0.5 + 0.5;
 	float bands = smoothstep(0.8, 0.95, roll) * (1.0 - smoothstep(0.3, 2.6, sd)) * smoothstep(0.3, 0.55, nz);
 	float caps = smoothstep(0.075, 0.095, crest) * smoothstep(0.62, 0.8, nz) * 0.5;
+	// rivers and lakes don't break on their banks, just a thin lace
+	edge *= 1.0 - 0.6 * fresh;
+	bands *= 1.0 - fresh;
 	float foam = clamp(max(edge, bands) + caps, 0.0, 1.0);
 	foam = smoothstep(0.35, 0.6, foam);
 
