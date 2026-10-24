@@ -320,6 +320,7 @@ func _update_sky() -> void:
 	city_mat.set_shader_parameter("lit_ratio", lerpf(0.8, 0.35, late))
 	detail_mat.set_shader_parameter("lit_ratio", lerpf(0.8, 0.35, late))
 	water_mat.set_shader_parameter("night", night)
+	Wake.material().set_shader_parameter("night", night)
 	# bloom only matters for lit windows and lamps, so skip its passes by day
 	env.glow_enabled = night > 0.12 and OS.get_environment("CV_NOGLOW") == ""
 	Sfx.night = night

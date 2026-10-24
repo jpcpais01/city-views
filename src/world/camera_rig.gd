@@ -21,7 +21,7 @@ var limit := 64.0
 const MIN_D := 9.0
 ## how far the player may tilt the view from the zoom's own tilt: up towards
 ## the horizon (negative) and down towards straight below
-const MIN_TILT := deg_to_rad(-32.0)
+const MIN_TILT := deg_to_rad(-58.0)
 const MAX_TILT := deg_to_rad(15.0)
 const MAX_D := 184.0
 ## past this the camera only pulls back, looking down a little more steeply
@@ -45,7 +45,7 @@ func pitch_for(d: float) -> float:
 
 ## How steeply the camera looks down now, zoom and tilt together.
 func view_pitch() -> float:
-	return clampf(pitch_for(dist) + tilt, deg_to_rad(8.0), deg_to_rad(86.0))
+	return clampf(pitch_for(dist) + tilt, deg_to_rad(3.0), deg_to_rad(86.0))
 
 
 func pan_screen(delta: Vector2) -> void:
@@ -88,7 +88,11 @@ func _process(delta: float) -> void:
 	var ground := _ground_height(target)
 	var focus_p := Vector3(target.x, ground, target.z)
 	var off := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * dist
-	cam.global_position = focus_p + off
+	var at := focus_p + off
+	# looking across the town from the side, the camera never sinks into a hill
+	if ground_fn.is_valid():
+		at.y = maxf(at.y, float(ground_fn.call(at.x, at.z)) + 0.8)
+	cam.global_position = at
 	cam.look_at(focus_p, Vector3.UP)
 
 

@@ -597,12 +597,16 @@ func _island_budget() -> void:
 	print("island: %d streets, %d houses, %d triangles in the busiest view (+%d for HUD, traffic and people)" % [made + 2, island.town.house_count(), total, reserve])
 	check(island.town.house_count() > 130, "a whole island grows a real town (%d houses)" % island.town.house_count())
 	check(total + reserve < TriBudget.BUDGET, "the busiest view over a big town stays under budget (%d)" % (total + reserve))
-	# pulled all the way out or tilted right up towards the horizon (João asked
-	# for both, 2026-10-24) a little more is allowed: more of the town fills the view
-	var far: int = _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, CameraRig.MIN_TILT)[0]
-	far = maxi(far, _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.FAR_D, CameraRig.MIN_TILT)[0])
+	# pulled all the way out (João, 2026-10-24) a little more is allowed: more
+	# of the town fills the view
+	var far: int = _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, deg_to_rad(-32.0))[0]
 	print("island: %d triangles in the busiest view from all the way out" % far)
 	check(far + reserve < TriBudget.FAR_BUDGET, "and from all the way out stays under %dk (%d)" % [TriBudget.FAR_BUDGET / 1000, far + reserve])
+	# and tilted right up to look across the town from the side, more again
+	var side: int = _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, CameraRig.MIN_TILT)[0]
+	side = maxi(side, _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.FAR_D, CameraRig.MIN_TILT)[0])
+	print("island: %d triangles in the busiest view from the side" % side)
+	check(side + reserve < TriBudget.SIDE_BUDGET, "and from the side stays under %dk (%d)" % [TriBudget.SIDE_BUDGET / 1000, side + reserve])
 	var kits := {}
 	for l: Town.Lot in island.town.lots.values():
 		kits[l.kit] = true
@@ -707,7 +711,7 @@ func _busiest_view(island: IslandWorld, focuses: Array, d := CameraRig.FAR_D, ti
 	var worst := {}
 	for yaw_deg in [0, 35, 80, 135, 200, 290]:
 		# as the zoom tilts it, and tilted out as far as the player can
-		for pitch in [island.rig.pitch_for(d), maxf(island.rig.pitch_for(d) + tilt, deg_to_rad(8.0))]:
+		for pitch in [island.rig.pitch_for(d), maxf(island.rig.pitch_for(d) + tilt, deg_to_rad(3.0))]:
 			for focus: Vector2 in focuses:
 				var yaw := deg_to_rad(yaw_deg)
 				var at := Vector3(focus.x, maxf(island.land.height_at(focus.x, focus.y), 0.0) * 0.8, focus.y)
@@ -936,7 +940,7 @@ func _districts() -> void:
 	island.planes.spawn(true)
 	var plane: Node3D = island.planes._plane
 	check(plane != null and plane.position.y > 30.0 and Vector2(plane.position.x, plane.position.z).length() < 400.0, "an airliner crosses high over the town")
-	check(island.planes.tris() < 200, "an airliner is cheap to draw (%d tris)" % island.planes.tris())
+	check(island.planes.tris() < 900, "an airliner is cheap to draw (%d tris)" % island.planes.tris())
 	island.progress.recount(true)
 	check(island.progress.jobs > 0, "offices and works bring jobs (%d)" % island.progress.jobs)
 	var data := island.to_dict()

@@ -74,44 +74,85 @@ func _add_mm(mm: MultiMesh, shadow: GeometryInstance3D.ShadowCastingSetting) -> 
 func _sailboat() -> ArrayMesh:
 	var mk := MeshKit.new(11)
 	var hull: Color = HULL_COLORS[0]
-	# hull along local +Z, pointed bow
-	mk.rbox(Vector3(0, 0.08, -0.08), Vector3(0.42, 0.16, 0.9), 0.07, hull)
-	mk.push(Transform3D(Basis(Vector3.UP, PI * 0.25), Vector3(0, 0.08, 0.36)))
-	mk.rbox(Vector3.ZERO, Vector3(0.3, 0.16, 0.3), 0.06, hull)
-	mk.pop()
-	mk.box(Vector3(0, 0.165, -0.05), Vector3(0.34, 0.02, 0.7), Color("c99a6b"))
-	mk.box(Vector3(0, 0.2, -0.26), Vector3(0.24, 0.08, 0.2), Color("e9e4d8"))
-	mk.cylinder(Vector3(0, 0.16, 0.12), 0.018, 1.25, 5, Color("8a6a4a"))
-	# mainsail and jib as thin double-sided wedges
-	var sail: Color = SAIL_COLORS[0]
-	var a := Vector3(0, 0.3, 0.1)
-	var b := Vector3(0, 1.38, 0.12)
-	var c := Vector3(0, 0.3, -0.42)
-	mk.tri(a, b, c, sail, 0.0, 0.0, Vector3.RIGHT)
-	mk.tri(a, b, c, sail, 0.0, 0.0, Vector3.LEFT)
-	var d := Vector3(0, 0.26, 0.52)
-	var e := Vector3(0, 1.2, 0.14)
-	var f := Vector3(0, 0.3, 0.16)
-	mk.tri(d, e, f, SAIL_COLORS[1], 0.0, 0.0, Vector3.RIGHT)
-	mk.tri(d, e, f, SAIL_COLORS[1], 0.0, 0.0, Vector3.LEFT)
+	var teak := Color("c99a6b")
+	var steel := Color(0.78, 0.8, 0.82)
+	# a sleek hull with a raked bow and a sheer rising towards it (bow along +Z)
+	BoatKit.hull(mk, [Vector4(-0.5, 0.19, 0.2, 0.02), Vector4(-0.25, 0.23, 0.19, -0.06), Vector4(0.05, 0.235, 0.195, -0.08),
+		Vector4(0.3, 0.19, 0.21, -0.06), Vector4(0.5, 0.1, 0.235, 0.0), Vector4(0.63, 0.0, 0.265, 0.13)], hull, Color("2b3f5c"), 0.06, teak)
+	# a blue boot stripe along the waterline
+	for sx: float in [-1.0, 1.0]:
+		mk.quad(Vector3(sx * 0.236, 0.075, -0.4), Vector3(sx * 0.236, 0.075, 0.25), Vector3(sx * 0.236, 0.095, 0.25), Vector3(sx * 0.236, 0.095, -0.4), Vector3(sx, 0, 0), Color("3d6fa8"))
+	# the cabin roof with its portholes, and the cockpit behind it
+	mk.box_faces(Vector3(0, 0.235, -0.02), Vector3(0.27, 0.08, 0.38), Color("f2f1ec"), MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	for sx: float in [-1.0, 1.0]:
+		mk.quad(Vector3(sx * 0.136, 0.22, -0.15), Vector3(sx * 0.136, 0.22, 0.1), Vector3(sx * 0.136, 0.25, 0.1), Vector3(sx * 0.136, 0.25, -0.15), Vector3(sx, 0, 0), Color(0.16, 0.22, 0.3), 1.0, 0.4)
+	mk.box_faces(Vector3(0, 0.196, -0.33), Vector3(0.26, 0.004, 0.22), teak.darkened(0.25), MeshKit.TOP)
+	# mast, boom, and the stays and shrouds holding it up
+	var foot := Vector3(0, 0.2, 0.1)
+	var top := Vector3(0, 1.45, 0.11)
+	mk.cylinder(foot, 0.018, 1.25, 6, Color("d9dde2"))
+	BoatKit.line(mk, Vector3(0, 0.33, 0.1), Vector3(0, 0.35, -0.46), 0.025, steel)
+	BoatKit.line(mk, top, Vector3(0, 0.27, 0.63), 0.008, Color(0.3, 0.32, 0.35))
+	BoatKit.line(mk, top, Vector3(0, 0.21, -0.5), 0.008, Color(0.3, 0.32, 0.35))
+	for sx: float in [-1.0, 1.0]:
+		BoatKit.line(mk, Vector3(0, 1.05, 0.1), Vector3(sx * 0.22, 0.2, 0.1), 0.007, Color(0.3, 0.32, 0.35))
+	# a full mainsail with a coloured band at its foot, and the jib ahead of it
+	BoatKit.sail(mk, Vector3(0, 0.36, 0.08), Vector3(0, 1.42, 0.1), Vector3(0, 0.37, -0.44), Vector3(0.07, 0, 0), SAIL_COLORS[0], SAIL_COLORS[2])
+	BoatKit.sail(mk, Vector3(0, 0.28, 0.6), Vector3(0, 1.22, 0.13), Vector3(0.05, 0.31, 0.04), Vector3(0.06, 0, 0), SAIL_COLORS[1])
+	# lifelines round the deck from the pushpit to the pulpit
+	for sx: float in [-1.0, 1.0]:
+		var rail := [Vector3(sx * 0.18, 0.28, -0.47), Vector3(sx * 0.22, 0.275, -0.15), Vector3(sx * 0.21, 0.28, 0.2), Vector3(sx * 0.1, 0.315, 0.5)]
+		for k in 3:
+			BoatKit.line(mk, rail[k], rail[k + 1], 0.01, steel)
 	# mast-top lantern for night sailing
-	mk.box(Vector3(0, 1.42, 0.12), Vector3(0.05, 0.05, 0.05), Color(1, 0.9, 0.6), null, false, 2.0)
+	mk.box(Vector3(0, 1.47, 0.11), Vector3(0.05, 0.05, 0.05), Color(1, 0.9, 0.6), null, false, 2.0)
 	_shadow_mesh = mk.commit_shadow(Palette.shadow_material())
-	return mk.commit(material)
+	var m := mk.commit(material)
+	Wake.add(m, Vector3(0, 0.075, -0.5), Vector3.BACK, Vector3.RIGHT, 2.2, 0.36)
+	return m
 
 
 func _fishing_boat() -> ArrayMesh:
 	var mk := MeshKit.new(12)
 	var hull: Color = HULL_COLORS[2]
-	mk.rbox(Vector3(0, 0.1, 0), Vector3(0.5, 0.2, 1.1), 0.08, hull)
-	mk.box(Vector3(0, 0.205, 0), Vector3(0.42, 0.02, 0.98), Color("f5f5f2"))
-	mk.rbox(Vector3(0, 0.36, -0.2), Vector3(0.34, 0.3, 0.34), 0.05, Color("f5f5f2"), Color("3d5f8f"))
-	mk.window(Vector3(0, 0.4, -0.03), Vector3.BACK, 0.22, 0.1, Color(0.25, 0.32, 0.4), Color(0, 0, 0, 0), true)
-	mk.cylinder(Vector3(0, 0.5, -0.28), 0.03, 0.18, 6, Color("2b2b30"))
-	mk.cylinder(Vector3(0, 0.2, 0.3), 0.015, 0.55, 5, Color("8a6a4a"))
-	mk.box(Vector3(0, 0.62, 0.3), Vector3(0.06, 0.06, 0.06), Color(1, 0.9, 0.6), null, false, 2.0)
+	var white := Color("f5f5f2")
+	# a beamy working hull with a high bow (bow along +Z)
+	BoatKit.hull(mk, [Vector4(-0.52, 0.25, 0.3, 0.04), Vector4(-0.25, 0.28, 0.28, -0.07), Vector4(0.1, 0.275, 0.29, -0.09),
+		Vector4(0.38, 0.2, 0.34, -0.05), Vector4(0.6, 0.0, 0.42, 0.14)], hull, Color("1f2a3a"), 0.06, Color(0.82, 0.82, 0.8))
+	# a white gunwale round the deck
+	for sx: float in [-1.0, 1.0]:
+		BoatKit.line(mk, Vector3(sx * 0.25, 0.32, -0.52), Vector3(sx * 0.28, 0.3, -0.25), 0.03, white)
+		BoatKit.line(mk, Vector3(sx * 0.28, 0.3, -0.25), Vector3(sx * 0.275, 0.31, 0.1), 0.03, white)
+		BoatKit.line(mk, Vector3(sx * 0.275, 0.31, 0.1), Vector3(sx * 0.2, 0.36, 0.38), 0.03, white)
+		BoatKit.line(mk, Vector3(sx * 0.2, 0.36, 0.38), Vector3(0, 0.44, 0.6), 0.03, white)
+	# the wheelhouse: windows all round under a blue roof
+	mk.box(Vector3(0, 0.43, 0.08), Vector3(0.34, 0.26, 0.3), white)
+	mk.box_faces(Vector3(0, 0.575, 0.08), Vector3(0.4, 0.03, 0.38), Color("3d5f8f"), MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.window_row(Vector3(0, 0.49, 0.231), Vector3.BACK, 0.28, 3, 0.08, 0.07, Color(0.25, 0.32, 0.4), false)
+	for sx: float in [-1.0, 1.0]:
+		mk.window_row(Vector3(sx * 0.171, 0.49, 0.08), Vector3(sx, 0, 0), 0.24, 2, 0.08, 0.07, Color(0.25, 0.32, 0.4), false)
+	# a funnel, the mast with its lights and radar, and outriggers swung out
+	mk.cylinder(Vector3(0.09, 0.56, -0.05), 0.035, 0.16, 6, Color("2b2b30"))
+	var mast := Vector3(0, 0.59, 0.12)
+	mk.cylinder(mast, 0.015, 0.42, 5, Color("e8e6e0"))
+	BoatKit.line(mk, mast + Vector3(-0.1, 0.32, 0), mast + Vector3(0.1, 0.32, 0), 0.025, Color("2b2b30"))
+	for sx: float in [-1.0, 1.0]:
+		BoatKit.line(mk, Vector3(sx * 0.2, 0.32, 0.0), Vector3(sx * 0.62, 0.78, -0.15), 0.018, Color("8a6a4a"))
+		BoatKit.line(mk, Vector3(sx * 0.62, 0.78, -0.15), Vector3(sx * 0.7, 0.07, -0.3), 0.006, Color(0.3, 0.3, 0.3))
+	# an A-frame and a net drum at the stern, crates and orange floats on deck
+	for sx: float in [-1.0, 1.0]:
+		BoatKit.line(mk, Vector3(sx * 0.2, 0.3, -0.48), Vector3(sx * 0.12, 0.62, -0.42), 0.025, Color("f2b33d"))
+	BoatKit.line(mk, Vector3(-0.12, 0.62, -0.42), Vector3(0.12, 0.62, -0.42), 0.025, Color("f2b33d"))
+	BoatKit.tube(mk, Vector3(-0.15, 0.38, -0.3), Vector3.RIGHT, 0.3, 0.07, 0.07, 8, Color("3f8f4a"), true, Color("2b2b30"))
+	mk.box(Vector3(-0.12, 0.33, -0.12), Vector3(0.12, 0.08, 0.1), Color("3d6fa8"))
+	mk.box(Vector3(0.13, 0.33, -0.14), Vector3(0.1, 0.08, 0.1), Color("3d6fa8").lightened(0.15))
+	for k in 3:
+		mk.box(Vector3(-0.2 + k * 0.2, 0.33, 0.33), Vector3(0.06, 0.06, 0.06), Color("f08a24"))
+	mk.box(mast + Vector3(0, 0.44, 0), Vector3(0.06, 0.06, 0.06), Color(1, 0.9, 0.6), null, false, 2.0)
 	_shadow_mesh = mk.commit_shadow(Palette.shadow_material())
-	return mk.commit(material)
+	var m := mk.commit(material)
+	Wake.add(m, Vector3(0, 0.075, -0.52), Vector3.BACK, Vector3.RIGHT, 2.0, 0.5)
+	return m
 
 
 func _gull() -> ArrayMesh:

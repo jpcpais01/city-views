@@ -180,6 +180,12 @@ func _ready() -> void:
 		var sh: Dictionary = island.ships._ships[-1]
 		var sp: Vector2 = sh.a + sh.dir * sh.d
 		island.rig.focus(Vector3(sp.x, 0, sp.y))
+	if OS.get_environment("CV_BOAT") != "":
+		# a close look at the first boat of that kind (0 sailing, 1 fishing)
+		for b in island.wildlife._boats:
+			if b.kind == int(OS.get_environment("CV_BOAT")):
+				island.rig.focus(b.p)
+				break
 	if OS.get_environment("CV_LOOK") != "":
 		# look somewhere else than where the town was grown from
 		var parts := OS.get_environment("CV_LOOK").split(",")
