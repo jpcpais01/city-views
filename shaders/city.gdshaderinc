@@ -134,6 +134,20 @@ void fragment() {
 				grass *= 1.0 - farm;
 			}
 		}
+		// paving between the buildings of a dense town (Land.paved, in COLOR.a):
+		// big stone slabs in staggered rows, each a slightly different tone
+		float paved = 1.0 - COLOR.a;
+		if (paved > 0.01) {
+			vec2 q = p * vec2(1.4, 2.1);
+			q.x += mod(floor(q.y), 2.0) * 0.5;
+			vec2 sc = floor(q);
+			vec2 sf = abs(fract(q) - 0.5);
+			float saa = length(fwidth(q));
+			float joint = smoothstep(0.46 - saa, 0.5, max(sf.x, sf.y)) * (1.0 - smoothstep(0.25, 0.6, saa));
+			float tone = 0.93 + 0.12 * g_hash(sc + 19.0) + (broad - 0.5) * 0.06;
+			base = mix(base, base * tone * mix(1.0, 0.8, joint), paved);
+			grass *= 1.0 - paved;
+		}
 		// fine grain: blades, sand grains and grit, fading out before it can shimmer
 		float fw = length(fwidth(p));
 		float grain = g_noise(p * 5.3) * 0.6 + g_noise(p * 13.0) * 0.4;

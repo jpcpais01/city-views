@@ -31,9 +31,6 @@ const NUDGES: Array[Vector2] = [Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.
 # open ground counts as inside the town when buildings or streets lie
 # within this many metres of it in most directions
 const ENCLOSE := 11.0
-const PAVING := Color(0.84, 0.8, 0.74)
-const COBBLES := Color(0.72, 0.69, 0.65)
-const YARD_TAR := Color(0.55, 0.56, 0.58)
 const IRON := Color(0.22, 0.24, 0.27)
 const WOOD := Color(0.55, 0.4, 0.28)
 
@@ -324,12 +321,11 @@ func _enclosed(p: Vector2) -> bool:
 	return hits >= 6 and (homes >= 2 or world.land.zone_at(p.x, p.y) >= 0.15)
 
 
-## A pocket park on open ground in the middle of a block: a mown lawn with
-## a gravel path across it, trees, a bench or two and a flower bed.
+## A pocket park on open ground in the middle of a block: a gravel path
+## across the grass, trees, a bench or two and a flower bed.
 func _pocket(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2) -> void:
 	var y := world.land.height_at(p.x, p.y)
 	mk.push_at(Vector3(p.x, y, p.y), (rng.randi() % 4) * PI * 0.5)
-	_patch(mk, p, y, Vector2(0.98, 0.98), Palette.LEAF[rng.randi() % Palette.LEAF.size()].lightened(0.1), MeshKit.MOWN_X)
 	mk.shadow = false
 	var a := Vector3(-0.98, 0, 0.15)
 	var b := Vector3(0.98, 0, -0.15)
@@ -398,7 +394,6 @@ func _corner(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -
 	var roll := rng.randf()
 	if tall and roll < 0.35:
 		# bins by a back door
-		_patch(mk, p, y, Vector2(0.5, 0.4), YARD_TAR, MeshKit.ASPHALT)
 		var bins := [Color("3d7a4a"), Color("5c6670"), Color("3d5f8f")]
 		for k in 3:
 			var b := Vector3(-0.18 + k * 0.18, _ground(Vector3(-0.18 + k * 0.18, 0, 0), y, mk), 0)
@@ -407,15 +402,13 @@ func _corner(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -
 		# a tree in a planter, or straight in the grass
 		var c := Vector3(0, _ground(Vector3.ZERO, y, mk), 0)
 		if tall:
-			_patch(mk, p, y, Vector2(0.5, 0.5), PAVING, MeshKit.SLABS)
 			mk.shadow = false
 			mk.box_faces(c + Vector3(0, 0.08, 0), Vector3(0.42, 0.16, 0.42), Color(0.78, 0.74, 0.68), MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
 			mk.shadow = true
 			c.y += 0.16
 		_tree(mk, rng, c, 0.85)
 	elif roll < 0.8:
-		# a bench under a lamp, on a little paved spot
-		_patch(mk, p, y, Vector2(0.45, 0.35), PAVING, MeshKit.SLABS)
+		# a bench under a lamp
 		CivicGen._bench(mk, Vector3(0, _ground(Vector3.ZERO, y, mk), 0), 0.0)
 		CivicGen._lamp(mk, Vector3(0.38, _ground(Vector3(0.38, 0, -0.1), y, mk), -0.1))
 	else:
@@ -432,20 +425,6 @@ func _corner(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -
 
 # ------------------------------------------------------------------ ground
 
-## A patch of ground cover laid over the lie of the land (yard-local, half
-## size h), each corner at its own height so slopes never show a gap.
-func _patch(mk: MeshKit, p: Vector2, y: float, h: Vector2, col: Color, e := 0.0) -> void:
-	var xf := mk.xf
-	var pts: Array[Vector3] = []
-	for c in [Vector2(-h.x, h.y), Vector2(h.x, h.y), Vector2(h.x, -h.y), Vector2(-h.x, -h.y)]:
-		var w := xf * Vector3(c.x, 0, c.y)
-		pts.append(Vector3(c.x, world.land.height_at(w.x, w.z) - y + 0.025, c.y))
-	var was := mk.shadow
-	mk.shadow = false
-	mk.quad(pts[0], pts[1], pts[2], pts[3], Vector3.UP, col, e)
-	mk.shadow = was
-
-
 func _ground(p: Vector3, y: float, mk: MeshKit) -> float:
 	var w := mk.xf * Vector3(p.x, 0, p.z)
 	return world.land.height_at(w.x, w.z) - y
@@ -453,11 +432,9 @@ func _ground(p: Vector3, y: float, mk: MeshKit) -> float:
 
 # ------------------------------------------------------------------ yards
 
-## A back garden: a lawn, a hedge or fence along one side, flowers, and one
+## A back garden: a hedge or fence along one side, flowers, and one
 ## of a shed, a vegetable patch, washing, a trampoline or a paddling pool.
 func _garden(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> void:
-	var lawn: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()].lightened(0.08)
-	_patch(mk, p, y, Vector2(0.92, 0.92), lawn)
 	mk.shadow = false
 	var hedge := rng.randf() < 0.5
 	var fc: Color = Palette.LEAF[rng.randi() % Palette.LEAF.size()].darkened(0.25) if hedge else [Color(0.97, 0.97, 0.95), Color(0.62, 0.46, 0.33)][rng.randi() % 2]
@@ -530,10 +507,9 @@ func _garden(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> v
 		mk.blob(c + Vector3(0, _ground(c, y, mk) + 0.06, 0), Vector3(0.06, 0.05, 0.06), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.03)
 
 
-## A paved courtyard among taller buildings: a tree in a raised planter,
+## A courtyard among taller buildings: a tree in a raised planter,
 ## benches, bicycles and pots of flowers.
 func _court(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> void:
-	_patch(mk, p, y, Vector2(0.95, 0.95), PAVING if rng.randf() < 0.6 else COBBLES, MeshKit.SLABS)
 	var c := Vector3(0, _ground(Vector3.ZERO, y, mk), 0)
 	mk.shadow = false
 	mk.box_faces(c + Vector3(0, 0.08, 0), Vector3(0.5, 0.16, 0.5), Color(0.78, 0.74, 0.68), MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
@@ -561,16 +537,10 @@ func _court(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> vo
 		mk.blob(pc + Vector3(0, 0.2, 0), Vector3(0.11, 0.09, 0.11), Palette.FLOWERS[rng.randi() % Palette.FLOWERS.size()], 0.03)
 
 
-## A service yard behind offices or a block: tarmac, bins, a parked van or
+## A service yard behind offices or a block: bins, a parked van or
 ## car, and a stack of pallets.
 func _service(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> void:
-	_patch(mk, p, y, Vector2(0.95, 0.95), YARD_TAR, MeshKit.ASPHALT)
-	# painted bay lines
 	var g := _ground(Vector3.ZERO, y, mk)
-	mk.shadow = false
-	for sx: float in [-0.9, 0.0, 0.9]:
-		mk.box_faces(Vector3(sx, g + 0.03, 0.2), Vector3(0.03, 0.0, 1.0), Color(0.95, 0.95, 0.92), MeshKit.TOP)
-	mk.shadow = true
 	# a car or a little van in one bay
 	var bay := -0.45 if rng.randf() < 0.5 else 0.45
 	var car: Color = Palette.AWNINGS[rng.randi() % Palette.AWNINGS.size()].lerp(Color(0.9, 0.9, 0.9), 0.25)
@@ -598,10 +568,9 @@ func _service(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> 
 		mk.box_faces(b + Vector3(0.02, 0.15, -0.02), Vector3(0.22, 0.14, 0.22), Color("a87b50"), MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT | MeshKit.BACK)
 
 
-## A café terrace: paving, tables under parasols with chairs round them,
+## A café terrace: tables under parasols with chairs round them,
 ## planters, and a string of lights overhead that glows at night.
 func _terrace(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> void:
-	_patch(mk, p, y, Vector2(0.95, 0.95), PAVING.lerp(Color(0.86, 0.7, 0.58), 0.35), MeshKit.SLABS)
 	var g := _ground(Vector3.ZERO, y, mk)
 	var awn: Color = Palette.AWNINGS[rng.randi() % Palette.AWNINGS.size()]
 	for k in 3:
@@ -627,9 +596,8 @@ func _terrace(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> 
 	mk.shadow = true
 
 
-## A little green: grass, a tree or two, a bench and a round flower bed.
+## A little green: a tree or two, a bench and a round flower bed.
 func _green(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> void:
-	_patch(mk, p, y, Vector2(0.95, 0.95), Palette.LEAF[rng.randi() % Palette.LEAF.size()].lightened(0.12), MeshKit.MOWN_X)
 	var t := Vector3(rng.randf_range(-0.4, 0.4), 0, -0.4)
 	_tree(mk, rng, t + Vector3(0, _ground(t, y, mk), 0), 1.1)
 	if rng.randf() < 0.5:
