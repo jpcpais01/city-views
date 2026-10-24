@@ -92,6 +92,21 @@ func _ready() -> void:
 			frames += 1
 			last = now
 		print("live: %d streets, %d houses, slowest frame %d ms, %d of %d frames over 16 ms" % [island.streets.streets.size(), island.town.house_count(), worst / 1000, slow, frames])
+	if OS.get_environment("CV_TOP") != "":
+		# straight down at the camera's focus, CV_TOP metres across, no HUD
+		hud.visible = false
+		hud.set_photo(true)
+		var cam := Camera3D.new()
+		cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+		cam.size = float(OS.get_environment("CV_TOP"))
+		var at: Vector3 = island.rig._t_target
+		if OS.get_environment("CV_LOOK") != "":
+			var parts := OS.get_environment("CV_LOOK").split(",")
+			at = Vector3(float(parts[0]), 0, float(parts[1]))
+		cam.far = 400.0
+		add_child(cam)
+		cam.look_at_from_position(at + Vector3(0, island.land.height_at(at.x, at.z) + 12.0, 0.01), at, Vector3.FORWARD)
+		cam.make_current()
 	if OS.get_environment("CV_PHOTO") != "":
 		hud.set_photo(true)
 	if OS.get_environment("CV_MENU") != "":

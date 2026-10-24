@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-24 02:35 UTC
+- Street junctions are rebuilt: where streets meet or cross, the road now joins as one smooth piece with no seams, holes or grass poking through, even on hills.
+- Every corner gets a rounded kerb and pavement, whatever the angle, including sharp forks and wide bends that used to end in jagged edges.
+- Small churches now fit on tighter blocks, so busy towns get their church or square more reliably.
+
 ## 2026-10-24 02:20 UTC
 - The Grow brush now has four levels: Village, Town, City and Centre. Pick one from the bar above the brushes to set how tall that part of town can get.
 - Each house aims for about the level painted around it, with some natural variety, so neighbourhoods feel mixed instead of uniform.

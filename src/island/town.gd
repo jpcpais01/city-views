@@ -537,6 +537,8 @@ func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float
 	if land.green_at(q.x, q.y) > 0.5:
 		return "park"
 	var h := _hash(s.id, f, side * 7.0)
+	# squares and churches go by the area's level, not one plot's own luck
+	dense = maxf(dense, STAGE_DENSE[clampi(roundi(land.level_at(q.x, q.y)), 0, 4)])
 	if s.kind == "main" and dense > 0.7 and h < 0.25 and _civic_near(q, "square", 48.0) == null:
 		return "square"
 	if dense > 0.5 and h > 0.88 and _civic_near(q, "church", 60.0) == null and _civic_near(q, "square", 14.0) == null:
@@ -571,9 +573,9 @@ func _try_lot(s: Streets.Street, f0: float, f1: float, side: float, off: float, 
 		t += 0.25
 	var least := MIN_DEPTH
 	if kind == "church":
-		least = 4.5
-	elif kind == "square":
 		least = 3.5
+	elif kind == "square":
+		least = 3.0
 	while depth >= least:
 		var quad := PackedVector2Array([a, b, b + nb * depth, a + na * depth])
 		var cells := _free_cells(quad, s.id, inward)
