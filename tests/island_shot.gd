@@ -85,9 +85,13 @@ func _ready() -> void:
 		if OS.get_environment("CV_DISTRICTS") != "":
 			# an industrial quarter to one side and an office quarter to the other
 			print("districts around ", f)
+			# CV_DLEVEL raises the offices and shops (and the homes between them) to that level
+			var top := float(OS.get_environment("CV_DLEVEL")) if OS.get_environment("CV_DLEVEL") != "" else 0.0
+			if top > 0.0:
+				island.land.paint_level(Vector3(f.x, 0, f.z), r, top, 9.0, HouseGen.HOMES)
 			island.land.paint_level(Vector3(f.x - r * 0.6, 0, f.z), r * 0.4, 4.0, 9.0, HouseGen.INDUSTRY)
-			island.land.paint_level(Vector3(f.x + r * 0.6, 0, f.z), r * 0.4, 5.0, 9.0, HouseGen.OFFICES)
-			island.land.paint_level(Vector3(f.x, 0, f.z + r * 0.6), r * 0.35, 3.0, 9.0, HouseGen.SHOPS)
+			island.land.paint_level(Vector3(f.x + r * 0.6, 0, f.z), r * 0.4, maxf(5.0, top), 9.0, HouseGen.OFFICES)
+			island.land.paint_level(Vector3(f.x, 0, f.z + r * 0.6), r * 0.35, maxf(3.0, top), 9.0, HouseGen.SHOPS)
 		if OS.get_environment("CV_GREEN") != "":
 			# a park painted at x,z,radius
 			var g := OS.get_environment("CV_GREEN").split(",")

@@ -1,10 +1,11 @@
 # City Views patch notes
 
 ## 2026-10-24 19:00 UTC
-- Undo and Redo are instant: they only put back what your last stroke changed instead of reloading the whole city.
-- Taking up a street is much quicker too.
+- Undo and Redo are instant: they only put back what your last stroke changed instead of reloading the whole city, and taking up a street is much quicker too.
 - Time of day in Settings: leave it on Auto, or hold your city at Sunrise, Day, Sunset or Night.
 - On PC, hold the right mouse button and slide up or down to tilt the camera; left and right still turns it.
+- Every district keeps its own look all the way up: homes grow into balconied residential towers with roof gardens, and only business districts grow offices.
+- Shopping districts grow department stores, cinemas with lit marquees and shopping malls with glass domes and rooftop parking, then a Ferris wheel and a floodlit stadium.
 
 ## 2026-10-24 18:10 UTC
 - Smoke curls up from the chimney stacks of the big works in industrial districts and drifts away on the wind.
