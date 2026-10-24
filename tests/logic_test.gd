@@ -39,6 +39,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "updates":
+		await _update_check()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "bridges":
 		await _bridges()
 		print("FAILURES: %d" % failures)
@@ -50,6 +55,7 @@ func _ready() -> void:
 		get_tree().quit(1 if failures > 0 else 0)
 		return
 	_streets()
+	await _update_check()
 	_street_snap()
 	await _live_matches_full()
 	await _junction_fuzz()
@@ -765,6 +771,40 @@ func _island_skyline() -> void:
 
 ## Fields cover open country but keep clear of the town and its parks, and
 ## the woods leave them open.
+## The Settings page's Check for updates: what it reports for each answer.
+func _update_check() -> void:
+	var got := []
+	var on := func(status: String, version: String): got.append([status, version])
+	Updater.checked.connect(on)
+	# this build can't update itself (no Android or Windows release)
+	Updater.check_now()
+	await get_tree().process_frame
+	check(not got.is_empty() and got[-1][0] == "unsupported", "a build that can't update says so (%s)" % str(got))
+	var cur: String = Updater.current
+	var release := func(tag: String, assets: Array) -> PackedByteArray:
+		return JSON.stringify({"tag_name": tag, "assets": assets, "html_url": ""}).to_utf8_buffer()
+	Updater.current = "0.1.50"
+	Updater._manual = true
+	Updater._on_release(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), release.call("v0.1.50", []))
+	check(got[-1] == ["latest", "0.1.50"], "on the newest release it says you're up to date (%s)" % str(got[-1]))
+	Updater._manual = true
+	Updater._on_release(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), release.call("v0.1.51", []))
+	check(got[-1] == ["pending", "0.1.51"], "a release still uploading is on its way (%s)" % str(got[-1]))
+	Updater._dismissed = true
+	Updater._manual = true
+	var assets := [{"name": "CityViews.apk", "browser_download_url": "https://x/a.apk"}, {"name": "CityViews-Windows.zip", "browser_download_url": "https://x/w.zip"}]
+	Updater._on_release(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), release.call("v0.1.51", assets))
+	check(got[-1] == ["newer", "0.1.51"] and Updater._card != null and Updater._card.visible, "a newer one shows the update card again, even after it was closed")
+	Updater._manual = true
+	Updater._on_release(HTTPRequest.RESULT_CANT_CONNECT, 0, PackedStringArray(), PackedByteArray())
+	check(got[-1][0] == "failed", "no connection says so")
+	check(Hud.update_text("latest", "0.1.50").contains("latest"), "the Settings page words each answer")
+	Updater.checked.disconnect(on)
+	Updater.current = cur
+	Updater._state = Updater.State.IDLE
+	Updater._card.visible = false
+
+
 ## A town grown live, its work spread over many frames, ends up the same as
 ## one worked out all at once.
 func _live_matches_full() -> void:

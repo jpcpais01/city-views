@@ -73,6 +73,7 @@ var _room_players: Label
 var _acct_form: VBoxContainer
 var _acct_signed: HBoxContainer
 var _acct_msg: Label
+var _update_msg: Label
 var _acct_status: Label
 var _room_status: Label
 var _email: LineEdit
@@ -1698,6 +1699,35 @@ func _build_menu() -> void:
 			Game.settings["time"] = key[0]
 			Game.save_settings())
 		times.add_child(b)
+	# updates: look for a new version now, not only at start
+	st.add_child(_label("Version %s" % Updater.current, 16, true, SOFT))
+	var upd := Button.new()
+	upd.text = "Check for updates"
+	upd.custom_minimum_size.y = 54
+	upd.add_theme_font_size_override("font_size", 18)
+	upd.add_theme_stylebox_override("normal", _box(Color(1, 1, 1, 0.85), 18, 16, false))
+	upd.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.95), 18, 16, false))
+	upd.add_theme_stylebox_override("pressed", _box(Color(1, 1, 1, 0.7), 18, 16, false))
+	upd.add_theme_stylebox_override("disabled", _box(Color(1, 1, 1, 0.6), 18, 16, false))
+	upd.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color"]:
+		upd.add_theme_color_override(c, INK)
+	st.add_child(upd)
+	_update_msg = _wrap_label("", 16, true, SOFT)
+	_update_msg.visible = false
+	st.add_child(_update_msg)
+	upd.pressed.connect(func():
+		Sfx.play("click")
+		upd.disabled = true
+		upd.text = "Checking…"
+		_update_msg.visible = false
+		Updater.check_now())
+	Updater.checked.connect(func(status: String, version: String):
+		upd.disabled = false
+		upd.text = "Check for updates"
+		_update_msg.visible = true
+		_update_msg.add_theme_color_override("font_color", MINT if status == "latest" or status == "newer" else SOFT)
+		_update_msg.text = update_text(status, version))
 
 	# ---- what's new
 	var notes := _page_box("notes")
@@ -1714,6 +1744,20 @@ func _build_menu() -> void:
 	rt.text = _patch_notes_bbcode()
 	notes.add_child(rt)
 	_show_page("island")
+
+
+## What the Settings page says after a check for updates.
+static func update_text(status: String, version: String) -> String:
+	match status:
+		"latest":
+			return "You have the latest version (%s)." % version
+		"newer":
+			return "Version %s is out: tap Update on the card at the top." % version
+		"pending":
+			return "Version %s is on its way. Try again in a few minutes." % version
+		"failed":
+			return "Couldn't reach GitHub. Check your connection and try again."
+	return "This build (%s) doesn't update itself: updates come to the Android and Windows releases." % version
 
 
 ## iOS-style switch drawn once into a texture: green pill with the knob right when on.

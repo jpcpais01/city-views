@@ -16,6 +16,11 @@ const GLASS := Color(0.9, 0.93, 0.98)
 
 enum State { IDLE, OFFER, DOWNLOADING, READY, FAILED }
 
+## the answer to a check the player asked for (see check_now): "newer" (the
+## card is showing), "latest", "pending" (a new version whose download isn't
+## attached yet), "failed" or "unsupported" (a build that can't update itself)
+signal checked(status: String, version: String)
+
 var current := ""
 var latest := ""
 var _asset_url := ""
@@ -31,6 +36,8 @@ var _bar: ProgressBar
 var _go: Button
 var _close: Button
 var _dismissed := false
+# a check the player asked for is under way, so its answer is reported
+var _manual := false
 
 
 func _ready() -> void:
@@ -50,6 +57,28 @@ func _ready() -> void:
 	add_child(t)
 	t.start()
 	get_tree().create_timer(6.0).timeout.connect(_check)
+
+
+## Whether this build can update itself.
+func supported() -> bool:
+	return _http != null
+
+
+## Looks for a newer version right now (the Settings button): the card shows
+## if there is one, even if it was closed earlier; `checked` reports back.
+func check_now() -> void:
+	if not supported():
+		checked.emit.call_deferred("unsupported", current)
+		return
+	if _state == State.DOWNLOADING or _state == State.READY or _state == State.FAILED:
+		_dismissed = false
+		_build_card()
+		_pop_in()
+		checked.emit.call_deferred("newer", latest)
+		return
+	_manual = true
+	if _http.get_http_client_status() == HTTPClient.STATUS_DISCONNECTED:
+		_check()
 
 
 func _android() -> bool:
@@ -110,13 +139,21 @@ func _check() -> void:
 
 
 func _on_release(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	var manual := _manual
+	_manual = false
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		if manual:
+			checked.emit("failed", current)
 		return
 	var data = JSON.parse_string(body.get_string_from_utf8())
 	if not (data is Dictionary):
+		if manual:
+			checked.emit("failed", current)
 		return
 	var tag := str(data.get("tag_name", ""))
 	if tag == "" or not is_newer(tag, current):
+		if manual:
+			checked.emit("latest", current)
 		return
 	var want := ".apk" if _android() else "windows.zip"
 	var url := ""
@@ -124,16 +161,21 @@ func _on_release(result: int, code: int, _headers: PackedStringArray, body: Pack
 		if str(a.get("name", "")).to_lower().ends_with(want):
 			url = str(a.get("browser_download_url", ""))
 	if url == "":
-		return  # not attached yet: the next check picks it up
+		# not attached yet: the next check picks it up
+		if manual:
+			checked.emit("pending", tag.trim_prefix("v"))
+		return
 	var fresh := tag.trim_prefix("v") != latest
 	latest = tag.trim_prefix("v")
 	_asset_url = url
 	_page_url = str(data.get("html_url", ""))
 	_state = State.OFFER
-	if fresh:
+	if fresh or manual:
 		_dismissed = false
 	if not _dismissed:
 		_show_offer()
+	if manual:
+		checked.emit("newer", latest)
 
 
 # ------------------------------------------------------------------ card
