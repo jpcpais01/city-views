@@ -133,6 +133,29 @@ func _ready() -> void:
 		island.town.fill_all()
 		island.town.evolve_all()
 		island.rig.focus(Vector3(pts[6].x, 0, pts[6].y))
+	if OS.get_environment("CV_BRIDGES") != "":
+		# streets of each kind across the river (or the estuary), CV_BRIDGES
+		# metres along it from the point nearest the focus, then a look at them
+		var rv: PackedVector2Array = island.land._river
+		var mid := 0
+		for k in rv.size():
+			if rv[k].distance_to(Vector2(f.x, f.z)) < rv[mid].distance_to(Vector2(f.x, f.z)):
+				mid = k
+		var gap := int(float(OS.get_environment("CV_BRIDGES")) / 6.0)
+		BridgeGen.force = OS.get_environment("CV_BSTYLE")
+		var kinds := ["main", "avenue", "highway", "side"]
+		for q in kinds.size():
+			var k: int = mid + (q - 1) * gap
+			var t := (rv[k + 1] - rv[k - 1]).normalized()
+			var across := Vector2(-t.y, t.x)
+			var half: float = island.land._river_w[k] * 2.2 + 10.0
+			var pts := PackedVector2Array()
+			for j in 41:
+				pts.append(rv[k] + across * lerpf(-half, half, j / 40.0))
+			var st := island.streets.add_stroke(pts, kinds[q])
+			print("%s bridge: %s" % [kinds[q], str(st.spans) if st else "none"])
+		island.streets.flush()
+		island.rig.focus(Vector3(rv[mid].x, 0, rv[mid].y))
 	if OS.get_environment("CV_BRIDGE") != "":
 		# look at the first bridge
 		for st: Streets.Street in island.streets.streets:

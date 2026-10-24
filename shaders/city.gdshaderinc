@@ -419,10 +419,10 @@ void fragment() {
 			glow = vec3(1.0, 0.82, 0.55);
 		} else if (emit > 2.6 && emit < 2.8) {
 			// a coloured light, its own colour: floodlit crowns, and red
-			// aircraft beacons that blink
+			// aircraft beacons that blink (2.75: floodlit, never blinking)
 			lit = night;
 			glow = base * 1.8;
-			if (base.r > base.g * 3.0) {
+			if (base.r > base.g * 3.0 && emit < 2.72) {
 				lit *= step(0.4, fract(TIME * 0.6 + v_world.x * 0.037 + v_world.z * 0.051));
 			}
 		} else {

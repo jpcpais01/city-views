@@ -710,6 +710,12 @@ func _build(s: Street) -> void:
 			for f in [c.x, c.y]:
 				if f > 0.0 and f < upto:
 					rows[f] = true
+	# where each bridge's water begins and ends, so its sides change there
+	for c in s.spans:
+		for f in [c.x + BANK, c.y - BANK]:
+			if f > 0.0 and f < upto:
+				rows[f] = true
+	var styles := BridgeGen.styles(s)
 	if upto >= n - 1:
 		s.cuts = cuts
 	var fs: Array = rows.keys()
@@ -737,6 +743,7 @@ func _build(s: Street) -> void:
 		var y0 := ry[r]
 		var y1 := ry[r + 1]
 		var bridge := _in_cuts(s.spans, fm)
+		var stone := bridge and styles[BridgeGen.span_at(s.spans, fm)] == "stone"
 		if bridge:
 			# the deck's underside, seen from the water and the banks
 			var edge := w + (0.3 if verge else PAVE)
@@ -781,13 +788,32 @@ func _build(s: Street) -> void:
 					_band(buf, p0, n0, y0, p1, n1, y1, side * w, CURB, side * edge, CURB, pave, MeshKit.SLABS, Vector3.UP)
 				var top := CURB + 0.16
 				var lip := 0.06
-				_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), 0.0 if verge else CURB, side * (edge - lip), top, CONCRETE, 0.0, -out3)
-				_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), top, side * edge, top, CONCRETE.lightened(0.08), 0.0, Vector3.UP)
 				var e0 := p0 + n0 * side * edge
 				var e1 := p1 + n1 * side * edge
+				# down to the ground over the banks, where the abutments stand;
+				# over the water only the deck's own depth (arches fill in under stone)
 				var g0 := minf(-DECK_DEPTH, land.height_at(e0.x, e0.y) - 0.1 - y0)
 				var g1 := minf(-DECK_DEPTH, land.height_at(e1.x, e1.y) - 0.1 - y1)
-				buf.quad(Vector3(e0.x, y0 + top, e0.y), Vector3(e1.x, y1 + top, e1.y), Vector3(e1.x, y1 + maxf(g1, -DECK_DEPTH - 3.0), e1.y), Vector3(e0.x, y0 + maxf(g0, -DECK_DEPTH - 3.0), e0.y), CONCRETE.darkened(0.06), 0.0, out3)
+				if land.height_at(e0.x, e0.y) < 0.0:
+					g0 = -DECK_DEPTH - (0.0 if stone else 0.1)
+				if land.height_at(e1.x, e1.y) < 0.0:
+					g1 = -DECK_DEPTH - (0.0 if stone else 0.1)
+				var wall := BridgeGen.STONE if stone else CONCRETE
+				var base := 0.0 if verge else CURB
+				if stone:
+					# a solid stone parapet
+					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), base, side * (edge - lip), top, wall.darkened(0.04), 0.0, -out3)
+					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), top, side * edge, top, wall.lightened(0.1), 0.0, Vector3.UP)
+					buf.quad(Vector3(e0.x, y0 + top, e0.y), Vector3(e1.x, y1 + top, e1.y), Vector3(e1.x, y1 + maxf(g1, -DECK_DEPTH - 3.0), e1.y), Vector3(e0.x, y0 + maxf(g0, -DECK_DEPTH - 3.0), e0.y), wall, 0.0, out3)
+				else:
+					# an open railing on posts (see BridgeGen), its top rail here
+					var rail := BridgeGen.RAIL + base
+					var r0 := side * (edge - 0.05)
+					_band(buf, p0, n0, y0, p1, n1, y1, r0, rail - 0.05, r0, rail, HouseGen.IRON, 0.0, -out3)
+					_band(buf, p0, n0, y0, p1, n1, y1, r0, rail, side * edge, rail, HouseGen.IRON.lightened(0.15), 0.0, Vector3.UP)
+					_band(buf, p0, n0, y0, p1, n1, y1, side * edge, rail, side * edge, rail - 0.05, HouseGen.IRON, 0.0, out3)
+					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), base, side * edge, base, CONCRETE.lightened(0.08), 0.0, Vector3.UP)
+					buf.quad(Vector3(e0.x, y0 + base, e0.y), Vector3(e1.x, y1 + base, e1.y), Vector3(e1.x, y1 + maxf(g1, -DECK_DEPTH - 3.0), e1.y), Vector3(e0.x, y0 + maxf(g0, -DECK_DEPTH - 3.0), e0.y), wall.darkened(0.06), 0.0, out3)
 				continue
 			if verge:
 				# a pale shoulder line and the edge of the road down into the ground
@@ -808,33 +834,16 @@ func _build(s: Street) -> void:
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE - 0.09), CURB + 0.16, side * (w + PAVE - 0.09), CURB + 0.19, HouseGen.IRON, 0.0, out3)
 				continue
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
-	# piers standing in the water under each bridge, every few metres
-	for sp in s.spans:
-		var a := int(sp.x) + BANK
-		var b := int(sp.y) - BANK
-		var count := int((b - a) * SAMPLE / 7.0)
-		for k in count:
-			var i := a + int((k + 1) * float(b - a) / (count + 1))
-			if i > int(upto):
-				continue
-			var c := s.pts[i]
-			var nrm := _side(s, i)
-			var along := Vector2(-nrm.y, nrm.x)
-			var top := s.ys[i] + 0.03 - DECK_DEPTH
-			var bottom := minf(land.height_at(c.x, c.y), -0.2) - 0.2
-			var half := Vector2(w * 0.8, 0.22)
-			var q := [c - nrm * half.x - along * half.y, c + nrm * half.x - along * half.y, c + nrm * half.x + along * half.y, c - nrm * half.x + along * half.y]
-			for e in 4:
-				var p: Vector2 = q[e]
-				var o: Vector2 = q[(e + 1) % 4]
-				var mid := (p + o) * 0.5 - c
-				buf.quad(Vector3(p.x, bottom, p.y), Vector3(o.x, bottom, o.y), Vector3(o.x, top, o.y), Vector3(p.x, top, p.y), CONCRETE.darkened(0.12), 0.0, Vector3(mid.x, 0.0, mid.y))
+	# what carries the bridges: arches, piers, pylons and cables
+	var sup := MeshBuf.new()
+	BridgeGen.build(self, s, buf, sup, upto, styles)
 	var mi: MeshInstance3D = _meshes.get(s.id)
 	if mi == null:
 		mi = MeshInstance3D.new()
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 		_meshes[s.id] = mi
+	_put_bridges(mi, sup)
 	if buf.idx.is_empty():
 		mi.mesh = null
 		return
@@ -849,6 +858,31 @@ func _build(s: Street) -> void:
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	m.surface_set_material(0, material)
 	mi.mesh = m
+
+
+## The parts of a street's bridges that cast shadows, on a mesh of their own.
+func _put_bridges(mi: MeshInstance3D, sup: MeshBuf) -> void:
+	var bm: MeshInstance3D = mi.get_node_or_null("Bridges")
+	if sup.idx.is_empty():
+		if bm:
+			mi.remove_child(bm)
+			bm.queue_free()
+		return
+	if bm == null:
+		bm = MeshInstance3D.new()
+		bm.name = "Bridges"
+		mi.add_child(bm)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = sup.verts
+	arr[Mesh.ARRAY_NORMAL] = sup.norms
+	arr[Mesh.ARRAY_COLOR] = sup.cols
+	arr[Mesh.ARRAY_TEX_UV] = sup.uvs
+	arr[Mesh.ARRAY_INDEX] = sup.idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	m.surface_set_material(0, material)
+	bm.mesh = m
 
 
 ## Where this street's pavement would lie on another street's carriageway
