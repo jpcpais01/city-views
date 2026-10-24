@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 07:42 UTC
+- Shops now have a trade you can see from the street: cafés, bakeries, grocers and pharmacies alongside the general stores.
+- Cafés set tables with parasols out on the pavement.
+- Bakeries glow with warm light in their windows, and pharmacies hang a lit green cross over the door.
+- Grocers stack crates of fruit and vegetables out front.
+
 ## 2026-10-24 05:36 UTC
 - Office blocks now go up in Centre areas, and now and then on a City main street: pale stone, concrete or dark cladding with regular rows of wide windows.
 - Office blocks have a glazed lobby floor with a canopy over the entrance, and plant rooms and masts on the roof.

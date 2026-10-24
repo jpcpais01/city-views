@@ -139,10 +139,10 @@ func _cruise(mk: MeshKit) -> void:
 	mk.box_faces(Vector3(-1.5, y + 0.01, 0), Vector3(1.4, 0.02, 0.7), Color("49b6d6"), MeshKit.TOP)
 	mk.box_faces(Vector3(3.7, 2.02, 0), Vector3(0.02, 0.16, 1.6), Color(0.2, 0.28, 0.36), MeshKit.FRONT | MeshKit.RIGHT)
 	mk.rbox(Vector3(-4.2, y + 0.45, 0), Vector3(1.2, 0.9, 0.7), 0.25, Color("1f3550"), Color("c8553d"))
-	# lifeboats in a row along each side
+	# lifeboats in a row along each side (too small for a bevel to show offshore)
 	for side: float in [-1.0, 1.0]:
 		for k in 5:
-			mk.rbox(Vector3(-4.8 + k * 1.9, 1.2, side * 1.12), Vector3(0.7, 0.18, 0.22), 0.08, Color("f08a24"))
+			mk.rbox(Vector3(-4.8 + k * 1.9, 1.2, side * 1.12), Vector3(0.7, 0.18, 0.22), 0.04, Color("f08a24"))
 	mk.box(Vector3(0.3, y + 0.75, 0), Vector3(0.06, 0.06, 0.06), Color(1, 0.9, 0.6), null, false, NIGHT_GLOW)
 
 
