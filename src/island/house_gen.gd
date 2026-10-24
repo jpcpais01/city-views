@@ -99,7 +99,8 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var rng := mk.rng
 	var kit: int = l.kit
 	var K: Dictionary = KITS[kit]
-	var dense := l.dense > 0.6
+	# a house grows through stages: cottage, two-floor house, terrace, taller terrace, tall terrace
+	var dense := l.stage >= 2
 	var right := Vector2(cos(l.yaw), -sin(l.yaw))
 	var fwd := Vector2(sin(l.yaw), cos(l.yaw))
 	var setback := lerpf(0.0, 0.12, rng.randf()) if dense else lerpf(0.3, 0.8, rng.randf())
@@ -120,12 +121,9 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var row := RandomNumberGenerator.new()
 	row.seed = hash([l.street, int(l.side), kit])
 	var rowed := dense and (kit == BRICK or kit == STONE_SLATE) and rng.randf() < 0.85
-	var floors: int
-	if dense:
-		var g := row if rowed else rng
-		floors = 2 + int(g.randf() < l.dense - 0.35) + int(g.randf() < l.dense - 0.75)
-	else:
-		floors = 1 + int(rng.randf() < 0.45)
+	var floors: int = [1, 2, 2, 3, 4][clampi(l.stage, 0, 4)]
+	if l.stage == 2 and (row if rowed else rng).randf() < 0.35:
+		floors = 3
 	# a busy main street keeps shops on the ground floor
 	var shop := main and dense and floors >= 2 and rng.randf() < 0.6
 	l.floors = floors

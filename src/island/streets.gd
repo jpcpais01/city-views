@@ -830,6 +830,13 @@ func remove_street(s: Street) -> void:
 	changed.emit()
 
 
+func by_id(id: int) -> Street:
+	for s: Street in streets:
+		if s.id == id:
+			return s
+	return null
+
+
 func by_key(k: String) -> Street:
 	for s in streets:
 		if s.key == k:

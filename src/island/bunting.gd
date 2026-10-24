@@ -38,7 +38,7 @@ func _process(delta: float) -> void:
 func spans() -> Array:
 	var by_street := {}
 	for l: Town.Lot in world.town.lots.values():
-		if l.type == "house" and l.floors >= 2 and l.dense > 0.6:
+		if l.type == "house" and l.floors >= 2 and l.stage >= 2:
 			if not by_street.has(l.street):
 				by_street[l.street] = []
 			by_street[l.street].append(l)

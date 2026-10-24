@@ -23,6 +23,8 @@ var folk: People
 var wildlife: Life
 var brush := ""
 var brush_radius := 5.0
+## how far the Grow brush lets the town grow up: 1 village .. 4 centre
+var grow_level := 2
 var island_seed := 0
 var _stroke := false
 var _stroke_level := 0.0
@@ -138,6 +140,7 @@ func new_island(s: int) -> void:
 	streets.clear()
 	landmarks.reset()
 	town.clear()
+	town.keep_stages({})
 	land.generate(s)
 	_update_maps()
 	cars.clear()
@@ -164,8 +167,8 @@ func load_own() -> void:
 
 func to_dict() -> Dictionary:
 	return {"v": 1, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
-		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(),
-		"progress": progress.to_dict(), "marks": landmarks.to_dict()}
+		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(), "level": land.level_edits(),
+		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages()}
 
 
 func _apply_save(data: Dictionary) -> void:
@@ -174,6 +177,8 @@ func _apply_save(data: Dictionary) -> void:
 	history_changed.emit()
 	growth.stop()
 	town.clear()
+	var sg: Variant = data.get("stages", {})
+	town.keep_stages(sg if sg is Dictionary else {})
 	island_seed = int(data.seed)
 	land.generate(island_seed)
 	var ed: Variant = data.get("land", {})
@@ -184,6 +189,8 @@ func _apply_save(data: Dictionary) -> void:
 	land.apply_zone(zn if zn is Dictionary else {})
 	var gn: Variant = data.get("green", {})
 	land.apply_green(gn if gn is Dictionary else {})
+	var lv: Variant = data.get("level", {})
+	land.apply_level(lv if lv is Dictionary else {})
 	var mk: Variant = data.get("marks", {})
 	landmarks.from_dict(mk if mk is Dictionary else {})
 	var pr: Variant = data.get("progress")
@@ -200,7 +207,7 @@ func _apply_save(data: Dictionary) -> void:
 func load_room(seed_value: int, state: Variant) -> void:
 	var d := {"seed": seed_value}
 	if state is Dictionary:
-		for layer in ["land", "zone", "green"]:
+		for layer in ["land", "zone", "green", "level"]:
 			var cells := {}
 			var src: Variant = state.get(layer, {})
 			if src is Dictionary:
@@ -386,6 +393,8 @@ func _paint_town(at: Vector3, amount: float) -> void:
 	var c := Vector2(at.x, at.z)
 	land.paint_zone(at, r, amount)
 	land.paint_green(at, r, amount if brush == "green" else -amount)
+	if brush == "grow":
+		land.paint_level(at, r, grow_level, amount * 2.0)
 	# keep the town growing towards the brush without restarting its search
 	growth.nudge(c)
 	town.zone_changed(c, r)
