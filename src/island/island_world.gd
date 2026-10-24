@@ -33,6 +33,8 @@ var brush := ""
 var brush_radius := 5.0
 ## how far the Grow brush lets the town grow up: 1 village .. 4 centre
 var grow_level := 2
+## the district the Grow brush paints (Land.USES): homes, shops, offices or industry
+var grow_use := 0
 ## what the Street brush lays: "main", "avenue" or "highway" (Streets.DRAWN)
 var street_kind := "main"
 var island_seed := 0
@@ -468,7 +470,7 @@ func _paint_town(at: Vector3, amount: float) -> void:
 	land.paint_zone(at, r, amount)
 	land.paint_green(at, r, amount if brush == "green" else -amount)
 	if brush == "grow":
-		land.paint_level(at, r, grow_level, amount * 2.0)
+		land.paint_level(at, r, grow_level, amount * 2.0, grow_use)
 	# keep the town growing towards the brush without restarting its search
 	growth.nudge(c)
 	town.zone_changed(c, r)

@@ -91,6 +91,13 @@ func _draw() -> void:
 			for yy in 5:
 				for xx in 2:
 					_rr(Rect2(P.call(0.35 + xx * 0.17, 0.17 + yy * 0.14), Vector2(0.12, 0.08) * s), 0.02 * s, Color("5b8db8"))
+		"factory":
+			draw_colored_polygon(PackedVector2Array([P.call(0.1, 0.88), P.call(0.1, 0.5), P.call(0.32, 0.36), P.call(0.32, 0.5), P.call(0.54, 0.36), P.call(0.54, 0.5), P.call(0.76, 0.36), P.call(0.9, 0.5), P.call(0.9, 0.88)]), Color("d9a873"))
+			draw_rect(Rect2(P.call(0.66, 0.1), Vector2(0.1, 0.32) * s), Color("8b5a44"))
+			_circle(P.call(0.74, 0.08), 0.06 * s, Color(0.85, 0.85, 0.85, 0.9))
+			_rr(Rect2(P.call(0.2, 0.62), Vector2(0.14, 0.12) * s), 0.02 * s, Color("5b8db8"))
+			_rr(Rect2(P.call(0.43, 0.62), Vector2(0.14, 0.12) * s), 0.02 * s, Color("5b8db8"))
+			_rr(Rect2(P.call(0.66, 0.6), Vector2(0.16, 0.28) * s), 0.02 * s, Color("6d7780"))
 		"park":
 			_circle(P.call(0.5, 0.42), 0.3 * s, Color("6fb35a"))
 			_circle(P.call(0.36, 0.5), 0.18 * s, Color("82c063"))

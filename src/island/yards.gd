@@ -315,8 +315,8 @@ func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> 
 			_green(mk, rng, p, y)
 		else:
 			_garden(mk, rng, p, y)
-	elif l.use == "office":
-		if roll < 0.55:
+	elif l.use == "office" or l.use == "industry":
+		if roll < 0.55 or l.use == "industry":
 			_service(mk, rng, p, y)
 		else:
 			_court(mk, rng, p, y)

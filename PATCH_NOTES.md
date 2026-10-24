@@ -1,11 +1,11 @@
 # City Views patch notes
 
-## 2026-10-24 14:29 UTC
+## 2026-10-24 14:45 UTC
 - Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers on a podium. Where Skyline plots join up downtown, they rise as stepped skyscrapers of twenty to forty floors, many with a spire.
+- Districts: with the Grow brush, pick Homes, Shops, Offices or Industry above the levels. Shops put a shop under every house, Offices grow office blocks, and Industry grows workshops, warehouses and factories with chimneys, tanks and loading yards. Offices and industry bring jobs that pay taxes.
 - New roads on the Street brush: Avenues have a planted middle, two lanes each way and shops along them; Highways carry four fast lanes with nobody living along them. They open at 150 and 400 residents.
-- Bridges: a road drawn across a river, lake or bay crosses on a concrete bridge with parapets and piers, and the water still flows under it.
-- Quays: a street running along the water gets a stone quay wall with a railing and deep water right up to it.
-- Tall buildings and window sills are much lighter for your phone: a whole city filling the screen stays well inside the limits.
+- Bridges and quays: a road drawn across a river, lake or bay crosses on a concrete bridge with the water flowing under it, and a street along the water gets a stone quay wall with a railing.
+- Tall buildings are much lighter for your phone, and areas painted Downtown or Skyline now keep their level after you reload.
 
 ## 2026-10-24 13:41 UTC
 - Much bigger maps: 384 m across, nine times the land. Your current island carries over exactly as it was, in the middle of a bigger sea.

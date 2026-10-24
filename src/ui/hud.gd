@@ -27,6 +27,9 @@ const ROADS := {
 const LEVELS := ["Village", "Town", "City", "Centre", "Downtown", "Skyline"]
 const LEVEL_INFO := ["cottages and small houses", "houses and low terraces", "terraces with shops", "tall terraces and blocks, shops everywhere",
 	"apartment blocks and offices", "towers over a busy podium"]
+## the districts the Grow brush paints: [name, icon, help]
+const USES := [["Homes", "house", "homes"], ["Shops", "shop", "shops on every ground floor"],
+	["Offices", "office", "offices and jobs"], ["Industry", "factory", "workshops and factories, jobs but no homes"]]
 
 var island: IslandWorld
 var _brush_keys := {}
@@ -36,6 +39,8 @@ var _level_bar: Control
 var _road_bar: Control
 var _road_keys := {}
 var _level_keys: Array[Button] = []
+var _use_keys: Array[Button] = []
+var _use_bar: Control
 var _help: Label
 var _island_name: LineEdit
 var _island_name_menu: LineEdit
@@ -650,7 +655,7 @@ func _build_levels() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.add_child(row)
 	for i in LEVELS.size():
-		var b := _key(96, 50)
+		var b := _key(106, 50)
 		var h := HBoxContainer.new()
 		h.set_anchors_preset(Control.PRESET_FULL_RECT)
 		h.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -667,6 +672,36 @@ func _build_levels() -> void:
 			_refresh_brushes())
 		row.add_child(b)
 		_level_keys.append(b)
+	# and above it, what the painted ground is for
+	var uh := CenterContainer.new()
+	uh.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	uh.offset_top = -244
+	uh.offset_bottom = -194
+	uh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(uh)
+	_use_bar = uh
+	var urow := HBoxContainer.new()
+	urow.add_theme_constant_override("separation", 6)
+	urow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	uh.add_child(urow)
+	for i in USES.size():
+		var b := _key(110, 44)
+		var h := HBoxContainer.new()
+		h.set_anchors_preset(Control.PRESET_FULL_RECT)
+		h.alignment = BoxContainer.ALIGNMENT_CENTER
+		h.add_theme_constant_override("separation", 4)
+		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(h)
+		var ic := _icon(USES[i][1], 30)
+		ic.custom_minimum_size = Vector2(30, 30)
+		h.add_child(ic)
+		h.add_child(_label(USES[i][0], 14, true, INK))
+		b.pressed.connect(func():
+			Sfx.play("click", 0.9 + i * 0.1, -4.0)
+			island.grow_use = i
+			_refresh_brushes())
+		urow.add_child(b)
+		_use_keys.append(b)
 
 
 func _refresh_history() -> void:
@@ -705,12 +740,17 @@ func _refresh_brushes() -> void:
 		_level_bar.visible = island.brush == "grow" and not _photo
 		for i in _level_keys.size():
 			_level_keys[i].set_pressed_no_signal(island.grow_level == i + 1)
+		_use_bar.visible = _level_bar.visible
+		for i in _use_keys.size():
+			_use_keys[i].set_pressed_no_signal(island.grow_use == i)
 	if island.brush != "":
 		_help.text = BRUSH_INFO[island.brush][1]
 		if island.brush == "street":
 			_help.text = ROADS[island.street_kind][1]
 		if island.brush == "grow":
-			_help.text = "Paint beside a street. %s: %s" % [LEVELS[island.grow_level - 1], LEVEL_INFO[island.grow_level - 1]]
+			_help.text = "Paint beside a street. %s %s: %s" % [LEVELS[island.grow_level - 1], USES[island.grow_use][0].to_lower(), LEVEL_INFO[island.grow_level - 1]]
+			if island.grow_use == 3:
+				_help.text = "Paint beside a street. %s industry: %s" % [LEVELS[island.grow_level - 1], USES[3][2]]
 	else:
 		_help.text = "Draw streets, or shape the land: pick a brush"
 

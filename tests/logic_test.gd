@@ -19,6 +19,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "districts":
+		await _districts()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	_streets()
 	_street_snap()
 	await _junction_fuzz()
@@ -28,6 +33,7 @@ func _ready() -> void:
 	await _island_grow()
 	await _island_levels()
 	await _island_skyline()
+	await _districts()
 	await _road_kinds()
 	await _bridges()
 	await _island_inner()
@@ -686,6 +692,70 @@ func _island_skyline() -> void:
 			for v: Vector3 in l.arrays[0]:
 				sky_top = maxf(sky_top, v.y - l.street_y)
 	check(sky >= 1 and sky_top > 20 * Town.FH, "joined Skyline plots rise as skyscrapers (%d, the tallest %.1f m)" % [sky, sky_top])
+	island.queue_free()
+	await get_tree().process_frame
+
+
+## Districts painted with the Grow brush: industry grows works and no homes,
+## a shops district puts a shop under every house, offices bring jobs; the
+## districts and the top levels come back from a save.
+func _districts() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(9, "island")
+	var pts := PackedVector2Array()
+	for k in 81:
+		pts.append(Vector2(-40 + k, 3.0))
+	island.streets.add_stroke(pts)
+	island.streets.flush()
+	island.land.paint_zone(Vector3(0, 0, 3), 42.0, 2.0)
+	island.land.paint_level(Vector3(-30, 0, 3), 9.0, 3.0, 9.0, HouseGen.SHOPS)
+	island.land.paint_level(Vector3(-10, 0, 3), 9.0, 3.0, 9.0, HouseGen.INDUSTRY)
+	island.land.paint_level(Vector3(10, 0, 3), 9.0, 4.0, 9.0, HouseGen.OFFICES)
+	island.land.paint_level(Vector3(30, 0, 3), 9.0, 6.0, 9.0, HouseGen.HOMES)
+	check(island.land.use_at(-10, 3) == HouseGen.INDUSTRY and island.land.level_at(-10, 3) > 2.5, "the Grow brush paints a district and its level")
+	island.town.fill_all()
+	island.town.evolve_all()
+	var works := 0
+	var works_ok := true
+	var shops := 0
+	var shops_all := true
+	var offices := 0
+	var tall := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type != "house" or l.host != 0 or absf(l.origin.y - 3.0) > 8.0:
+			continue
+		var x := l.origin.x
+		if absf(x + 10) < 5.0:
+			works += int(l.use == "industry")
+			works_ok = works_ok and l.use == "industry" and l.group.is_empty() and not l.arrays.is_empty()
+		elif absf(x + 30) < 5.0 and l.stage < 5:
+			shops += int(l.shop)
+			shops_all = shops_all and l.shop
+		elif absf(x - 10) < 5.0:
+			offices += int(l.use == "office")
+		elif absf(x - 30) < 5.0:
+			tall += int(l.stage == 6)
+	check(works >= 2 and works_ok, "an industrial district grows works, each on its own plot (%d)" % works)
+	check(shops >= 2 and shops_all, "a shops district puts a shop under every house (%d)" % shops)
+	check(offices >= 2, "an office district grows offices (%d)" % offices)
+	island.progress.recount(true)
+	check(island.progress.jobs > 0, "offices and works bring jobs (%d)" % island.progress.jobs)
+	var data := island.to_dict()
+	island._apply_save(JSON.parse_string(JSON.stringify(data)))
+	check(island.land.use_at(-10, 3) == HouseGen.INDUSTRY and island.land.use_at(10, 3) == HouseGen.OFFICES, "districts come back from a save")
+	check(island.land.level_at(30, 3) > 5.5, "a Skyline level comes back from a save (%.1f)" % island.land.level_at(30, 3))
+	# painting over a district changes what grows there
+	island.land.paint_level(Vector3(-10, 0, 3), 9.0, 3.0, 9.0, HouseGen.HOMES)
+	island.town.fill_all()
+	island.town.zone_changed(Vector2(-10, 3), 9.0)
+	island.town.fill_all()
+	island.town.evolve_all()
+	var left := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "house" and absf(l.origin.x + 10) < 3.0 and absf(l.origin.y - 3.0) < 8.0:
+			left += int(l.use == "industry" and island.land.use_at(l.origin.x, l.origin.y) == HouseGen.HOMES)
+	check(left == 0, "repainting works as homes turns them into houses (%d left)" % left)
 	island.queue_free()
 	await get_tree().process_frame
 

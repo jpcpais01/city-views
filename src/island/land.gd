@@ -50,7 +50,15 @@ var green := PackedFloat32Array()
 # 1 village .. 4 centre (0 where never painted, which counts as a town, 2)
 var level := PackedFloat32Array()
 const LEVEL_DEFAULT := 2.0
-const LEVEL_TINTS := [Color("ffd23f"), Color("ffd23f"), Color("ff9a1f"), Color("ff5a3c"), Color("e0328c")]
+## what each district grows, painted with the Grow brush along with its level:
+## the level layer holds district * USE_STRIDE + level (so saves and co-op
+## carry both in one number)
+const USES := ["homes", "shops", "offices", "industry"]
+const USE_STRIDE := 10.0
+const LEVEL_MAX := 6.0
+## the painted ground's tint while growing, by district (homes green, shops
+## blue, offices teal, industry amber, as city builders colour their zones)
+const USE_TINTS := [Color("59d24a"), Color("3f8cff"), Color("22c7c7"), Color("ffb51f")]
 # tint the painted area strongly (while the Grow brush is in hand)
 var show_zone := false:
 	set(v):
@@ -630,14 +638,21 @@ func zone_at(x: float, z: float) -> float:
 
 ## Paint the growing level `lv` (1..4): unpainted ground takes it at once,
 ## painted ground moves towards it, so strokes blend at their edges.
-func paint_level(centre: Vector3, radius: float, lv: float, amount: float) -> void:
+func paint_level(centre: Vector3, radius: float, lv: float, amount: float, use := 0) -> void:
+	var base := use * USE_STRIDE
 	_each_in(centre, radius, func(k: int, w: float) -> void:
 		if w < 0.02:
 			return
-		if level[k] < 0.5:
-			level[k] = lv
-		else:
-			level[k] = move_toward(level[k], lv, amount * minf(w * 3.0, 1.0)))
+		var cur := level[k]
+		if cur < 0.5 or (_use_of(cur) != use and w > 0.25):
+			level[k] = base + lv
+		elif _use_of(cur) == use:
+			level[k] = base + move_toward(cur - base, lv, amount * minf(w * 3.0, 1.0)))
+
+
+## The district (Land.USES) a level layer value is painted for.
+static func _use_of(v: float) -> int:
+	return clampi(int(floor((v + 0.5) / USE_STRIDE)), 0, USES.size() - 1)
 
 
 ## The level the town may grow to here, 1..6 (from the nearest sample).
@@ -647,7 +662,15 @@ func level_at(x: float, z: float) -> float:
 	var i := clampi(int(round(fx)), 0, CELLS)
 	var j := clampi(int(round(fz)), 0, CELLS)
 	var lv := level[j * SIDE + i]
-	return lv if lv >= 0.5 else LEVEL_DEFAULT
+	return lv - _use_of(lv) * USE_STRIDE if lv >= 0.5 else LEVEL_DEFAULT
+
+
+## The district painted here (an index into USES; homes where nothing was).
+func use_at(x: float, z: float) -> int:
+	var i := clampi(int(round((x + HALF) / STEP)), 0, CELLS)
+	var j := clampi(int(round((z + HALF) / STEP)), 0, CELLS)
+	var lv := level[j * SIDE + i]
+	return _use_of(lv) if lv >= 0.5 else 0
 
 
 ## Paint (amount > 0) or wipe green: parks where houses would go.
@@ -1009,8 +1032,11 @@ func _sample_colour(gi: int, gj: int) -> Color:
 	if zn > 0.0 and h > 0.0:
 		if show_zone:
 			# while growing, the painted ground shows its level: warmer is taller
-			var lv := level[gj * SIDE + gi]
-			var t: Color = LEVEL_TINTS[clampi(int(round(lv if lv >= 0.5 else LEVEL_DEFAULT)), 1, LEVEL_TINTS.size() - 1)]
+			# (its district's colour, deeper where it may grow taller)
+			var raw := level[gj * SIDE + gi]
+			var u := _use_of(raw) if raw >= 0.5 else 0
+			var lv := raw - u * USE_STRIDE if raw >= 0.5 else LEVEL_DEFAULT
+			var t: Color = USE_TINTS[u].lerp(USE_TINTS[u].darkened(0.45), clampf((lv - 1.0) / (LEVEL_MAX - 1.0), 0.0, 1.0))
 			col = col.lerp(t, minf(zn * 1.4, 1.0) * 0.82)
 		else:
 			col = col.lerp(Color("b5c97a"), zn * 0.18)
@@ -1246,7 +1272,7 @@ func apply_level(e: Dictionary) -> void:
 	for k in e:
 		var i := int(k)
 		if i >= 0 and i < level.size():
-			level[i] = clampf(float(e[k]), 0.0, 4.0)
+			level[i] = clampf(float(e[k]), 0.0, USE_STRIDE * USES.size())
 	_mark_keys(e)
 
 
@@ -1319,7 +1345,7 @@ func set_samples(layer: String, values: Dictionary) -> void:
 			"green":
 				green[i] = clampf(v, 0.0, 1.0)
 			"level":
-				level[i] = clampf(v, 0.0, 4.0)
+				level[i] = clampf(v, 0.0, USE_STRIDE * USES.size())
 		var x := i % SIDE
 		var z := i / SIDE
 		_mark(x, z, x, z)
