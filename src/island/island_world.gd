@@ -427,7 +427,7 @@ func _process(delta: float) -> void:
 			_extend_path(_ring_at)
 		else:
 			_apply_brush(_ring_at, delta)
-	time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
+	advance_time(delta)
 	_update_sky()
 	# the lighthouse beam shines in the air only: no light patches swept over the ground and sea
 	_update_beams(PackedVector4Array())
@@ -659,14 +659,24 @@ func snapshot() -> Dictionary:
 	return {"land": land.snapshot(), "streets": streets.to_data()}
 
 
-## Puts the island back as a snapshot had it; the town re-grows its houses.
+## Puts the island back as a snapshot had it, redrawing only what differs:
+## streets that changed are taken up or laid again, and houses re-grow only
+## where the ground or the painted town changed.
 func restore(snap: Dictionary) -> void:
 	growth.stop()
-	town.clear()
-	land.restore(snap.land)
-	streets.from_data(snap.streets)
-	cars.clear()
-	folk.clear()
+	var box := land.restore(snap.land)
+	if streets.restore_data(snap.streets):
+		cars.clear()
+		folk.clear()
+	if not box.is_empty():
+		var lo := land.sample_pos(box[0].x, box[0].y)
+		var hi := land.sample_pos(box[1].x, box[1].y)
+		var c := (lo + hi) * 0.5
+		var r := (hi - lo).length() * 0.5 + Land.STEP
+		if box[2]:
+			# houses on reshaped ground are laid out again at its new height
+			town.reground(lo, hi)
+		town.zone_changed(c, r)
 	_shore_dirty = true
 	_coast_dirty = true
 	_save_timer = 0.5
@@ -765,6 +775,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_hover_at(event.position)
 		if _mouse_buttons & (1 << MOUSE_BUTTON_RIGHT):
 			rig.rotate_by(-event.relative.x * 0.008)
+			# sliding up tilts the view out towards the horizon, down looks straight down
+			rig.tilt_by(event.relative.y * 0.006)
 		elif _mouse_buttons & (1 << MOUSE_BUTTON_MIDDLE):
 			rig.pan_screen(event.relative)
 		elif _mouse_buttons & (1 << MOUSE_BUTTON_LEFT) and not _stroke:

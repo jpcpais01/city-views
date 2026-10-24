@@ -6,6 +6,8 @@ const DAY_LENGTH := 420.0
 const SEA_FLOOR := -6.3
 
 var time_of_day := 0.3
+## the times of day the player can hold the clock at (Settings), or "auto"
+const TIMES := {"sunrise": 0.28, "day": 0.45, "sunset": 0.775, "night": 0.95}
 var night := 0.0
 
 var city_mat: ShaderMaterial
@@ -228,6 +230,17 @@ func _eased_arc(t: float) -> float:
 	var u := half - base - 0.5
 	var eased := lerpf(u, 4.0 * u * u * u, 0.82)
 	return (base + eased + 0.5) * 0.5
+
+
+## Moves the clock on: round the day by itself on "auto", otherwise easing
+## to the time the player picked, the short way round the clock.
+func advance_time(delta: float) -> void:
+	var pick: String = Game.settings.get("time", "auto")
+	if not TIMES.has(pick):
+		time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
+		return
+	var gap := fposmod(float(TIMES[pick]) - time_of_day + 0.5, 1.0) - 0.5
+	time_of_day = fposmod(time_of_day + gap * minf(delta * 1.5, 1.0), 1.0)
 
 
 func _update_sky() -> void:
