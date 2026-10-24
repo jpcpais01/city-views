@@ -1021,6 +1021,11 @@ func _road_kinds() -> void:
 	island.streets.flush()
 	check(a != null and h != null and a.kind == "avenue" and h.kind == "highway", "the Street brush lays avenues and highways")
 	check(a.w() > Streets.KINDS.main.w * 1.6 and h.w() > a.w(), "avenues are wider than streets, highways wider still")
+	# a lone road's ends are dead ends, rounded off past the end of the line
+	var hm: MeshInstance3D = island.streets._meshes[h.id]
+	var hb := hm.mesh.get_aabb()
+	check(island.streets._dead_end(h, 0) and island.streets._dead_end(h, h.pts.size() - 1), "a road with nothing at its ends has dead ends")
+	check(hb.position.x < h.pts[0].x - h.w() * 0.9 and hb.end.x > h.pts[h.pts.size() - 1].x + h.w() * 0.9, "dead ends are rounded off (%s)" % str(hb))
 	# a shaky hand: streets keep the wobble, avenues smooth it, highways more so
 	var shaky := PackedVector2Array()
 	for k in 61:
@@ -1069,6 +1074,11 @@ func _road_kinds() -> void:
 		if l.street == h.id:
 			on_highway += 1
 	check(off_avenue >= 2, "side streets grow off an avenue (%d)" % off_avenue)
+	var joined_dead := 0
+	for s: Streets.Street in island.streets.streets:
+		if s != a and s != h and a.closest(s.pts[0]).x < a.reach() and island.streets._dead_end(s, 0):
+			joined_dead += 1
+	check(joined_dead == 0, "a street that meets another is not a dead end (%d)" % joined_dead)
 	check(on_avenue >= 6 and main, "houses and shops line an avenue, as on a main street (%d)" % on_avenue)
 	check(on_highway == 0, "nobody lives along a highway")
 	var seeds: Array = island.growth._seeds(h)
