@@ -452,7 +452,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		if run < 0.4:
 			continue
 		var t := (b - a) / run
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		var m := (a + b) * 0.5
 		var l: Town.Lot = ls[k]
 		mk.push_at(Vector3(m.x, 0, m.y), atan2(out.x, out.y))
@@ -589,7 +589,7 @@ static func _walls(mk: MeshKit, pts: PackedVector2Array, y0: float, y1: float, c
 		if a.distance_to(b) < 0.02:
 			continue
 		var t := (b - a).normalized()
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		mk.quad(Vector3(a.x, y0, a.y), Vector3(b.x, y0, b.y), Vector3(b.x, y1, b.y), Vector3(a.x, y1, a.y), Vector3(out.x, 0, out.y), col)
 
 
@@ -643,7 +643,7 @@ static func _prism(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color
 		if run < 0.02:
 			continue
 		var t := (b - a) / run
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		var o3 := Vector3(out.x, 0, out.y)
 		mk.quad(Vector3(a.x, 0, a.y), Vector3(b.x, 0, b.y), Vector3(b.x, hgt, b.y), Vector3(a.x, hgt, a.y), o3, wall, we)
 		if k < fronts or run < 0.5:
@@ -679,7 +679,7 @@ static func _flat_roof(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: C
 		if a.distance_to(b) < 0.02:
 			continue
 		var t := (b - a).normalized()
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		var a2 := a + out * 0.03
 		var b2 := b + out * 0.03
 		var o3 := Vector3(out.x, 0, out.y)

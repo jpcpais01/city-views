@@ -40,6 +40,7 @@ func full_state() -> Dictionary:
 			out.level["c%d" % k] = snappedf(land.level[k], 0.01)
 	for s: Streets.Street in world.streets.streets:
 		out.streets[s.key] = world.streets.street_data(s)
+	out["name"] = world.island_name
 	return out
 
 
@@ -126,6 +127,12 @@ func _apply(parts: PackedStringArray, data: Variant) -> void:
 				_apply(str(k).split("/", false), data[k])
 		return
 	var head := parts[0]
+	if head == "name":
+		var text := str(data if data != null else "").left(IslandWorld.NAME_MAX)
+		if text != world.island_name:
+			world.island_name = text
+			world.name_changed.emit()
+		return
 	if head == "streets":
 		if parts.size() == 1:
 			if data is Dictionary:

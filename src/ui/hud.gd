@@ -27,6 +27,8 @@ var _size_i := 1
 var _level_bar: Control
 var _level_keys: Array[Button] = []
 var _help: Label
+var _island_name: LineEdit
+var _island_name_menu: LineEdit
 var _title_chip: Label
 var _locks := {}
 
@@ -266,7 +268,9 @@ func _build_island_top() -> void:
 	var name_row := HBoxContainer.new()
 	name_row.add_theme_constant_override("separation", 10)
 	v.add_child(name_row)
-	name_row.add_child(_label("Your island", 26, true))
+	# the island's name: tap it to rename
+	_island_name = _name_field(26)
+	name_row.add_child(_island_name)
 	var chip := PanelContainer.new()
 	chip.add_theme_stylebox_override("panel", _box(Color("ffe9c7"), 12, 8, false))
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -281,8 +285,12 @@ func _build_island_top() -> void:
 	_progress.step = 0.0
 	_progress.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(_progress)
-	_help = _label("Draw streets, or shape the land: pick a brush", 14, false, SOFT)
+	# brush hints still update, but no longer take room under the name
+	_help = _label("", 14, false, SOFT)
+	_help.visible = false
 	v.add_child(_help)
+	island.name_changed.connect(_refresh_island_name)
+	_refresh_island_name()
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -322,12 +330,48 @@ func _build_world_page(page: VBoxContainer) -> void:
 	prof.add_child(_name_edit)
 	prof.add_child(_wrap_label("Builders in your co-op room see this name."))
 	var about := _section(page, "This island")
+	_island_name_menu = LineEdit.new()
+	_island_name_menu.placeholder_text = "Your island"
+	_island_name_menu.max_length = IslandWorld.NAME_MAX
+	_island_name_menu.text_submitted.connect(func(t): island.set_island_name(t))
+	_island_name_menu.focus_exited.connect(func(): island.set_island_name(_island_name_menu.text))
+	about.add_child(_island_name_menu)
+	_refresh_island_name()
 	_island_summary = _wrap_label("", 17, true, INK)
 	about.add_child(_island_summary)
 	_new_btn = _button("Start a new island", func(): pass)
 	_new_btn.pressed.connect(_on_new_island)
 	about.add_child(_new_btn)
 	about.add_child(_wrap_label("A fresh landscape replaces this island. Tap twice to confirm."))
+
+
+## A name that reads like a title until tapped, then edits in place.
+func _name_field(px: int) -> LineEdit:
+	var e := LineEdit.new()
+	e.max_length = IslandWorld.NAME_MAX
+	e.placeholder_text = "Your island"
+	e.expand_to_text_length = true
+	e.flat = true
+	e.caret_blink = true
+	e.select_all_on_focus = true
+	e.add_theme_font_override("font", font_bold)
+	e.add_theme_font_size_override("font_size", px)
+	e.add_theme_color_override("font_color", INK)
+	e.add_theme_color_override("font_placeholder_color", INK)
+	for st in ["normal", "read_only"]:
+		e.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	e.add_theme_stylebox_override("focus", _box(Color(1, 1, 1, 0.85), 10, 6, false))
+	e.text_submitted.connect(func(t):
+		island.set_island_name(t)
+		e.release_focus())
+	e.focus_exited.connect(func(): island.set_island_name(e.text))
+	return e
+
+
+func _refresh_island_name() -> void:
+	for e: LineEdit in [_island_name, _island_name_menu]:
+		if e and not e.has_focus():
+			e.text = island.island_name
 
 
 func _world_summary() -> String:
@@ -431,13 +475,23 @@ func _build_brushes() -> void:
 	bottom.offset_bottom = -10
 	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(bottom)
-	var m := PanelContainer.new()
-	_glassify(m)
-	bottom.add_child(m)
+	# each key stands on its own, no panel behind the row; undo and redo lead it
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	m.add_child(row)
+	bottom.add_child(row)
+	_undo_btn = _glass_button(56, "undo")
+	_undo_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_undo_btn.pressed.connect(_on_undo)
+	row.add_child(_undo_btn)
+	_redo_btn = _glass_button(56, "redo")
+	_redo_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_redo_btn.pressed.connect(_on_redo)
+	row.add_child(_redo_btn)
+	var lead := Control.new()
+	lead.custom_minimum_size = Vector2(14, 0)
+	lead.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(lead)
 	for id in IslandWorld.BRUSHES:
 		var b := _key(80, 84)
 		var v := VBoxContainer.new()
@@ -482,21 +536,6 @@ func _build_brushes() -> void:
 		_refresh_brushes())
 	row.add_child(_size_btn)
 	_build_levels()
-	# undo / redo float on the left above the brushes
-	var over := HBoxContainer.new()
-	over.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	over.offset_top = -184
-	over.offset_bottom = -124
-	over.offset_left = 18
-	over.add_theme_constant_override("separation", 10)
-	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(over)
-	_undo_btn = _glass_button(56, "undo")
-	_undo_btn.pressed.connect(_on_undo)
-	over.add_child(_undo_btn)
-	_redo_btn = _glass_button(56, "redo")
-	_redo_btn.pressed.connect(_on_redo)
-	over.add_child(_redo_btn)
 	island.history_changed.connect(_refresh_history)
 	_refresh_history()
 
@@ -511,13 +550,10 @@ func _build_levels() -> void:
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(holder)
 	_level_bar = holder
-	var m := PanelContainer.new()
-	_glassify(m)
-	holder.add_child(m)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	m.add_child(row)
+	holder.add_child(row)
 	for i in LEVELS.size():
 		var b := _key(104, 50)
 		var h := HBoxContainer.new()
@@ -782,16 +818,17 @@ func _build_goals() -> void:
 	_goals = PanelContainer.new()
 	_goals.set_anchors_preset(Control.PRESET_CENTER_LEFT)
 	_goals.offset_left = 18
-	_goals.offset_top = -120
+	_goals.offset_top = -96
 	_glassify(_goals)
+	_goals.add_theme_stylebox_override("panel", _glass_box(GLASS, 18, 10))
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
+	v.add_theme_constant_override("separation", 4)
 	_goals.add_child(v)
 	# the header folds the list away, for when the view needs the room
 	var head := Button.new()
 	head.flat = true
 	head.focus_mode = Control.FOCUS_NONE
-	head.custom_minimum_size = Vector2(286, 34)
+	head.custom_minimum_size = Vector2(212, 26)
 	for st in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
 		head.add_theme_stylebox_override(st, StyleBoxEmpty.new())
 	var hr := HBoxContainer.new()
@@ -799,11 +836,11 @@ func _build_goals() -> void:
 	hr.add_theme_constant_override("separation", 8)
 	hr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	head.add_child(hr)
-	hr.add_child(_icon("star", 28))
-	var title := _label("Town goals", 18, true)
+	hr.add_child(_icon("star", 20))
+	var title := _label("Town goals", 14, true)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hr.add_child(title)
-	_goal_count = _label("", 15, true, SOFT)
+	_goal_count = _label("", 12, true, SOFT)
 	hr.add_child(_goal_count)
 	head.pressed.connect(func():
 		Sfx.play("click")
@@ -811,7 +848,7 @@ func _build_goals() -> void:
 		_goal_rows.visible = _goals_open)
 	v.add_child(head)
 	_goal_rows = VBoxContainer.new()
-	_goal_rows.add_theme_constant_override("separation", 10)
+	_goal_rows.add_theme_constant_override("separation", 6)
 	v.add_child(_goal_rows)
 	_root.add_child(_goals)
 
@@ -835,33 +872,33 @@ func _refresh_goals() -> void:
 
 func _goal_row(i: int, g: Dictionary) -> Control:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	var ic := _icon(str(g.icon), 34)
+	row.add_theme_constant_override("separation", 7)
+	var ic := _icon(str(g.icon), 24)
 	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(ic)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 4)
+	col.add_theme_constant_override("separation", 2)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(col)
-	var t := _label(str(g.text), 15, true)
+	var t := _label(str(g.text), 12, true)
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	t.custom_minimum_size.x = 160
+	t.custom_minimum_size.x = 150
 	col.add_child(t)
 	if g.get("ready", false):
 		var b := Button.new()
 		b.text = "Collect +%s" % _short(float(g.reward))
-		b.custom_minimum_size = Vector2(0, 38)
+		b.custom_minimum_size = Vector2(0, 28)
 		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_size_override("font_size", 16)
-		b.add_theme_stylebox_override("normal", _box(ACCENT, 19, 12))
-		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 19, 12))
-		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 19, 12, false))
+		b.add_theme_font_size_override("font_size", 13)
+		b.add_theme_stylebox_override("normal", _box(ACCENT, 14, 8))
+		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 14, 8))
+		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 14, 8, false))
 		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(fc, Color.WHITE)
 		b.pressed.connect(_claim_goal.bind(i, b))
 		col.add_child(b)
 		# a gentle breathing pulse so it is hard to miss
-		b.pivot_offset = Vector2(60, 19)
+		b.pivot_offset = Vector2(60, 14)
 		var tw := b.create_tween().set_loops()
 		tw.tween_property(b, "scale", Vector2(1.04, 1.04), 0.55).set_trans(Tween.TRANS_SINE)
 		tw.tween_property(b, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_SINE)
@@ -870,7 +907,7 @@ func _goal_row(i: int, g: Dictionary) -> Control:
 		h.add_theme_constant_override("separation", 8)
 		col.add_child(h)
 		var pb := ProgressBar.new()
-		pb.custom_minimum_size = Vector2(0, 8)
+		pb.custom_minimum_size = Vector2(0, 6)
 		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		pb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		pb.show_percentage = false
@@ -881,8 +918,8 @@ func _goal_row(i: int, g: Dictionary) -> Control:
 		h.add_child(pb)
 		var r := HBoxContainer.new()
 		r.add_theme_constant_override("separation", 2)
-		r.add_child(_icon("coin", 16))
-		r.add_child(_label(_short(float(g.reward)), 13, true, Color("b46a1f")))
+		r.add_child(_icon("coin", 13))
+		r.add_child(_label(_short(float(g.reward)), 11, true, Color("b46a1f")))
 		h.add_child(r)
 	return row
 

@@ -491,6 +491,9 @@ func _island_budget() -> void:
 	var lh: Vector2 = island.landmarks.spots.get("lighthouse", Vector2.ZERO)
 	check(island.town.is_built(lh) and island.landmarks.beams().size() <= 1, "the town leaves room round a landmark")
 	island.wilds.rebuild_all()
+	# the two biggest ships passing at once
+	island.ships.spawn(0, true)
+	island.ships.spawn(1, true)
 	var acc := TriBudget.count(island)
 	for k in acc:
 		print("  island tris %-16s %7d +shadow %7d" % [k, acc[k][0], acc[k][1]])

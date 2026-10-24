@@ -94,6 +94,12 @@ func _ready() -> void:
 			if l.type != "house":
 				print("  %s at %.1f,%.1f" % [l.type, l.origin.x, l.origin.y])
 		print("kits: ", kits)
+	if OS.get_environment("CV_SHIP") != "":
+		# a ship of that kind halfway along its run, for a look at it
+		island.ships.spawn(int(OS.get_environment("CV_SHIP")), true)
+		var sh: Dictionary = island.ships._ships[-1]
+		var sp: Vector2 = sh.a + sh.dir * sh.d
+		island.rig.focus(Vector3(sp.x, 0, sp.y))
 	if OS.get_environment("CV_LOOK") != "":
 		# look somewhere else than where the town was grown from
 		var parts := OS.get_environment("CV_LOOK").split(",")
