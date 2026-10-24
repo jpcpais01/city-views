@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-24 23:30 UTC
+- On PC the game now opens in true full screen instead of a maximized window. F11 or Alt+Enter switches to a window and back.
+
 ## 2026-10-24 23:02 UTC
 - Clouds no longer slip behind rivers, lakes and the sea when they drift over water.
 - Dead-end streets now finish in a rounded turning head, with the kerb and pavement carried round, instead of stopping square.
