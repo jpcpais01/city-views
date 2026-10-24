@@ -167,6 +167,12 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if _save_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_save_task)
+		_save_task = -1
+	for t in _cloud_tasks:
+		WorkerThreadPool.wait_for_task_completion(t)
+	_cloud_tasks.clear()
 	if Net.island == self:
 		Net.island = null
 		# a shared island stays in its room
@@ -317,25 +323,63 @@ func display_name() -> String:
 	return island_name if island_name != "" else "Your city"
 
 
-func _save() -> void:
+var _save_task := -1
+var _cloud_tasks: Array[int] = []
+
+
+## Saves the island. In the `background` the ground's edits are worked out
+## and the file written on another thread, so autosaving never stalls a frame.
+func _save(background := false) -> void:
+	if _save_task >= 0:
+		if background and not WorkerThreadPool.is_task_completed(_save_task):
+			# still writing the last one: try again shortly
+			_save_timer = 0.5
+			return
+		WorkerThreadPool.wait_for_task_completion(_save_task)
+		_save_task = -1
+	_cloud_timer = minf(_cloud_timer, 20.0)
 	# a shared island lives in its room; your own stays as you left it, with
 	# the coins and goals you earned while away
-	var data := to_dict()
 	if Net.in_room():
 		var own: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH)) if FileAccess.file_exists(SAVE_PATH) else null
 		if not own is Dictionary:
 			return
 		own["progress"] = progress.to_dict()
-		data = own
+		_write_save(own)
+		return
+	if not background:
+		_write_save(to_dict())
+		return
+	_save_task = _dict_off_thread(_write_save)
+
+
+## Works out to_dict() with the ground's edits done on another thread, then
+## hands it to `done` (on that thread). Returns the task.
+func _dict_off_thread(done: Callable) -> int:
+	var data := {"v": SAVE_VERSION, "map": land.kind, "t": Time.get_unix_time_from_system(), "seed": island_seed,
+		"streets": streets.to_data(), "progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name}
+	var layers := [land.heights.duplicate(), land._base, land.zone.duplicate(), land.green.duplicate(), land.level.duplicate()]
+	return WorkerThreadPool.add_task(func():
+		data["land"] = Land.edits_of(layers[0], layers[1])
+		data["zone"] = Land.painted_of(layers[2], 0.01)
+		data["green"] = Land.painted_of(layers[3], 0.01)
+		data["level"] = Land.painted_of(layers[4], 0.5)
+		done.call(data))
+
+
+static func _write_save(data: Dictionary) -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
-	_cloud_timer = minf(_cloud_timer, 20.0)
 
 
 ## Keeps a copy of your island in your account, and brings back a newer one
 ## from another device when you sign in.
 func _cloud(delta: float) -> void:
+	for t in _cloud_tasks.duplicate():
+		if WorkerThreadPool.is_task_completed(t):
+			WorkerThreadPool.wait_for_task_completion(t)
+			_cloud_tasks.erase(t)
 	if not Firebase.signed_in or Net.in_room():
 		return
 	if not _cloud_checked:
@@ -363,7 +407,8 @@ func pull_cloud(force: bool) -> void:
 
 func save_cloud() -> void:
 	if Firebase.signed_in and not Net.in_room():
-		Firebase.db_put("users/%s/island" % Firebase.uid, to_dict())
+		# worked out off the main thread, sent from it
+		_cloud_tasks.append(_dict_off_thread(func(data: Dictionary): (func(): Firebase.db_put("users/%s/island" % Firebase.uid, data)).call_deferred()))
 
 
 func _local_time() -> float:
@@ -374,24 +419,78 @@ func _local_time() -> float:
 
 
 var _farm_rev := -1
+# the next row of the map box the farm map is being redone from (-1: not under way)
+var _farm_y := -1
 
 
-## Ground maps for the shaders; the shoreline one only when the coast may have moved.
-func _update_maps(coast := true) -> void:
+var _height_img: Image
+var _maps_box := Rect2i()
+var _maps_stage := 0
+var _maps_coast := false
+var _height_tex: ImageTexture
+
+
+## Ground maps for the shaders; the shoreline one only when the coast may have
+## moved. With a `box` (in samples) only that part of them is worked out again.
+func _update_maps(coast := true, box := Rect2i(0, 0, -1, -1)) -> void:
+	var full := box.size.x < 0 or _height_tex == null
+	if full:
+		land.take_map_box()
+		box = Rect2i(0, 0, -1, -1)
+	_maps_farm(box)
+	_maps_ground(coast, box)
+
+
+## Redoes the farm map a band of rows a frame; true once it is done.
+func _maps_farm_step(box: Rect2i) -> bool:
+	if box.size.x <= 0 or (_farm_y < 0 and land.farm_rev == _farm_rev):
+		_maps_farm(box)
+		return true
+	if _farm_y < 0:
+		_farm_y = box.position.y
+		_farm_rev = land.farm_rev
+	land.update_farm(Rect2i(box.position.x, _farm_y, box.size.x, mini(FARM_BAND, box.end.y - _farm_y)))
+	_farm_y += FARM_BAND
+	if _farm_y < box.end.y:
+		return false
+	_farm_y = -1
+	_upload_farm()
+	return true
+
+
+const FARM_BAND := 24
+
+
+## The farm map, where the land or the painted town may have changed it.
+func _maps_farm(box: Rect2i) -> void:
+	if land.farm_rev == _farm_rev:
+		return
+	_farm_rev = land.farm_rev
+	land.update_farm(box)
+	_upload_farm()
+
+
+func _upload_farm() -> void:
+	ground_mat.set_shader_parameter("farm_tex", ImageTexture.create_from_image(land.farm_image()))
+	ground_mat.set_shader_parameter("farm_angle", land.farm_angle)
+	ground_mat.set_shader_parameter("grid_size", Land.SIZE)
+
+
+## The height map the buildings and streets read, and the shoreline.
+func _maps_ground(coast: bool, box: Rect2i) -> void:
 	if coast:
 		water_mat.set_shader_parameter("shore_tex", ImageTexture.create_from_image(land.shore_image(16.0)))
 		water_mat.set_shader_parameter("grid_size", Land.SIZE)
-	if land.farm_rev != _farm_rev:
-		_farm_rev = land.farm_rev
-		land.update_farm()
-		ground_mat.set_shader_parameter("farm_tex", ImageTexture.create_from_image(land.farm_image()))
-		ground_mat.set_shader_parameter("farm_angle", land.farm_angle)
-		ground_mat.set_shader_parameter("grid_size", Land.SIZE)
-	var ht := ImageTexture.create_from_image(land.height_image())
-	for m in [city_mat, detail_mat]:
-		m.set_shader_parameter("height_tex", ht)
-		m.set_shader_parameter("height_range", Vector2(Land.MAP_SCALE, Land.MAP_BIAS))
-		m.set_shader_parameter("grid_size", Land.SIZE)
+	if box.size.x < 0 or _height_tex == null:
+		_height_img = land.height_image()
+		_height_tex = ImageTexture.create_from_image(_height_img)
+		for m in [city_mat, detail_mat]:
+			m.set_shader_parameter("height_tex", _height_tex)
+			m.set_shader_parameter("height_range", Vector2(Land.MAP_SCALE, Land.MAP_BIAS))
+			m.set_shader_parameter("grid_size", Land.SIZE)
+	elif box.size.x > 0:
+		land.paint_heights(_height_img, box)
+		_height_tex.update(_height_img)
 
 
 func set_brush(id: String) -> void:
@@ -413,14 +512,30 @@ func _process(delta: float) -> void:
 	if _shore_dirty and not _stroke and land.is_settled() and (_shore_wait <= 0.0 or not town.is_busy()):
 		_shore_dirty = false
 		_shore_wait = 1.0
-		land.rebuild_shadow()
-		_update_maps(_coast_dirty)
+		# the maps catch up over the next two frames, a part in each
+		var box := land.take_map_box()
+		if box.size.x > 0:
+			_maps_box = _maps_box.merge(box) if _maps_box.size.x > 0 else box
+		_maps_coast = _maps_coast or _coast_dirty
+		_maps_stage = 1
+		_farm_y = -1
 		_coast_dirty = false
-		_save_timer = 1.0
+		_save_timer = maxf(_save_timer, 1.0)
+	elif _maps_stage == 1:
+		if _maps_farm_step(_maps_box):
+			_maps_stage = 2
+	elif _maps_stage == 2:
+		_maps_stage = 0
+		_maps_ground(_maps_coast, _maps_box)
+		_maps_box = Rect2i()
+		_maps_coast = false
+	# the ground's shadow stand-in, a tile a frame where it changed
+	if not _stroke:
+		land.rebuild_shadow(0)
 	if _save_timer > 0.0:
 		_save_timer -= delta
 		if _save_timer <= 0.0:
-			_save()
+			_save(true)
 	_cloud(delta)
 	if _stroke and _ring_at != null:
 		if brush == "street":

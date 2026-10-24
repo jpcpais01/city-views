@@ -41,6 +41,8 @@ var _links := {}
 var _links_dirty := true
 var _junctions: Array = []
 var _junctions_dirty := true
+## [street id, street id] -> [fingerprint, meetings] (see _meetings_of)
+var _meet_cache := {}
 ## this builder's mark on the streets it makes, so keys never clash in co-op
 static var tag := ""
 # streets being laid out along their length: id -> seconds since placed
@@ -891,6 +893,17 @@ static func _in_cuts(list: PackedVector2Array, f: float) -> bool:
 
 ## Where two streets meet, as (index on s, index on o) pairs (fractional
 ## sample indices): ends that stop on the other street, and crossings.
+## Where two streets meet, remembered between rebuilds while neither changes
+## (laying one street then only works out its own meetings afresh).
+func _meetings_of(s: Street, o: Street, seen: Dictionary) -> PackedVector2Array:
+	var key := Vector2i(s.id, o.id)
+	var sig := hash([s.pts, s.w(), o.pts, o.w()])
+	var hit: Array = _meet_cache.get(key, [])
+	var out: PackedVector2Array = hit[1] if not hit.is_empty() and hit[0] == sig else _meetings(s, o)
+	seen[key] = [sig, out]
+	return out
+
+
 func _meetings(s: Street, o: Street) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	var spots := PackedVector2Array()
@@ -955,13 +968,14 @@ func junctions() -> Array:
 
 func _find_junctions() -> Array:
 	var found: Array = []
+	var seen := {}
 	for i in streets.size():
 		for k in range(i + 1, streets.size()):
 			var a: Street = streets[i]
 			var b: Street = streets[k]
 			if not _boxes_overlap(a, b):
 				continue
-			for m in _meetings(a, b):
+			for m in _meetings_of(a, b, seen):
 				var at := (_ptf(a, m.x) + _ptf(b, m.y)) * 0.5
 				var jn: Dictionary = {}
 				for q in found:
@@ -972,6 +986,7 @@ func _find_junctions() -> Array:
 					jn = {"at": at, "meets": []}
 					found.append(jn)
 				jn.meets.append([a, m.x, b, m.y])
+	_meet_cache = seen
 	for jn in found:
 		_shape_junction(jn)
 	return found.filter(func(q): return q.arms.size() >= 2)
@@ -1197,7 +1212,7 @@ func links() -> Dictionary:
 				var b: Street = streets[j]
 				if not _boxes_overlap(a, b):
 					continue
-				for m in _meetings(a, b):
+				for m in _meetings_of(a, b, _meet_cache):
 					_links[a.id].append([m.x, b, m.y])
 					_links[b.id].append([m.y, a, m.x])
 		_links_dirty = false

@@ -21,6 +21,8 @@ const TRUNK := Color(0.42, 0.31, 0.22)
 const PINE := [Color("3f7d4e"), Color("356f45"), Color("4a8a55")]
 
 var world: IslandWorld
+# the next chunk to fingerprint while looking for changes (-1: not looking)
+var _scan := -1
 var _woods := FastNoiseLite.new()
 var _mix := FastNoiseLite.new()
 var _seed := 0
@@ -36,10 +38,12 @@ var _seen := -1
 func _process(delta: float) -> void:
 	if not _todo.is_empty():
 		# a few chunks a frame keeps the frame time flat
-		for k in 2:
-			if _todo.is_empty():
-				break
+		var start := Time.get_ticks_usec()
+		while not _todo.is_empty() and Time.get_ticks_usec() - start < 2500:
 			_build(_todo.pop_back())
+		return
+	if _scan >= 0:
+		_scan_some()
 		return
 	_check -= delta
 	if _check > 0.0:
@@ -57,6 +61,7 @@ func _process(delta: float) -> void:
 func rebuild_all() -> void:
 	_reseed()
 	_todo.clear()
+	_scan = -1
 	for cz in CHUNKS:
 		for cx in CHUNKS:
 			var c := Vector2i(cx, cz)
@@ -83,15 +88,24 @@ func _reseed() -> void:
 	_sigs.clear()
 
 
+## Starts looking over the chunks for any whose trees need redoing, a few
+## each frame (see _scan_some).
 func _queue_changed() -> void:
 	_reseed()
-	for cz in CHUNKS:
-		for cx in CHUNKS:
-			var c := Vector2i(cx, cz)
-			var s := _chunk_sig(c)
-			if _sigs.get(c, -1) != s:
-				_sigs[c] = s
-				_todo.append(c)
+	_scan = 0
+
+
+func _scan_some() -> void:
+	var start := Time.get_ticks_usec()
+	while _scan < CHUNKS * CHUNKS and Time.get_ticks_usec() - start < 2000:
+		var c := Vector2i(_scan % CHUNKS, _scan / CHUNKS)
+		_scan += 1
+		var s := _chunk_sig(c)
+		if _sigs.get(c, -1) != s:
+			_sigs[c] = s
+			_todo.append(c)
+	if _scan >= CHUNKS * CHUNKS:
+		_scan = -1
 
 
 ## A fingerprint of everything a chunk's trees depend on: the ground and its

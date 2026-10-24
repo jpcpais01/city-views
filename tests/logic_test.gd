@@ -29,6 +29,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "live":
+		await _live_matches_full()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "undo":
 		await _island_undo()
 		print("FAILURES: %d" % failures)
@@ -41,6 +46,7 @@ func _ready() -> void:
 		return
 	_streets()
 	_street_snap()
+	await _live_matches_full()
 	await _junction_fuzz()
 	await _island_budget()
 	await _island_undo()
@@ -555,8 +561,7 @@ func _island_budget() -> void:
 	await get_tree().process_frame
 	# a town this size has its windmill and lighthouse
 	island.progress.recount(true)
-	island.landmarks._check = 0.0
-	island.landmarks._process(0.0)
+	island.landmarks.settle()
 	await get_tree().process_frame
 	check(island.bunting.spans().size() > 0, "bunting hangs across the main streets (%d strings)" % island.bunting.spans().size())
 	check(island.landmarks.spots.has("windmill"), "a big town gets a windmill (%s)" % str(island.landmarks.spots))
@@ -748,6 +753,46 @@ func _island_skyline() -> void:
 
 ## Fields cover open country but keep clear of the town and its parks, and
 ## the woods leave them open.
+## A town grown live, its work spread over many frames, ends up the same as
+## one worked out all at once.
+func _live_matches_full() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(11, "river")
+	var pts := PackedVector2Array()
+	for k in 31:
+		pts.append(Vector2(-30 + k * 2.0, sin(k * 0.2) * 4.0))
+	island.streets.add_stroke(pts)
+	island.streets.flush()
+	island.land.paint_zone(Vector3.ZERO, 30.0, 2.0)
+	island.land.paint_level(Vector3.ZERO, 30.0, 5.0, 2.0)
+	island.growth.wake(Vector2.ZERO)
+	# let it grow and settle on its own, a frame at a time
+	for f in 1500:
+		await get_tree().process_frame
+		if f > 200 and not island.growth.is_growing() and not island.town.is_busy() and island.land.is_settled() and island._maps_stage == 0:
+			break
+	await get_tree().process_frame
+	var land := island.land
+	check(island.streets.streets.size() > 3 and island.town.lots.size() > 20, "the town grew live (%d streets, %d lots)" % [island.streets.streets.size(), island.town.lots.size()])
+	var farm := land._farm.duplicate()
+	var shadow := land._shadow_hs.duplicate()
+	var juncs := island.streets.junctions().size()
+	land.update_farm()
+	land._shadow_all = true
+	land.rebuild_shadow()
+	island.streets._meet_cache.clear()
+	island.streets._junctions_dirty = true
+	var off := 0
+	for k in farm.size():
+		off += int(absf(farm[k] - land._farm[k]) > 1e-4)
+	check(off == 0, "the farm map worked out bit by bit matches one done at once (%d cells off)" % off)
+	check(shadow == land._shadow_hs, "so does the ground's shadow stand-in")
+	check(island.streets.junctions().size() == juncs, "and the junctions, with the street meetings remembered (%d)" % juncs)
+	island.queue_free()
+	await get_tree().process_frame
+
+
 func _farmland() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
@@ -889,8 +934,7 @@ func _districts() -> void:
 	check(not retail.is_empty() and shop_offices == 0, "a top-level shops district grows %s, never offices" % str(retail.keys()))
 	# and brings its attractions: a Ferris wheel, and with enough stores a stadium
 	island.landmarks._looked.clear()
-	island.landmarks._check = 0.0
-	island.landmarks._process(0.0)
+	island.landmarks.settle()
 	print("  retail plots: %d, attractions: %s" % [island.landmarks._retail().size(), str(island.landmarks.spots.keys())])
 	check(island.landmarks.spots.has("wheel"), "a Ferris wheel turns by the shops")
 	if island.landmarks.spots.has("stadium"):

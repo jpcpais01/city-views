@@ -34,6 +34,8 @@ var _scan: Array = []
 var _found: Array = []
 var _scanning := false
 var _failed := {}
+## a candidate traced and waiting to be laid next frame: [candidate, points]
+var _ready_pts: Array = []
 var _wobble := FastNoiseLite.new()
 
 
@@ -46,6 +48,7 @@ func wake(at: Vector2) -> void:
 	focus = at
 	_awake = true
 	_cands.clear()
+	_ready_pts = []
 	_scan.clear()
 	_found.clear()
 	_scanning = false
@@ -64,6 +67,7 @@ func nudge(at: Vector2) -> void:
 func stop() -> void:
 	_awake = false
 	_cands.clear()
+	_ready_pts = []
 	_scan.clear()
 	_found.clear()
 	_scanning = false
@@ -85,10 +89,19 @@ func _process(delta: float) -> void:
 		# laying a street is the big step: give it a frame of its own
 		if not _cands.is_empty() and Time.get_ticks_usec() - start > 300:
 			return
-		if not _cands.is_empty():
-			if _try(_cands.pop_front()):
+		if not _ready_pts.is_empty():
+			# traced last frame: laid now, on a frame of its own
+			var lay: Array = _ready_pts
+			_ready_pts = []
+			if _lay(lay[0], lay[1]):
 				_cands.clear()
 				_timer = PACE
+			return
+		if not _cands.is_empty():
+			var c: Dictionary = _cands.pop_front()
+			var pts := _plan(c)
+			if not pts.is_empty():
+				_ready_pts = [c, pts]
 				return
 			continue
 		if _scan.is_empty():
@@ -128,16 +141,29 @@ func grow_all(limit := 400) -> int:
 
 
 func _try(c: Dictionary) -> bool:
+	var pts := _plan(c)
+	return not pts.is_empty() and _lay(c, pts)
+
+
+## The way a new side street from candidate `c` would run; empty if none fits.
+func _plan(c: Dictionary) -> PackedVector2Array:
 	var key: String = c.key
 	if _failed.has(key):
-		return false
+		return PackedVector2Array()
 	var s: Streets.Street = c.street
 	if not s in streets.streets:
-		return false
+		return PackedVector2Array()
 	var pts := _trace(c.start, c.dir, s)
-	if pts.size() >= 3 and Streets._length(pts) >= MIN_LEN and streets.add_stroke(pts, "side") != null:
-		return true
+	if pts.size() >= 3 and Streets._length(pts) >= MIN_LEN:
+		return pts
 	_failed[key] = true
+	return PackedVector2Array()
+
+
+func _lay(c: Dictionary, pts: PackedVector2Array) -> bool:
+	if c.street in streets.streets and streets.add_stroke(pts, "side") != null:
+		return true
+	_failed[c.key] = true
 	return false
 
 

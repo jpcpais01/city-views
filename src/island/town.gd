@@ -56,8 +56,13 @@ var _occ := PackedInt32Array()
 # nearest street's id per cell (0 none), and how far that street is
 var _front := PackedInt32Array()
 var _front_d := PackedFloat32Array()
+# which run of _mark_street last looked at each cell, so none is worked out twice
+var _marked := PackedInt32Array()
+var _run := 0
 # streets whose sides still need lots: id -> Street
 var _todo := {}
+# the new street whose cells were marked last frame (see _process)
+var _placing: Streets.Street
 # the street being laid out now: {s, side, f}
 var _job := {}
 # streets just laid, still to be marked on the town map
@@ -171,6 +176,7 @@ func setup(l: Land, st: Streets, mat: Material) -> void:
 	_front.resize(RES * RES)
 	_front_d.resize(RES * RES)
 	_front_d.fill(INF)
+	_marked.resize(RES * RES)
 	streets.added.connect(_on_added)
 	streets.removed.connect(_on_removed)
 
@@ -191,6 +197,7 @@ func clear() -> void:
 	_todo.clear()
 	_job = {}
 	_new_streets.clear()
+	_placing = null
 
 
 ## Keeps the ground within `r` of `p` free of houses, for a landmark.
@@ -372,10 +379,11 @@ func _on_added(s: Streets.Street) -> void:
 	_new_streets.append(s)
 
 
-func _place_street(s: Streets.Street) -> void:
+func _place_street(s: Streets.Street, mark := true) -> void:
 	if not s in streets.streets:
 		return
-	_mark_street(s)
+	if mark:
+		_mark_street(s)
 	# lots the new street runs through make way for it
 	for id in lots.keys():
 		var l: Lot = lots[id]
@@ -451,6 +459,7 @@ func _mark_street(s: Streets.Street) -> void:
 		var t := (s.pts[j] - a).normalized()
 		var nrm := Vector2(-t.y, t.x)
 		var len := a.distance_to(s.pts[j])
+		_run += 1
 		var u := -CELL
 		while u <= len + CELL:
 			var v := -rf
@@ -460,6 +469,9 @@ func _mark_street(s: Streets.Street) -> void:
 				if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
 					continue
 				var k := c.y * RES + c.x
+				if _marked[k] == _run:
+					continue
+				_marked[k] = _run
 				var p := Vector2((c.x + 0.5) * CELL - Land.HALF, (c.y + 0.5) * CELL - Land.HALF)
 				var d := INF
 				for m in range(i, j):
@@ -506,7 +518,16 @@ func _process(delta: float) -> void:
 	_clock += delta
 	var start := Time.get_ticks_usec()
 	if not _new_streets.is_empty():
-		_place_street(_new_streets.pop_front())
+		# a new street marks its cells on one frame, clears its way on the next
+		var s: Streets.Street = _new_streets[0]
+		if _placing != s:
+			_placing = s
+			if s in streets.streets:
+				_mark_street(s)
+			return
+		_placing = null
+		_new_streets.pop_front()
+		_place_street(s, false)
 		return
 	# a street's lots are laid a few at a time, so a long street never stalls a frame
 	while Time.get_ticks_usec() - start < 2500:
@@ -791,6 +812,7 @@ func fill_all() -> void:
 	for s: Streets.Street in _new_streets:
 		_place_street(s)
 	_new_streets.clear()
+	_placing = null
 	for s: Streets.Street in streets.streets:
 		_fill(s)
 	_todo.clear()
@@ -868,8 +890,7 @@ func _step(job: Dictionary, until: int) -> bool:
 				f += 1.0
 		job.side += 1
 		job.f = 1.0
-	_inner(s)
-	return true
+	return _inner(s, job, until)
 
 
 # ------------------------------------------------------------------ inside the blocks
@@ -882,10 +903,13 @@ const INNER_REACH := 13.0
 ## plots and within a short walk of it: a pocket park where the player
 ## painted green, otherwise now and then a cottage, the way back lanes and
 ## courtyards fill in an old town.
-func _inner(s: Streets.Street) -> void:
+func _inner(s: Streets.Street, job: Dictionary, until: int) -> bool:
 	var n := s.pts.size()
-	var f := 2.0
+	var f: float = job.get("inner", 2.0)
 	while f < n - 2.0:
+		if until >= 0 and Time.get_ticks_usec() > until:
+			job.inner = f
+			return false
 		var p := streets._ptf(s, f)
 		for side: float in [-1.0, 1.0]:
 			var nrm := streets._sidef(s, f) * side
@@ -907,6 +931,7 @@ func _inner(s: Streets.Street) -> void:
 				if nearest and _inner_lot(s, f, c, park):
 					break
 		f += 6.0
+	return true
 
 
 ## A small plot centred on c, facing the street it belongs to, if the ground
