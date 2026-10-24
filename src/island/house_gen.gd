@@ -336,7 +336,8 @@ static func _shopfront(mk: MeshKit, rng: RandomNumberGenerator, hw: float, front
 			var fruit := [Color("e8503a"), Color("f2b33d"), Color("6fb35a"), Color("f08a24")]
 			for k in 3:
 				var cx := (k - 1) * 0.2
-				mk.box_faces(Vector3(cx, 0.08, front + 0.13), Vector3(0.17, 0.16, 0.16), Color("a87b50"), MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+				# the sides between neighbouring crates never show
+				mk.box_faces(Vector3(cx, 0.08, front + 0.13), Vector3(0.17, 0.16, 0.16), Color("a87b50"), MeshKit.TOP | MeshKit.FRONT | (MeshKit.LEFT if k == 0 else 0) | (MeshKit.RIGHT if k == 2 else 0))
 				mk.box_faces(Vector3(cx, 0.165, front + 0.13), Vector3(0.15, 0.012, 0.14), fruit[(k + rng.randi()) % fruit.size()], MeshKit.TOP)
 		"pharmacy":
 			# a green cross standing out from the wall, lit at night
