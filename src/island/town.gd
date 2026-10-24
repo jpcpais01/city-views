@@ -34,8 +34,10 @@ const CIVIC_WIDTH := {"square": 6.0, "church": 4.4, "hall": 4.6, "school": 5.2, 
 const CIVIC_DEPTH := {"square": 3.0, "church": 3.5, "hall": 3.2, "school": 3.8, "market": 2.8}
 const FH := 0.62
 ## how built-up each stage is (terraced from stage 2 up)
-const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0]
-const STAGE_NAMES := ["cottage", "house", "townhouse", "terrace", "tall terrace"]
+const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0, 1.0, 1.0]
+const STAGE_NAMES := ["cottage", "house", "townhouse", "terrace", "tall terrace", "apartments", "tower"]
+## the highest stage a house can reach
+const TOP_STAGE := 6
 # seconds between a house's stages, before its own variation
 const EVOLVE_TIME := 14.0
 const NEIGHBOURS := 10.0
@@ -99,7 +101,7 @@ class Lot:
 	## floors and a shop on the ground floor, for houses
 	var floors := 0
 	var shop := false
-	## the stage the house may grow to, and the stage it has reached (0 cottage .. 4)
+	## the stage the house may grow to, and the stage it has reached (0 cottage .. TOP_STAGE)
 	var cap := 0
 	## where the cap was read (from the painted level)
 	var capq := Vector2.ZERO
@@ -612,7 +614,7 @@ func _try_merge(l: Lot) -> bool:
 	if not HouseGen.outline_ok(HouseGen.block_outline(members)):
 		return false
 	# chance by place, so the same plots join up after a reload
-	var odds := 0.55 if mini(l.stage, p.stage) < 4 else 0.8
+	var odds: float = [0.55, 0.8, 0.92][clampi(mini(l.stage, p.stage) - 3, 0, 2)]
 	if _hash(roundi(l.origin.x * 10.0), l.origin.y, 9.1) > odds:
 		return false
 	group.append(l.id)
@@ -706,7 +708,7 @@ func _cap_at(s: Streets.Street, p: Vector2, side: float) -> int:
 	var j := (_hash(roundi(p.x * 7.0), p.y, side * 5.0) - 0.5) * 1.3 + (_wobble(p) - 0.5) * 0.4
 	if s.kind == "main":
 		j += 0.35
-	return clampi(roundi(lv - 0.45 + j), 0, 4)
+	return clampi(roundi(lv - 0.45 + j), 0, TOP_STAGE)
 
 
 func _next_job() -> Dictionary:
@@ -918,7 +920,7 @@ func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float
 		return "park"
 	var h := _hash(s.id, f, side * 7.0)
 	# squares and churches go by the area's level, not one plot's own luck
-	dense = maxf(dense, STAGE_DENSE[clampi(roundi(land.level_at(q.x, q.y)), 0, 4)])
+	dense = maxf(dense, STAGE_DENSE[clampi(roundi(land.level_at(q.x, q.y)), 0, TOP_STAGE)])
 	# a square or public building that stood here before the island was reloaded comes back
 	var back := _kept_public(s, f, side)
 	if back != "":

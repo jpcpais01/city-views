@@ -640,7 +640,7 @@ func paint_level(centre: Vector3, radius: float, lv: float, amount: float) -> vo
 			level[k] = move_toward(level[k], lv, amount * minf(w * 3.0, 1.0)))
 
 
-## The level the town may grow to here, 1..4 (from the nearest sample).
+## The level the town may grow to here, 1..6 (from the nearest sample).
 func level_at(x: float, z: float) -> float:
 	var fx := (x + HALF) / STEP
 	var fz := (z + HALF) / STEP

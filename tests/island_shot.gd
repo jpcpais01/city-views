@@ -73,8 +73,13 @@ func _ready() -> void:
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 1.0)
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r * 0.8, 1.0)
 		if OS.get_environment("CV_LEVEL") != "":
-			# the Grow level painted over the town (1 village .. 4 centre)
+			# the Grow level painted over the town (1 village .. 6 skyline)
 			island.land.paint_level(Vector3(f.x, 0, f.z), r, float(OS.get_environment("CV_LEVEL")), 2.0)
+		if OS.get_environment("CV_RINGS") != "":
+			# a city: rings of Grow levels rising to the middle (CV_RINGS = the top level)
+			var top := int(OS.get_environment("CV_RINGS"))
+			for k in 4:
+				island.land.paint_level(Vector3(f.x, 0, f.z), r * (1.0 - k * 0.22), float(top - 3 + k), 2.0)
 		if OS.get_environment("CV_GREEN") != "":
 			# a park painted at x,z,radius
 			var g := OS.get_environment("CV_GREEN").split(",")

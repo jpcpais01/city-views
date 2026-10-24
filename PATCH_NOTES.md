@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 15:50 UTC
+- Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers of twelve floors and more.
+- Towers stand on a podium with shops at street level, set back above it, with a plant storey on top and a mast on some.
+- Towers come in dark or teal glass, white, warm stone or brick, and apartment blocks are rendered in warm colours.
+- Tall buildings are much lighter for your phone: a whole city filling the screen now stays well inside the limits.
+- Window sills are now a single bevelled ledge, half the cost and still catching the light.
+
 ## 2026-10-24 15:00 UTC
 - New kinds of map: pick River valley, Coast, Lake country or Island when you start a new map from the menu.
 - Open maps are no longer islands: the countryside runs on past the edge to the horizon, with a winding river, lakes and a flood plain made for a city.
