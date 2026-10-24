@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 15:10 UTC
+- Much more traffic as your city grows, up to about 140 vehicles, busiest on avenues and highways.
+- Vehicles keep to their lanes: avenues and highways are driven two lanes each way, and traffic queues behind the car ahead instead of driving through it.
+- Buses run along main streets and avenues and pull up at stops; lorries come and go from industrial districts and travel the highways.
+- Street lights stand down the middle of every avenue and highway, and at night they throw warm pools of light on the road.
+- Cars, vans, buses and lorries are drawn with far fewer triangles, so the busier streets cost your phone no more than before.
+
 ## 2026-10-24 14:45 UTC
 - Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers on a podium. Where Skyline plots join up downtown, they rise as stepped skyscrapers of twenty to forty floors, many with a spire.
 - Districts: with the Grow brush, pick Homes, Shops, Offices or Industry above the levels. Shops put a shop under every house, Offices grow office blocks, and Industry grows workshops, warehouses and factories with chimneys, tanks and loading yards. Offices and industry bring jobs that pay taxes.

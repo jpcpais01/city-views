@@ -26,6 +26,7 @@ var streets: Streets
 var growth: Growth
 var town: Town
 var cars: Traffic
+var lights: StreetLights
 var folk: People
 var wildlife: Life
 var ships: Ships
@@ -106,6 +107,10 @@ func _ready() -> void:
 	cars.streets = streets
 	cars.town = town
 	add_child(cars)
+	lights = StreetLights.new()
+	lights.material = city_mat
+	lights.streets = streets
+	add_child(lights)
 	folk = People.new()
 	folk.material = city_mat
 	folk.streets = streets
