@@ -56,6 +56,8 @@ const LEVEL_DEFAULT := 2.0
 const USES := ["homes", "shops", "offices", "industry"]
 const USE_STRIDE := 10.0
 const LEVEL_MAX := 6.0
+## the light stone of downtown plazas and the ground between its buildings
+const PAVED := Color(0.77, 0.74, 0.69)
 ## the painted ground's tint while growing, by district (homes green, shops
 ## blue, offices teal, industry amber, as city builders colour their zones)
 const USE_TINTS := [Color("59d24a"), Color("3f8cff"), Color("22c7c7"), Color("ffb51f")]
@@ -671,6 +673,17 @@ static func _use_of(v: float) -> int:
 	return clampi(int(floor((v + 0.5) / USE_STRIDE)), 0, USES.size() - 1)
 
 
+## How much of the ground at sample (gi, gj) is paved, 0..1: none up to the
+## third level, all of it from the fifth (a level sooner for shops and offices).
+func paved(gi: int, gj: int) -> float:
+	var raw := level[gj * SIDE + gi]
+	var u := _use_of(raw) if raw >= 0.5 else 0
+	var lv := raw - u * USE_STRIDE if raw >= 0.5 else LEVEL_DEFAULT
+	if u == 1 or u == 2:
+		lv += 1.0
+	return smoothstep(2.6, 4.6, lv) * minf(zone[gj * SIDE + gi] * 1.6, 1.0)
+
+
 ## The level the town may grow to here, 1..6 (from the nearest sample).
 func level_at(x: float, z: float) -> float:
 	var fx := (x + HALF) / STEP
@@ -1223,7 +1236,7 @@ func _block_step(i0: int, j0: int) -> int:
 				if not deep:
 					var col := _col[a + ci].lerp(_col[a + ci1], u).lerp(_col[b + ci].lerp(_col[b + ci1], u), v)
 					var o := _col[j * SIDE + i]
-					if absf(col.r - o.r) > TOL_COL or absf(col.g - o.g) > TOL_COL or absf(col.b - o.b) > TOL_COL:
+					if absf(col.r - o.r) > TOL_COL or absf(col.g - o.g) > TOL_COL or absf(col.b - o.b) > TOL_COL or absf(col.a - o.a) > TOL_COL:
 						ok = false
 						break
 			if not ok:
@@ -1269,6 +1282,15 @@ func _sample_colour(gi: int, gj: int) -> Color:
 	if gn > 0.0 and h > 0.0:
 		# park lawns, a lusher green
 		col = col.lerp(Color("2fd35a") if show_zone else Color("74bf5e"), minf(gn * 1.4, 1.0) * 0.82 if show_zone else gn * 0.3)
+	if zn > 0.0 and h > 0.45 and not show_zone:
+		# the denser the town, the more of the ground between its streets and
+		# buildings is paved: lawns in the suburbs, stone plazas downtown.
+		# The shader reads alpha below 1 as paving and lays slabs over it.
+		# (beaches and river banks stay sand and grass)
+		var pv := paved(gi, gj) * (1.0 - minf(gn * 1.6, 1.0)) * smoothstep(0.55, 0.85, up) * smoothstep(0.45, 0.95, h)
+		if pv > 0.0:
+			col = col.lerp(PAVED, pv)
+			col.a = 1.0 - pv
 	if h > -0.3:
 		col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
 	return col
