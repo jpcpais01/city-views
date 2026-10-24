@@ -81,8 +81,10 @@ func _make_environment() -> void:
 	env.glow_hdr_threshold = 1.1
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	env.fog_enabled = true
-	env.fog_density = 0.0012
-	env.fog_aerial_perspective = 0.15
+	# a soft haze that blues the far country, as from a plane over a big city
+	env.fog_density = 0.0011
+	env.fog_aerial_perspective = 0.35
+	env.fog_sun_scatter = 0.06
 	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.08

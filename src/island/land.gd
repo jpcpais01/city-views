@@ -106,6 +106,12 @@ func generate(seed_value: int, map_kind := "island", build := true) -> void:
 	_detail.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_detail.fractal_octaves = 2
 	_detail.frequency = 1.0 / 9.0
+	farm_rev += 1
+	_farm_noise.seed = seed_value + 53
+	_farm_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_farm_noise.fractal_octaves = 2
+	_farm_noise.frequency = 1.0 / 90.0
+	farm_angle = fposmod(seed_value * 0.618, 1.0) * 0.9 - 0.45
 	_plan_water(seed_value)
 	heights.resize(SIDE * SIDE)
 	if kind == "legacy":
@@ -683,6 +689,102 @@ func green_at(x: float, z: float) -> float:
 	return _sample(green, x, z)
 
 
+# ------------------------------------------------------------------ farmland
+
+## Fields out in the country: a patchwork of crops in a grid turned by
+## farm_angle, each field FIELD metres, drawn by the ground shader. The farm
+## map says which fields are farmed (sampled at each field's middle), kept
+## clear of the town, the parks, the water and the hills.
+const FIELD := Vector2(15.0, 10.0)
+const FARM_CELL := 4.0
+const FARM_SIDE := int(SIZE / FARM_CELL) + 1
+## how far fields keep from ground painted for the town (in farm cells)
+const FARM_CLEAR := 5
+var farm_angle := 0.0
+## bumped whenever the farm map may need working out again
+var farm_rev := 0
+var _farm := PackedFloat32Array()
+var _farm_noise := FastNoiseLite.new()
+
+
+## Works out the farm map afresh (after the land, the town or the parks changed).
+func update_farm() -> void:
+	var n := FARM_SIDE
+	var town := PackedFloat32Array()
+	town.resize(n * n)
+	for j in n:
+		for i in n:
+			var x := -HALF + i * FARM_CELL
+			var z := -HALF + j * FARM_CELL
+			var t := 0.0
+			for o: Vector2 in [Vector2.ZERO, Vector2(2, 0), Vector2(0, 2), Vector2(2, 2), Vector2(-2, -2)]:
+				t = maxf(t, maxf(zone_at(x + o.x, z + o.y), green_at(x + o.x, z + o.y)))
+			town[j * n + i] = t
+	# spread the town out, a row and then a column at a time
+	for pass_i in 2:
+		var out := PackedFloat32Array()
+		out.resize(n * n)
+		for j in n:
+			for i in n:
+				var t := 0.0
+				for d in range(-FARM_CLEAR, FARM_CLEAR + 1):
+					var a := i + d if pass_i == 0 else i
+					var b := j if pass_i == 0 else j + d
+					if a >= 0 and b >= 0 and a < n and b < n:
+						t = maxf(t, town[b * n + a])
+				out[j * n + i] = t
+		town = out
+	_farm.resize(n * n)
+	for j in n:
+		for i in n:
+			var x := -HALF + i * FARM_CELL
+			var z := -HALF + j * FARM_CELL
+			var h := height_at(x, z)
+			var f := smoothstep(-0.12, 0.08, _farm_noise.get_noise_2d(x, z))
+			f *= smoothstep(0.7, 1.1, h) * (1.0 - smoothstep(6.5, 8.0, h))
+			f *= smoothstep(0.965, 0.985, normal_at(x, z).y)
+			f *= 1.0 - smoothstep(0.05, 0.2, town[j * n + i])
+			_farm[j * n + i] = f
+
+
+func farm_image() -> Image:
+	var bytes := PackedByteArray()
+	bytes.resize(FARM_SIDE * FARM_SIDE)
+	for k in bytes.size():
+		bytes[k] = int(clampf(_farm[k] if k < _farm.size() else 0.0, 0.0, 1.0) * 255.0)
+	return Image.create_from_data(FARM_SIDE, FARM_SIDE, false, Image.FORMAT_L8, bytes)
+
+
+## The middle of the field a point lies in.
+func field_centre(x: float, z: float) -> Vector2:
+	var q := Vector2(x, z).rotated(-farm_angle) / FIELD
+	return ((q.floor() + Vector2(0.5, 0.5)) * FIELD).rotated(farm_angle)
+
+
+## How far a point is from the edge of its field, in metres.
+func field_edge(x: float, z: float) -> float:
+	var f := (Vector2(x, z).rotated(-farm_angle) / FIELD)
+	f -= f.floor()
+	return minf(minf(f.x, 1.0 - f.x) * FIELD.x, minf(f.y, 1.0 - f.y) * FIELD.y)
+
+
+## Whether the field a point lies in is farmed.
+func farm_at(x: float, z: float) -> bool:
+	if _farm.is_empty():
+		return false
+	var c := field_centre(x, z)
+	var fx := (c.x + HALF) / FARM_CELL
+	var fz := (c.y + HALF) / FARM_CELL
+	if fx < 0.0 or fz < 0.0 or fx > FARM_SIDE - 1 or fz > FARM_SIDE - 1:
+		return false
+	var i := mini(int(fx), FARM_SIDE - 2)
+	var j := mini(int(fz), FARM_SIDE - 2)
+	var u := fx - i
+	var v := fz - j
+	var n := FARM_SIDE
+	return lerpf(lerpf(_farm[j * n + i], _farm[j * n + i + 1], u), lerpf(_farm[(j + 1) * n + i], _farm[(j + 1) * n + i + 1], u), v) > 0.5
+
+
 func _sample(a: PackedFloat32Array, x: float, z: float) -> float:
 	var fx := (x + HALF) / STEP
 	var fz := (z + HALF) / STEP
@@ -702,6 +804,7 @@ func flatten(centre: Vector3, radius: float, to: float, amount: float) -> void:
 
 
 func _each_in(centre: Vector3, radius: float, f: Callable) -> void:
+	farm_rev += 1
 	var i0 := maxi(0, int(floor((centre.x - radius + HALF) / STEP)))
 	var i1 := mini(CELLS, int(ceil((centre.x + radius + HALF) / STEP)))
 	var j0 := maxi(0, int(floor((centre.z - radius + HALF) / STEP)))
@@ -1269,6 +1372,7 @@ func level_edits() -> Dictionary:
 
 
 func apply_level(e: Dictionary) -> void:
+	farm_rev += 1
 	for k in e:
 		var i := int(k)
 		if i >= 0 and i < level.size():
@@ -1277,6 +1381,7 @@ func apply_level(e: Dictionary) -> void:
 
 
 func apply_green(e: Dictionary) -> void:
+	farm_rev += 1
 	for k in e:
 		var i := int(k)
 		if i >= 0 and i < green.size():
@@ -1285,6 +1390,7 @@ func apply_green(e: Dictionary) -> void:
 
 
 func apply_zone(e: Dictionary) -> void:
+	farm_rev += 1
 	for k in e:
 		var i := int(k)
 		if i >= 0 and i < zone.size():
@@ -1298,6 +1404,7 @@ func snapshot() -> Array:
 
 
 func restore(snap: Array) -> void:
+	farm_rev += 1
 	heights = snap[0].duplicate()
 	zone = snap[1].duplicate()
 	green = snap[2].duplicate()
@@ -1332,6 +1439,7 @@ func base_height(k: int) -> float:
 ## Sets single samples (from another builder), redrawing only where they are.
 ## `layer` is heights (as offsets from the natural ground), zone, green or level.
 func set_samples(layer: String, values: Dictionary) -> void:
+	farm_rev += 1
 	for k in values:
 		var i: int = k
 		if i < 0 or i >= heights.size():
@@ -1369,6 +1477,7 @@ func _mark_keys(e: Dictionary) -> void:
 
 
 func apply_edits(e: Dictionary) -> void:
+	farm_rev += 1
 	for k in e:
 		var i := int(k)
 		if i >= 0 and i < heights.size():

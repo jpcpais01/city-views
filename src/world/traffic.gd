@@ -223,6 +223,10 @@ func _spawn(total: float) -> Dictionary:
 	if kind != "car" and kind != "van":
 		# the big ones keep to the inside lane
 		m.lane = 0
+	# not on top of one already there
+	for c in _cars:
+		if c.s == s and c.lane == m.lane and c.dir == m.dir and absf(c.f - m.f) * Streets.SAMPLE < (c.len + m.len) * 0.5 + 1.0:
+			return {}
 	return m
 
 

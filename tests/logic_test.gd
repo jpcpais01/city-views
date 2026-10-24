@@ -24,6 +24,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "farm":
+		await _farmland()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "roads":
 		await _road_kinds()
 		print("FAILURES: %d" % failures)
@@ -39,6 +44,7 @@ func _ready() -> void:
 	await _island_levels()
 	await _island_skyline()
 	await _districts()
+	await _farmland()
 	await _road_kinds()
 	await _bridges()
 	await _island_inner()
@@ -701,6 +707,42 @@ func _island_skyline() -> void:
 	await get_tree().process_frame
 
 
+## Fields cover open country but keep clear of the town and its parks, and
+## the woods leave them open.
+func _farmland() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(5, "river")
+	var land := island.land
+	var farmed := 0
+	var total := 0
+	for j in range(-180, 181, 6):
+		for i in range(-180, 181, 6):
+			total += 1
+			farmed += int(land.farm_at(i, j))
+	check(farmed > total / 10, "the country is farmed (%d of %d spots)" % [farmed, total])
+	var c := land.start_point()
+	land.paint_zone(Vector3(c.x, 0, c.y), 40.0, 2.0)
+	island._update_maps(false)
+	var near := 0
+	for j in range(-40, 41, 4):
+		for i in range(-40, 41, 4):
+			if Vector2(i, j).length() < 40.0 and land.farm_at(c.x + i, c.y + j):
+				near += 1
+	check(near == 0, "no fields where the town is to grow (%d)" % near)
+	var trees := 0
+	var in_fields := 0
+	island.wilds._reseed()
+	for j in range(-180, 181, 3):
+		for i in range(-180, 181, 3):
+			if land.farm_at(i, j) and land.field_edge(i, j) > 0.6:
+				trees += 1
+				in_fields += int(island.wilds._spot(i, j, 0.0) >= 0)
+	check(in_fields == 0, "no trees in the middle of a field (%d of %d)" % [in_fields, trees])
+	island.queue_free()
+	await get_tree().process_frame
+
+
 ## Districts painted with the Grow brush: industry grows works and no homes,
 ## a shops district puts a shop under every house, offices bring jobs; the
 ## districts and the top levels come back from a save.
@@ -821,15 +863,17 @@ func _road_kinds() -> void:
 	check(on_mid >= 8, "street lights stand down the middle of avenues and highways (%d)" % on_mid)
 	# traffic: lanes, queues, buses and lorries
 	var tr := island.cars
+	var lanes_av := {}
+	var kinds_seen := {}
 	for k in 600:
 		tr._process(0.05)
-	var lanes_av := {}
+		if k >= 300:
+			for c in tr._cars:
+				kinds_seen[tr.STYLES[c.v][0]] = true
+				if c.s == a and c.grow >= 1.0:
+					lanes_av[c.lane] = true
 	var overlaps := 0
-	var kinds_seen := {}
 	for c in tr._cars:
-		kinds_seen[tr.STYLES[c.v][0]] = true
-		if c.s == a and c.grow >= 1.0:
-			lanes_av[c.lane] = true
 		if c.ahead < -0.05 and c.grow >= 1.0:
 			overlaps += 1
 	check(tr._cars.size() >= 20, "traffic fills the streets (%d vehicles)" % tr._cars.size())

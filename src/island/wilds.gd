@@ -181,6 +181,9 @@ func _spot(x: float, z: float, keep: float) -> int:
 	# ground painted for the town is left for the town
 	if land.zone_at(x, z) > 0.15 and green < 0.3:
 		return -1
+	if green < 0.3 and land.farm_at(x, z):
+		# fields stay open, with now and then a tree in the hedge round one
+		return 0 if land.field_edge(x, z) < 0.5 and keep < 0.1 else -1
 	var woods := smoothstep(-0.02, 0.3, _woods.get_noise_2d(x, z))
 	# a few lone trees anywhere, woods where the noise says, thick where green is painted
 	var dense := 0.03 + maxf(woods * 0.85, green * 0.9)
