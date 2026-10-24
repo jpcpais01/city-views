@@ -39,6 +39,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "bridges":
+		await _bridges()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "roads":
 		await _road_kinds()
 		print("FAILURES: %d" % failures)
@@ -1053,6 +1058,20 @@ func _bridges() -> void:
 		island._apply_save(JSON.parse_string(JSON.stringify(island.to_dict())))
 		var back: Streets.Street = island.streets.streets[0]
 		check(back.spans.size() == 1 and land.height_at(back.pts[c].x, back.pts[c].y) < -0.5, "and it is still a bridge after a reload")
+		# every style of bridge stands up, at a modest cost in triangles
+		BridgeGen.force = "none"
+		island.streets._build(back)
+		var plain := _tris(island.streets._meshes[back.id].mesh)
+		for style in ["stone", "arch", "stayed", "suspension"]:
+			BridgeGen.force = style
+			island.streets._build(back)
+			var mi: MeshInstance3D = island.streets._meshes[back.id]
+			var bm: MeshInstance3D = mi.get_node_or_null("Bridges")
+			var extra := _tris(mi.mesh) - plain + (_tris(bm.mesh) * 2 if bm else 0)
+			print("  %s bridge: +%d tris (shadow casters counted twice)" % [style, extra])
+			check((bm != null) == (style != "stone") and extra > 50 and extra < 6000, "the %s bridge is built (+%d triangles)" % [style, extra])
+		BridgeGen.force = ""
+		island.streets._build(back)
 	# a street running along the bank, just clear of the water
 	var bank := PackedVector2Array()
 	for k in range(mid - 6, mid + 7):
@@ -1185,3 +1204,13 @@ func _street_snap() -> void:
 	check(c != null and c.pts[0].distance_to(a.pts[a.pts.size() - 1]) < 0.05, "a street started near another's end carries on from it")
 	st.queue_free()
 	land.queue_free()
+
+
+func _tris(m: Mesh) -> int:
+	var n := 0
+	if m == null:
+		return 0
+	for k in m.get_surface_count():
+		var arr := m.surface_get_arrays(k)
+		n += (arr[Mesh.ARRAY_INDEX].size() if arr[Mesh.ARRAY_INDEX] else arr[Mesh.ARRAY_VERTEX].size()) / 3
+	return n
