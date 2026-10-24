@@ -168,39 +168,7 @@ func _sea_mesh(cells: int, half: float) -> ArrayMesh:
 
 
 func _make_clouds() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 42
-	# clouds still cast shadows on the town, but never on their own puffs
-	var cloud_sh := Shader.new()
-	cloud_sh.code = (load("res://shaders/blob.gdshader") as Shader).code.replace("cull_disabled;", "cull_disabled, shadows_disabled;")
-	var cloud_mat := ShaderMaterial.new()
-	cloud_mat.shader = cloud_sh
-	for i in 18:
-		var mk := MeshKit.new()
-		var puffs := rng.randi_range(3, 6)
-		for k in puffs:
-			var p := Vector3(rng.randf_range(-3.5, 3.5), rng.randf_range(-0.4, 0.6), rng.randf_range(-1.6, 1.6))
-			var r := rng.randf_range(1.4, 2.6)
-			# each puff is a big round sprite flanked by two lower, smaller ones,
-			# so the cloud keeps its flat-bottomed, spread-out shape
-			mk.blob(p, Vector3.ONE * r * 0.8, Color(1, 1, 1))
-			for sx in [-1.0, 1.0]:
-				mk.blob(p + Vector3(sx * r * 0.62, -r * 0.18, rng.randf_range(-0.3, 0.3) * r), Vector3.ONE * r * 0.58, Color(1, 1, 1))
-		var mi := MeshInstance3D.new()
-		var m := StandardMaterial3D.new()
-		m.vertex_color_use_as_albedo = true
-		m.vertex_color_is_srgb = true
-		m.albedo_color = Color(1, 1, 1)
-		m.roughness = 1.0
-		m.rim_enabled = true
-		m.rim = 0.4
-		mi.mesh = mk.commit(m)
-		mi.material_override = cloud_mat
-		mi.position = Vector3(rng.randf_range(-280, 280), rng.randf_range(24, 34), rng.randf_range(-280, 280))
-		mi.scale = Vector3.ONE * rng.randf_range(0.8, 1.4)
-		mi.set_meta("speed", rng.randf_range(0.8, 1.6))
-		add_child(mi)
-		_clouds.append(mi)
+	_clouds = Clouds.make(self)
 
 
 # ------------------------------------------------------------------ view
