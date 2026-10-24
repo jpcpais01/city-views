@@ -61,13 +61,19 @@ const PAVED := Color(0.77, 0.74, 0.69)
 ## the painted ground's tint while growing, by district (homes green, shops
 ## blue, offices teal, industry amber, as city builders colour their zones)
 const USE_TINTS := [Color("59d24a"), Color("3f8cff"), Color("22c7c7"), Color("ffb51f")]
-# tint the painted area strongly (while the Grow brush is in hand)
+# tint the painted area strongly (while the Grow brush is in hand): the ground
+# shader lays the tint map over the land, so it shows the instant it is painted
+# and switching it on or off redraws nothing
 var show_zone := false:
 	set(v):
-		if v != show_zone:
-			show_zone = v
-			for c in _chunks.keys():
-				_dirty_chunk(c)
+		show_zone = v
+		if material:
+			material.set_shader_parameter("show_zone", v)
+## the painted town's tint as the Grow brush shows it, one pixel per ground
+## sample: RGB the colour, A how strongly it covers the ground
+var tint_img: Image
+var _tint_lo := Vector2i(0, 0)
+var _tint_hi := Vector2i(CELLS, CELLS)
 var _chunks := {}
 ## counts up whenever the ground or its painting changes
 var revision := 0
@@ -83,6 +89,8 @@ var kind := "island"
 var _col := PackedColorArray()
 var _steps := PackedByteArray()
 var _ready_chunks := {}
+# chunks changed again while being redrawn: redrawn once more when done
+var _again := {}
 # chunks part way through being worked out: the next row of colours to do,
 # and the mesh being put together
 var _prep_row := {}
@@ -911,6 +919,8 @@ func tile_sig(t: Vector2i) -> int:
 
 
 func _mark(i0: int, j0: int, i1: int, j1: int) -> void:
+	_tint_lo = _tint_lo.min(Vector2i(maxi(i0, 0), maxi(j0, 0)))
+	_tint_hi = _tint_hi.max(Vector2i(mini(i1, CELLS), mini(j1, CELLS)))
 	if tile_rev.size() != TILES * TILES:
 		tile_rev.resize(TILES * TILES)
 	for tz in range(maxi(0, (j0 - 2) / TILE), mini(TILES - 1, (j1 + 2) / TILE) + 1):
@@ -1033,6 +1043,12 @@ func rebuild_dirty(budget_us := 3000) -> void:
 ## Marks a chunk to be redrawn; `reprepare` when its ground or paint changed,
 ## so its colours and coarseness are worked out again too.
 func _dirty_chunk(c: Vector2i, reprepare := false) -> void:
+	if _dirty.has(c) and (_jobs.has(c) or _prep_row.has(c) or _ready_chunks.has(c)):
+		# half redrawn: let it finish and show, then redraw it again from the
+		# latest ground (starting over every frame of a brush stroke would
+		# never show anything until the finger lifts)
+		_again[c] = _again.get(c, false) or reprepare
+		return
 	_dirty[c] = true
 	_jobs.erase(c)
 	if reprepare:
@@ -1066,6 +1082,10 @@ func _advance(c: Vector2i) -> void:
 	_dirty.erase(c)
 	_ready_chunks.erase(c)
 	_commit_chunk(c, job)
+	if _again.has(c):
+		var re: bool = _again[c]
+		_again.erase(c)
+		_dirty_chunk(c, re)
 
 
 func is_settled() -> bool:
@@ -1268,21 +1288,12 @@ func _sample_colour(gi: int, gj: int) -> Color:
 	var col := _colour(p, h, up)
 	var zn := zone[gj * SIDE + gi]
 	if zn > 0.0 and h > 0.0:
-		if show_zone:
-			# while growing, the painted ground shows its level: warmer is taller
-			# (its district's colour, deeper where it may grow taller)
-			var raw := level[gj * SIDE + gi]
-			var u := _use_of(raw) if raw >= 0.5 else 0
-			var lv := raw - u * USE_STRIDE if raw >= 0.5 else LEVEL_DEFAULT
-			var t: Color = USE_TINTS[u].lerp(USE_TINTS[u].darkened(0.45), clampf((lv - 1.0) / (LEVEL_MAX - 1.0), 0.0, 1.0))
-			col = col.lerp(t, minf(zn * 1.4, 1.0) * 0.82)
-		else:
-			col = col.lerp(Color("b5c97a"), zn * 0.18)
+		col = col.lerp(Color("b5c97a"), zn * 0.18)
 	var gn := green[gj * SIDE + gi]
 	if gn > 0.0 and h > 0.0:
 		# park lawns, a lusher green
-		col = col.lerp(Color("2fd35a") if show_zone else Color("74bf5e"), minf(gn * 1.4, 1.0) * 0.82 if show_zone else gn * 0.3)
-	if zn > 0.0 and h > 0.45 and not show_zone:
+		col = col.lerp(Color("74bf5e"), gn * 0.3)
+	if zn > 0.0 and h > 0.45:
 		# the denser the town, the more of the ground between its streets and
 		# buildings is paved: lawns in the suburbs, stone plazas downtown.
 		# The shader reads alpha below 1 as paving and lays slabs over it.
@@ -1294,6 +1305,41 @@ func _sample_colour(gi: int, gj: int) -> Color:
 	if h > -0.3:
 		col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
 	return col
+
+
+## Brings the tint map up to date where the painting changed; false when
+## nothing did. While growing, the painted ground shows its district and
+## level: its district's colour, deeper where it may grow taller, and parks
+## a lusher green.
+func update_tint() -> bool:
+	if tint_img == null:
+		tint_img = Image.create(SIDE, SIDE, false, Image.FORMAT_RGBA8)
+	if _tint_hi.x < _tint_lo.x:
+		return false
+	for j in range(_tint_lo.y, _tint_hi.y + 1):
+		for i in range(_tint_lo.x, _tint_hi.x + 1):
+			var k := j * SIDE + i
+			var zn := zone[k]
+			var gn := green[k]
+			if (zn <= 0.0 and gn <= 0.0) or heights[k] <= 0.0:
+				tint_img.set_pixel(i, j, Color(0, 0, 0, 0))
+				continue
+			var col := Color(0, 0, 0, 0)
+			if zn > 0.0:
+				var raw := level[k]
+				var u := _use_of(raw) if raw >= 0.5 else 0
+				var lv := raw - u * USE_STRIDE if raw >= 0.5 else LEVEL_DEFAULT
+				col = USE_TINTS[u].lerp(USE_TINTS[u].darkened(0.45), clampf((lv - 1.0) / (LEVEL_MAX - 1.0), 0.0, 1.0))
+				col.a = minf(zn * 1.4, 1.0) * 0.82
+			if gn > 0.0:
+				var g := minf(gn * 1.4, 1.0) * 0.82
+				var a := col.a
+				col = col.lerp(Color("2fd35a"), g / maxf(1.0 - (1.0 - g) * (1.0 - a), 0.001) if a > 0.0 else 1.0)
+				col.a = 1.0 - (1.0 - a) * (1.0 - g)
+			tint_img.set_pixel(i, j, col)
+	_tint_lo = Vector2i(1 << 20, 1 << 20)
+	_tint_hi = Vector2i(-1, -1)
+	return true
 
 
 ## Adds rows bj0..bj1 of a chunk's blocks to its mesh being put together.

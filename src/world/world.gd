@@ -379,6 +379,12 @@ func _update_sky() -> void:
 	sky_mat.set_shader_parameter("sun_col", scol)
 	sky_mat.set_shader_parameter("night", night)
 	city_mat.set_shader_parameter("night", night)
+	for m: ShaderMaterial in [city_mat, detail_mat]:
+		m.set_shader_parameter("refl_amount", 0.0 if OS.get_environment("CV_NOREFL") != "" else 1.0)
+		m.set_shader_parameter("refl_top", top)
+		m.set_shader_parameter("refl_hor", hor)
+		m.set_shader_parameter("refl_sun_col", scol)
+		m.set_shader_parameter("refl_sun_dir", sun.global_transform.basis.z if is_day else Vector3(0, -1, 0))
 	detail_mat.set_shader_parameter("night", night)
 	# fewer windows stay lit as the night gets later
 	var nt := fmod(t + 0.15, 1.0)

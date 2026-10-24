@@ -74,7 +74,7 @@ func _process(delta: float) -> void:
 
 ## The searches under way go on a slice at a time, so none stalls a frame.
 func _step_searches() -> void:
-	if not _searches.is_empty() and _search_step(_searches[0], 2000):
+	if not _searches.is_empty() and _search_step(_searches[0], FrameBudget.cap(2000)):
 		var done: Dictionary = _searches.pop_front()
 		var kind: String = done.kind
 		if done.at != null and not spots.has(kind) and _wants(kind):
