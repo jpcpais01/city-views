@@ -28,6 +28,10 @@ var env: Environment
 var sun: DirectionalLight3D
 var rig: CameraRig
 var _clouds: Array[Node3D] = []
+## Hyper graphics: photo mode's stills get every bit of quality the device can give
+var hyper := false
+var _ao: MeshInstance3D
+var _everyday := {}
 
 
 # ------------------------------------------------------------------ setup
@@ -217,6 +221,68 @@ func frame_view(d: float, pitch: float) -> void:
 	sun.shadow_blur = SHADOW_BLUR * k
 	sun.shadow_normal_bias = SHADOW_NORMAL_BIAS * maxf(k, 0.5)
 	env.fog_density = FOG * 42.0 / maxf(d, 42.0)
+	if hyper:
+		# four nested maps: the nearest a few metres across, every caster still
+		# reaching the horizon, so close-ups get pin-sharp contact shadows
+		sun.shadow_blur = SHADOW_BLUR * 0.6
+		sun.shadow_normal_bias = SHADOW_NORMAL_BIAS * 0.7
+		sun.directional_shadow_split_1 = 0.05
+		sun.directional_shadow_split_2 = 0.15
+		sun.directional_shadow_split_3 = 0.4
+
+
+## Hyper graphics, for photo mode only (it is far too heavy to play in):
+## supersampled, a shadow map four times the size split in
+## four, the softest shadow filter, ambient occlusion from the depth buffer,
+## a finer sky reflection and a gentle bloom by day. Off again restores the
+## everyday settings exactly.
+func set_hyper(on: bool) -> void:
+	if on == hyper:
+		return
+	hyper = on
+	var vp := get_viewport()
+	if on:
+		_everyday = {"scale": vp.scaling_3d_scale, "aa": vp.screen_space_aa, "lod": vp.mesh_lod_threshold}
+		# twice the pixels each way, averaged down: smoother than MSAA, and the sea
+		# and the occlusion still read the depth buffer (MSAA would break both here)
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = 2.0
+		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+		vp.mesh_lod_threshold = 0.0
+		RenderingServer.directional_shadow_atlas_set_size(8192, true)
+		RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_ULTRA)
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		sun.directional_shadow_blend_splits = true
+		env.sky.radiance_size = Sky.RADIANCE_SIZE_256
+		if _ao == null:
+			_ao = MeshInstance3D.new()
+			var q := QuadMesh.new()
+			q.size = Vector2.ONE
+			var m := ShaderMaterial.new()
+			m.shader = load("res://shaders/ao.gdshader")
+			# over the town, under the sea (which draws the seabed itself)
+			m.render_priority = -1
+			q.material = m
+			_ao.mesh = q
+			_ao.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_ao.extra_cull_margin = 16384.0
+			_ao.ignore_occlusion_culling = true
+		if rig and _ao.get_parent() == null:
+			rig.cam.add_child(_ao)
+		_ao.visible = true
+	else:
+		vp.scaling_3d_scale = _everyday.scale
+		vp.screen_space_aa = _everyday.aa
+		vp.mesh_lod_threshold = _everyday.lod
+		RenderingServer.directional_shadow_atlas_set_size(ProjectSettings.get_setting_with_override("rendering/lights_and_shadows/directional_shadow/size"), true)
+		RenderingServer.directional_soft_shadow_filter_set_quality(ProjectSettings.get_setting_with_override("rendering/lights_and_shadows/directional_shadow/soft_shadow_filter_quality"))
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+		env.sky.radiance_size = Sky.RADIANCE_SIZE_64
+		if _ao:
+			_ao.visible = false
+	if rig:
+		frame_view(rig.dist, rig.view_pitch())
+	_update_sky()
 
 
 # ------------------------------------------------------------------ effects
@@ -322,5 +388,7 @@ func _update_sky() -> void:
 	water_mat.set_shader_parameter("night", night)
 	Wake.material().set_shader_parameter("night", night)
 	# bloom only matters for lit windows and lamps, so skip its passes by day
-	env.glow_enabled = night > 0.12 and OS.get_environment("CV_NOGLOW") == ""
+	env.glow_enabled = (night > 0.12 or hyper) and OS.get_environment("CV_NOGLOW") == ""
+	if _ao:
+		(_ao.mesh.material as ShaderMaterial).set_shader_parameter("night", night)
 	Sfx.night = night
