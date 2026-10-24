@@ -17,7 +17,7 @@ const SAVE_PATH := "user://island.json"
 ## 2: the big maps (version 1 islands were 128 m across, and come back as an
 ## island in the middle of one)
 const SAVE_VERSION := 2
-const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
+const BRUSHES := ["street", "grow", "green", "magic", "clear", "raise", "lower", "smooth", "flatten"]
 const SHAPE := ["raise", "lower", "smooth", "flatten"]
 const HISTORY := 25
 
@@ -102,6 +102,7 @@ func _ready() -> void:
 	town = Town.new()
 	town.setup(land, streets, city_mat)
 	town.reshaped.connect(func(): _shore_dirty = true)
+	town.magicked.connect(_sparkle)
 	add_child(town)
 	_make_sea()
 	rig = CameraRig.new()
@@ -596,6 +597,9 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 		"grow", "green":
 			_paint_town(at, 4.0 * delta)
 			return
+		"magic":
+			_magic_at(c)
+			return
 		"clear":
 			land.paint_zone(at, r * 0.6, -4.0 * delta)
 			land.paint_green(at, r * 0.6, -4.0 * delta)
@@ -631,6 +635,90 @@ func _paint_town(at: Vector3, amount: float) -> void:
 	growth.nudge(c)
 	town.zone_changed(c, r)
 	_save_timer = 1.0
+
+
+## coins per stage the Magic brush skips
+const MAGIC_COST := 2.0
+
+
+## The Magic brush: every house under it shoots up to the top level its
+## plot allows (the painted Grow level), for a few coins a stage.
+func _magic_at(c: Vector2) -> void:
+	var r := _zone_radius()
+	var stages := town.magic(c, r, true)
+	if stages == 0:
+		return
+	if not progress.spend(stages * MAGIC_COST):
+		if not _broke:
+			_broke = true
+			note.emit("Not enough coins for magic here: %d needed" % int(stages * MAGIC_COST), "warn")
+			Sfx.play("error", 1.0, -6.0)
+		return
+	town.magic(c, r)
+	Sfx.play("unlock", 1.3, -8.0, 0.1)
+	_save_timer = 1.0
+
+
+## Golden sparkles rising round a building the Magic brush just grew.
+func _sparkle(at: Vector3, size: Vector3) -> void:
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.amount = 40
+	p.lifetime = 1.4
+	p.explosiveness = 0.75
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	p.emission_box_extents = Vector3(size.x * 0.55, size.y * 0.5, size.z * 0.55)
+	p.position = at + Vector3(0, size.y * 0.5, 0)
+	p.direction = Vector3.UP
+	p.spread = 25.0
+	p.gravity = Vector3(0, 1.2, 0)
+	p.initial_velocity_min = 0.6
+	p.initial_velocity_max = 2.2
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 1.2
+	var curve := Curve.new()
+	curve.add_point(Vector2(0.0, 0.2))
+	curve.add_point(Vector2(0.2, 1.0))
+	curve.add_point(Vector2(1.0, 0.0))
+	p.scale_amount_curve = curve
+	p.mesh = _sparkle_mesh()
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(p.lifetime + 0.3).timeout.connect(p.queue_free)
+
+
+var _sparkle_quad: QuadMesh
+
+
+func _sparkle_mesh() -> QuadMesh:
+	if _sparkle_quad == null:
+		_sparkle_quad = QuadMesh.new()
+		_sparkle_quad.size = Vector2(0.9, 0.9)
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		m.albedo_color = Color(1.0, 0.82, 0.35)
+		m.albedo_texture = _sparkle_tex()
+		_sparkle_quad.material = m
+	return _sparkle_quad
+
+
+## A soft four-pointed star.
+static func _sparkle_tex() -> ImageTexture:
+	const N := 32
+	var img := Image.create(N, N, false, Image.FORMAT_RGBA8)
+	for y in N:
+		for x in N:
+			var u := absf((x + 0.5) / N * 2.0 - 1.0)
+			var v := absf((y + 0.5) / N * 2.0 - 1.0)
+			var star := maxf(1.0 - u * 6.0 - v * 1.1, 1.0 - v * 6.0 - u * 1.1)
+			var glow := maxf(1.0 - sqrt(u * u + v * v) * 1.6, 0.0)
+			var a := clampf(maxf(star, 0.0) + glow * glow * 0.8, 0.0, 1.0)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	return ImageTexture.create_from_image(img)
 
 
 ## Whether the town has a street to grow from within reach of the brush at
@@ -685,6 +773,8 @@ func _draw_ring() -> void:
 	var tint := Color(1, 1, 1, 0.8)
 	if brush == "grow" or brush == "green":
 		tint = Color(0.55, 1.0, 0.6, 0.9) if can_grow_at(Vector2(at.x, at.z)) else Color(1.0, 0.72, 0.35, 0.9)
+	elif brush == "magic":
+		tint = Color(1.0, 0.85, 0.4, 0.95)
 	(_ring.material_override as StandardMaterial3D).albedo_color = tint
 	var segs := 48
 	var radius := _ring_radius()
@@ -705,7 +795,7 @@ func _ring_radius() -> float:
 			return Streets.KINDS.main.w + Streets.PAVE
 		"clear":
 			return brush_radius * 0.6
-		"grow", "green":
+		"grow", "green", "magic":
 			return _zone_radius()
 	return brush_radius
 

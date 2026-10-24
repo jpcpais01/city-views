@@ -342,6 +342,23 @@ func _draw() -> void:
 			draw_colored_polygon(PackedVector2Array([P.call(0.1, 0.86), P.call(0.1, 0.56), P.call(0.9, 0.56), P.call(0.9, 0.86)]), Color("8fc56a"))
 			draw_rect(Rect2(P.call(0.14, 0.4), Vector2(0.72, 0.08) * s), a)
 			draw_colored_polygon(PackedVector2Array([P.call(0.5, 0.36), P.call(0.66, 0.14), P.call(0.34, 0.14)]), a)
+		"magic":
+			# a wand with a star at its tip and sparkles round it
+			draw_line(P.call(0.18, 0.86), P.call(0.56, 0.44), Color("5b4a7a"), 0.09 * s, true)
+			draw_line(P.call(0.18, 0.86), P.call(0.27, 0.76), Color("f3efe6"), 0.09 * s, true)
+			var pts := PackedVector2Array()
+			for k in 8:
+				var r := 0.2 if k % 2 == 0 else 0.07
+				var ang := -PI * 0.5 + k * PI / 4.0
+				pts.append(P.call(0.64 + cos(ang) * r, 0.34 + sin(ang) * r))
+			draw_colored_polygon(pts, Color("ffc94d"))
+			for q in [[0.3, 0.26, 0.06], [0.84, 0.64, 0.05], [0.86, 0.14, 0.04]]:
+				var sp := PackedVector2Array()
+				for k in 8:
+					var r: float = q[2] if k % 2 == 0 else q[2] * 0.35
+					var ang := -PI * 0.5 + k * PI / 4.0
+					sp.append(P.call(q[0] + cos(ang) * r, q[1] + sin(ang) * r))
+				draw_colored_polygon(sp, Color("ffe08a"))
 		"bulldoze":
 			_rr(Rect2(P.call(0.18, 0.42), Vector2(0.5, 0.3) * s), 0.06 * s, Color("f2b33d"))
 			_rr(Rect2(P.call(0.3, 0.26), Vector2(0.24, 0.18) * s), 0.04 * s, Color("f2b33d"))

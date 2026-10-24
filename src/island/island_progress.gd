@@ -16,7 +16,7 @@ signal title_changed(title: String)
 const TITLES := [[0, "Hamlet", 0], [30, "Village", 60], [120, "Town", 150], [300, "Small City", 300], [600, "City", 500],
 	[1200, "Big City", 900], [2500, "Large City", 1500], [5000, "Metropolis", 2500], [10000, "Megalopolis", 4000]]
 ## residents needed before a brush, road, district or Grow level can be used
-const UNLOCK := {"green": 12, "smooth": 30, "flatten": 60, "shops": 60, "industry": 120, "avenue": 150,
+const UNLOCK := {"green": 12, "smooth": 30, "flatten": 60, "shops": 60, "industry": 120, "magic": 120, "avenue": 150,
 	"offices": 300, "highway": 400, "level5": 600, "level6": 1200}
 ## the districts, in Land.USES order, and what unlocks each (homes always open)
 const USE_KEYS := ["homes", "shops", "offices", "industry"]

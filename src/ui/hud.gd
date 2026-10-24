@@ -10,6 +10,7 @@ const BRUSH_INFO := {
 	"street": ["Street", "Draw a line: the street lays itself over the land"],
 	"grow": ["Grow", "Paint beside a street: new streets and houses branch off it"],
 	"green": ["Green", "Paint parks and gardens: the town keeps them green instead of building"],
+	"magic": ["Magic", "Paint over houses: each shoots up to the top level painted there, for a few coins"],
 	"clear": ["Clear", "Drag to take streets away and stop the town growing there"],
 	"raise": ["Raise", "Drag to lift hills out of the land"],
 	"lower": ["Lower", "Drag to carve valleys, coves and bays"],
