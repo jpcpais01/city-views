@@ -85,15 +85,24 @@ float nz2(vec2 p) {
 	return texture(noise_tex, p).r;
 }
 
-// slope of a two-octave ripple field from the noise texture's gradient
-vec2 ripple_slope(vec2 p, float t) {
-	vec2 a = p * 0.11 + vec2(t * 0.025, t * 0.016);
-	vec2 b = p * 0.26 - vec2(t * 0.02, -t * 0.03);
+// slope of the ripple field from the noise texture's gradient: three octaves,
+// each turned to its own angle and scaled by an awkward ratio so their tiles
+// never line up into a visible repeat, and faded out as they get smaller
+// than a pixel (where they would only shimmer and tile)
+vec2 ripple_slope(vec2 p, float t, float px) {
+	mat2 r1 = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
+	mat2 r2 = mat2(vec2(0.28, -0.96), vec2(0.96, 0.28));
+	vec2 a = r1 * p * 0.0937 + vec2(t * 0.025, t * 0.016);
+	vec2 b = r2 * p * 0.2313 - vec2(t * 0.02, -t * 0.03);
+	vec2 c = p * 0.0411 + vec2(-t * 0.008, t * 0.011);
+	float wa = 1.0 - smoothstep(0.03, 0.12, px * 0.0937);
+	float wb = 0.45 * (1.0 - smoothstep(0.03, 0.12, px * 0.2313));
+	float wc = 0.7;
 	float e = 0.004;
-	float h0 = nz2(a) + nz2(b) * 0.45;
-	float hx = nz2(a + vec2(e, 0.0)) + nz2(b + vec2(e, 0.0)) * 0.45;
-	float hz = nz2(a + vec2(0.0, e)) + nz2(b + vec2(0.0, e)) * 0.45;
-	return vec2(hx - h0, hz - h0) / e * 0.11;
+	float h0 = nz2(a) * wa + nz2(b) * wb + nz2(c) * wc;
+	float hx = nz2(a + r1 * vec2(e, 0.0)) * wa + nz2(b + r2 * vec2(e, 0.0)) * wb + nz2(c + vec2(e, 0.0)) * wc;
+	float hz = nz2(a + r1 * vec2(0.0, e)) * wa + nz2(b + r2 * vec2(0.0, e)) * wb + nz2(c + vec2(0.0, e)) * wc;
+	return vec2(hx - h0, hz - h0) / e * 0.1;
 }
 
 // caustic web: where two drifting noise layers cross their mid level
@@ -115,7 +124,9 @@ vec3 scene_world(vec2 uv, mat4 inv_proj, mat4 inv_view, out float view_z) {
 void fragment() {
 	float t = TIME;
 	// surface normal: swell from the vertex stage plus fine ripples
-	vec2 sl = ripple_slope(w_pos.xz, t);
+	// how many metres of water one pixel covers here
+	float px = length(fwidth(w_pos.xz));
+	vec2 sl = ripple_slope(w_pos.xz, t, px);
 	vec3 tx;
 	vec3 tz;
 	float crest = swell(w_pos.xz, t, wave_fade(w_pos.xz), 4, tx, tz).y;
@@ -158,12 +169,11 @@ void fragment() {
 	// river and lake water: greener and murkier than the sea
 	vec3 body = mix(scatter_col, vec3(0.03, 0.17, 0.2), fresh) * mix(1.0, 0.25, night);
 	vec3 col = below * trans + body * (1.0 - trans);
-	// sun through the crests: the four swells add up to a regular lattice, so only
-	// the true peaks glow, in drifting patches that break the repetition up
-	vec2 rq = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8)) * w_pos.xz;
-	float patch = nz2(rq * 0.017 + vec2(t * 0.004, -t * 0.003)) * nz2(w_pos.xz * 0.029 - vec2(t * 0.003, t * 0.005) + 0.61);
-	float cr = smoothstep(0.03, 0.09, crest) * smoothstep(0.12, 0.4, patch);
-	col += crest_col * cr * 0.12 * (1.0 - night);
+	// broad, slowly drifting wind slicks: darker and lighter reaches of open
+	// water, too large and too irregular to read as a pattern
+	vec2 wq = mat2(vec2(0.6, -0.8), vec2(0.8, 0.6)) * w_pos.xz;
+	float slick = nz2(wq * 0.0071 + vec2(t * 0.0011, 0.0)) * 0.65 + nz2(w_pos.xz * 0.0163 - vec2(0.0, t * 0.0015) + 0.31) * 0.35;
+	col *= 1.0 + (slick - 0.5) * 0.18 * smoothstep(1.5, 6.0, sd) * (1.0 - fresh);
 
 	// foam: a soft lace at the waterline plus bands rolling towards the beach
 	float nz = nz2(w_pos.xz * 0.2 + vec2(t * 0.04, -t * 0.027)) * 0.6 + nz2(w_pos.xz * 0.5 - t * 0.05) * 0.4;

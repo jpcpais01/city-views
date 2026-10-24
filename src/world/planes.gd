@@ -28,47 +28,78 @@ func _ready() -> void:
 		_kinds.append(airliner(tail))
 
 
-## An airliner about four units long, nose towards +Z.
+## An airliner about four units long, nose towards +Z: a round fuselage
+## tapering to the nose and up into the tail, swept wings with thickness,
+## winglets and two engines on pylons, the fin and tailplane, cockpit and
+## cabin windows, the airline's cheatline, and its lights.
 func airliner(tail: Color) -> Mesh:
 	var mk := MeshKit.new(0)
 	mk.shadow = false
 	var white := Color(0.95, 0.95, 0.94)
 	var belly := Color(0.78, 0.8, 0.83)
-	var wing := Color(0.82, 0.84, 0.86)
-	mk.box(Vector3(0, 0, 0), Vector3(0.42, 0.44, 3.4), white, white, true)
-	mk.box(Vector3(0, -0.04, 1.9), Vector3(0.32, 0.32, 0.4), white, white, true)
-	mk.quad(Vector3(-0.2, -0.225, -1.65), Vector3(0.2, -0.225, -1.65), Vector3(0.2, -0.225, 1.65), Vector3(-0.2, -0.225, 1.65), Vector3.DOWN, belly)
-	# cabin windows down both sides, warm at night
-	for sx in [-1.0, 1.0]:
-		var x: float = sx * 0.212
-		mk.quad(Vector3(x, 0.06, -1.3), Vector3(x, 0.06, 1.5), Vector3(x, 0.12, 1.5), Vector3(x, 0.12, -1.3), Vector3(sx, 0, 0), Color(0.15, 0.18, 0.22), 2.0)
-	# swept wings, seen from above and below
-	for sx in [-1.0, 1.0]:
-		var root_a := Vector3(sx * 0.2, -0.08, 0.5)
-		var root_b := Vector3(sx * 0.2, -0.08, -0.4)
-		var tip_a := Vector3(sx * 2.1, 0.02, -0.55)
-		var tip_b := Vector3(sx * 2.1, 0.02, -0.85)
-		mk.quad(root_a, root_b, tip_b, tip_a, Vector3.UP, wing)
-		mk.quad(root_a, root_b, tip_b, tip_a, Vector3.DOWN, belly)
-		# an engine slung under each wing
-		mk.box(Vector3(sx * 0.85, -0.22, 0.25), Vector3(0.2, 0.2, 0.55), Color(0.7, 0.72, 0.75))
-		# the nav light on the tip
-		mk.box(Vector3(sx * 2.12, 0.02, -0.7), Vector3(0.14, 0.1, 0.14), Color(0.1, 0.9, 0.3) if sx > 0 else Color(1.0, 0.12, 0.08), null, false, 2.7)
+	var wing := Color(0.8, 0.82, 0.85)
+	var dark := Color(0.14, 0.17, 0.21)
+	var r := 0.22
+	# the fuselage: a tube, a rounded nose and a tail cone sweeping up
+	BoatKit.tube(mk, Vector3(0, 0, -1.45), Vector3.BACK, 2.9, r, r, 12, white, false)
+	BoatKit.tube(mk, Vector3(0, 0, 1.45), Vector3(0, -0.12, 1).normalized(), 0.32, r, r * 0.72, 12, white, false)
+	BoatKit.tube(mk, Vector3(0, -0.035, 1.765), Vector3(0, -0.25, 1).normalized(), 0.2, r * 0.72, r * 0.25, 12, white, true)
+	BoatKit.tube(mk, Vector3(0, 0, -1.45), Vector3(0, 0.3, -1).normalized(), 0.8, r, r * 0.3, 12, white, true)
+	# the airline's cheatline down each side, with the cabin windows above it
+	for sx: float in [-1.0, 1.0]:
+		var x := sx * (r + 0.003)
+		mk.quad(Vector3(x, -0.04, -1.4), Vector3(x, -0.04, 1.5), Vector3(x, 0.0, 1.5), Vector3(x, 0.0, -1.4), Vector3(sx, 0, 0), tail)
+		mk.quad(Vector3(x, 0.05, -1.25), Vector3(x, 0.05, 1.35), Vector3(x, 0.095, 1.35), Vector3(x, 0.095, -1.25), Vector3(sx, 0, 0), dark, 2.0)
+		# the doors at each end of the cabin
+		for z: float in [1.3, -1.2]:
+			mk.quad(Vector3(x * 1.001, -0.05, z), Vector3(x * 1.001, -0.05, z + 0.12), Vector3(x * 1.001, 0.13, z + 0.12), Vector3(x * 1.001, 0.13, z), Vector3(sx, 0, 0), belly)
+		# the cockpit windows, wrapping round the nose
+		mk.quad(Vector3(sx * 0.07, 0.11, 1.74), Vector3(sx * 0.15, 0.08, 1.66), Vector3(sx * 0.16, 0.12, 1.6), Vector3(sx * 0.07, 0.15, 1.68), Vector3(sx * 0.4, 0.6, 1).normalized(), dark)
+	# the grey belly fairing where the wings join
+	mk.box(Vector3(0, -0.2, 0.05), Vector3(0.36, 0.08, 1.0), belly, null, true)
+	for sx: float in [-1.0, 1.0]:
+		# swept wings with a thick root thinning to the tip
+		var ra := Vector3(sx * 0.18, -0.1, 0.55)
+		var rb := Vector3(sx * 0.18, -0.1, -0.35)
+		var ta := Vector3(sx * 2.05, 0.04, -0.62)
+		var tb := Vector3(sx * 2.05, 0.04, -0.88)
+		var up := Vector3(0, 0.05, 0)
+		var tup := Vector3(0, 0.015, 0)
+		mk.quad(ra + up, rb + up, tb + tup, ta + tup, Vector3.UP, wing)
+		mk.quad(ra, rb, tb, ta, Vector3.DOWN, belly)
+		mk.quad(ra, ra + up, ta + tup, ta, Vector3(0, 0, 1), wing.darkened(0.08))
+		mk.quad(rb, rb + up, tb + tup, tb, Vector3(0, 0, -1), belly)
+		# flaps picked out along the trailing edge
+		mk.quad(rb.lerp(tb, 0.1) + up * 0.95 + Vector3(0, 0, 0.12), rb.lerp(tb, 0.55) + up * 0.6 + Vector3(0, 0, 0.1), rb.lerp(tb, 0.55) + up * 0.6, rb.lerp(tb, 0.1) + up * 0.95, Vector3.UP, wing.darkened(0.12))
+		# a winglet in the airline's colour
+		mk.quad(ta + tup, tb + tup, tb + Vector3(sx * 0.06, 0.32, -0.12), ta + Vector3(sx * 0.06, 0.32, -0.25), Vector3(sx, 0, 0), tail)
+		mk.quad(ta + tup, tb + tup, tb + Vector3(sx * 0.06, 0.32, -0.12), ta + Vector3(sx * 0.06, 0.32, -0.25), Vector3(-sx, 0, 0), tail)
+		# an engine on a pylon under each wing: nacelle, dark intake, exhaust cone
+		var ec := Vector3(sx * 0.78, -0.27, 0.42)
+		BoatKit.tube(mk, ec + Vector3(0, 0, -0.32), Vector3.BACK, 0.58, 0.12, 0.125, 10, Color(0.86, 0.87, 0.89), true, Color(0.1, 0.1, 0.12))
+		BoatKit.tube(mk, ec + Vector3(0, 0, -0.32), Vector3.FORWARD, 0.14, 0.09, 0.03, 8, Color(0.45, 0.45, 0.48), true)
+		mk.box(ec + Vector3(0, 0.15, -0.05), Vector3(0.04, 0.12, 0.42), wing)
 		# the tailplane
-		var ta := Vector3(sx * 0.15, 0.1, -1.4)
-		var tb := Vector3(sx * 0.15, 0.1, -1.8)
-		var tc := Vector3(sx * 0.85, 0.12, -1.95)
-		var td := Vector3(sx * 0.85, 0.12, -1.75)
-		mk.quad(ta, tb, tc, td, Vector3.UP, white)
-		mk.quad(ta, tb, tc, td, Vector3.DOWN, belly)
-	# the fin, in the airline's colour, with a white light on top
-	var fa := Vector3(0, 0.2, -1.1)
-	var fb := Vector3(0, 0.2, -1.7)
-	var fc := Vector3(0, 1.0, -1.9)
-	var fd := Vector3(0, 1.0, -1.6)
-	mk.quad(fa, fb, fc, fd, Vector3.RIGHT, tail)
-	mk.quad(fa, fb, fc, fd, Vector3.LEFT, tail)
-	mk.box(Vector3(0, 1.02, -1.75), Vector3(0.1, 0.1, 0.12), Color(1, 1, 1), null, false, 2.7)
+		var pa := Vector3(sx * 0.1, 0.12, -1.55)
+		var pb := Vector3(sx * 0.1, 0.12, -1.95)
+		var pc := Vector3(sx * 0.82, 0.16, -2.08)
+		var pd := Vector3(sx * 0.82, 0.16, -1.9)
+		mk.quad(pa, pb, pc, pd, Vector3.UP, white)
+		mk.quad(pa, pb, pc, pd, Vector3.DOWN, belly)
+		# nav lights on the wingtips: red left, green right
+		mk.box(ta.lerp(tb, 0.5) + Vector3(sx * 0.03, 0.03, 0), Vector3(0.08, 0.06, 0.1), Color(0.1, 0.9, 0.3) if sx > 0 else Color(1.0, 0.12, 0.08), null, false, 2.75)
+	# the fin in the airline's colour, swept back, with a white light on top
+	var fa := Vector3(0, 0.18, -1.15)
+	var fb := Vector3(0, 0.18, -1.85)
+	var fc := Vector3(0, 1.0, -2.05)
+	var fd := Vector3(0, 1.0, -1.7)
+	for sx: float in [-1.0, 1.0]:
+		var o := Vector3(sx * 0.025, 0, 0)
+		mk.quad(fa + o, fb + o, fc + o * 0.4, fd + o * 0.4, Vector3(sx, 0, 0), tail)
+	mk.quad(fa + Vector3(0.025, 0, 0), fd + Vector3(0.01, 0, 0), fd - Vector3(0.01, 0, 0), fa - Vector3(0.025, 0, 0), Vector3(0, 0.3, 1), tail.lightened(0.1))
+	mk.box(Vector3(0, 1.02, -1.88), Vector3(0.08, 0.08, 0.1), Color(1, 1, 1), null, false, 2.75)
+	# a red beacon blinking on the belly
+	mk.box(Vector3(0, -0.25, 0.5), Vector3(0.07, 0.05, 0.07), Color(1.0, 0.1, 0.06), null, false, 2.7)
 	return mk.commit(material)
 
 

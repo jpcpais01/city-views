@@ -90,6 +90,8 @@ var _goals: PanelContainer
 var _goal_rows: VBoxContainer
 var _goal_count: Label
 var _goal_fold: Label
+## the row along the top: the town's name card, then the goals beside it
+var _top_row: HBoxContainer
 var _goals_open := true
 var _glass_light: ShaderMaterial
 var _glass_dark: ShaderMaterial
@@ -281,6 +283,7 @@ func _build_island_top() -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", 10)
 	margin.add_child(row)
+	_top_row = row
 	var card := PanelContainer.new()
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_glassify(card)
@@ -1166,10 +1169,9 @@ func _confetti() -> void:
 # ------------------------------------------------------------------ goals
 
 func _build_goals() -> void:
+	# beside the town's name card, hanging from the top
 	_goals = PanelContainer.new()
-	_goals.set_anchors_preset(Control.PRESET_CENTER_LEFT)
-	_goals.offset_left = 18
-	_goals.offset_top = -70
+	_goals.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_glassify(_goals)
 	_goals.add_theme_stylebox_override("panel", _glass_box(GLASS, 14, 8))
 	var v := VBoxContainer.new()
@@ -1206,7 +1208,8 @@ func _build_goals() -> void:
 	_goal_rows = VBoxContainer.new()
 	_goal_rows.add_theme_constant_override("separation", 5)
 	v.add_child(_goal_rows)
-	_root.add_child(_goals)
+	_top_row.add_child(_goals)
+	_top_row.move_child(_goals, 1)
 
 
 func _refresh_goals() -> void:

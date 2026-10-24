@@ -6,6 +6,8 @@ extends RefCounted
 const BUDGET := 200000
 ## all the way out, past CameraRig.FAR_D, a little more is allowed (João, 2026-10-24)
 const FAR_BUDGET := 240000
+## tilted right up to look across the town from the side (João, 2026-10-24)
+const SIDE_BUDGET := 260000
 
 
 static func count(root: Node) -> Dictionary:

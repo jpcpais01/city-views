@@ -1,11 +1,11 @@
 # City Views patch notes
 
 ## 2026-10-24 21:11 UTC
-- Shadows now reach right across the view and stay just as crisp and dark at every zoom and tilt, and the haze no longer washes your city out when you pull back.
-- A new lighting pass: a lower sun so every building throws a shadow you can read, film-like colour, a sky that glows around a low sun at dawn and dusk, a warm haze towards the sun, and cooler, deeper nights where colours fade as they do to the eye.
-- Town goals take much less room: one tidy line per goal with a thin progress bar and its reward, the ones to collect listed first, and the whole list folds away from its header.
-- Yards and pocket parks lose their flat floor pads: benches, trees, trampolines and parked cars now stand straight on the grass.
-- Downtown is paved: the denser the district, the more of the ground between its streets and buildings turns to big stone slabs, while the suburbs keep their lawns and river banks and beaches stay natural.
+- A new lighting pass: shadows reach right across the view and stay crisp at every zoom, the haze no longer washes the city out, a lower sun throws shadows you can read, colours look like film, the sky glows round a low sun and nights are deeper and cooler.
+- Town goals sit in a small tidy panel beside your city's name: one line per goal with a thin progress bar, ready ones first, and it folds away from its header.
+- Yards lose their floor pads, so benches, trees and parked cars stand on the grass, and dense districts are paved with stone slabs between their streets and buildings while the suburbs keep their lawns.
+- The open sea no longer shows tiled ripples or pale blotches, and every boat is far more detailed, each leaving a foaming wake: yachts with full sails and rigging, fishing boats with outriggers and nets, and cruise ships, container ships and ferries with lifeboats, cranes, radar masts and bridge wings. The airliner is rebuilt too, with a round fuselage, engines, winglets and its airline's livery.
+- Tilt the camera right up to look across your city from the side, almost at street level.
 
 ## 2026-10-24 20:07 UTC
 - Bus stops: main streets and avenues get glass shelters with a bench and an advert that lights up at night, and buses now keep to the kerb lane and pull in at each stop.
