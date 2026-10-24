@@ -4,7 +4,8 @@ extends Node3D
 ## height profile: it follows the land but evens out bumps and keeps slopes
 ## walkable, and the ground is cut and filled to meet it. Built as one mesh per
 ## street with asphalt, kerbs, paved pavements and centre dashes. Where streets
-## meet, each one leaves a gap in the other's pavement, so junctions open up.
+## meet, their asphalt stops short and one junction piece joins them, with
+## rounded kerbs at the corners.
 
 signal changed
 signal added(s: Street)
@@ -29,6 +30,8 @@ var _meshes := {}
 var _next_id := 1
 var _links := {}
 var _links_dirty := true
+var _junctions: Array = []
+var _junctions_dirty := true
 ## this builder's mark on the streets it makes, so keys never clash in co-op
 static var tag := ""
 # streets being laid out along their length: id -> seconds since placed
@@ -103,8 +106,10 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	s.update_bounds()
 	_grade(s)
 	streets.append(s)
+	_junctions_dirty = true
 	land.conform(s.pts, s.ys, s.w() + PAVE + 0.15, 2.6)
 	_reconform_near(s)
+	_conform_junctions(s)
 	_laying[s.id] = 0.0
 	_build(s)
 	for o in _touching(s):
@@ -148,6 +153,7 @@ func erase_at(p: Vector2, radius: float) -> bool:
 			ns.ys = pc[1]
 			ns.update_bounds()
 			streets.append(ns)
+			_junctions_dirty = true
 			_build(ns)
 			added.emit(ns)
 		for o in touching:
@@ -167,8 +173,10 @@ func regrade_in(lo: Vector2, hi: Vector2) -> void:
 		_grade(s)
 		land.conform(s.pts, s.ys, s.w() + PAVE + 0.15, 2.6)
 		moved.append(s)
+	_junctions_dirty = true
 	for s in moved:
 		_reconform_near(s)
+		_conform_junctions(s)
 	for s in moved:
 		_build(s)
 		for o in _touching(s):
@@ -178,6 +186,7 @@ func regrade_in(lo: Vector2, hi: Vector2) -> void:
 
 func _remove(s: Street) -> void:
 	streets.erase(s)
+	_junctions_dirty = true
 	removed.emit(s)
 	if _meshes.has(s.id):
 		_meshes[s.id].queue_free()
@@ -268,7 +277,8 @@ func _touching(s: Street) -> Array:
 
 func _reconform_near(s: Street) -> void:
 	for o in _touching(s):
-		land.conform(o.pts, o.ys, o.w() + PAVE + 0.15, 0.0, true)
+		# a grid step past the pavement too, so the ground can't rise over its edge in between
+		land.conform(o.pts, o.ys, o.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
 
 
 func _snap_ends(pts: PackedVector2Array) -> PackedVector2Array:
@@ -356,6 +366,9 @@ func _process(delta: float) -> void:
 			_laying.erase(id)
 			if s:
 				_build(s)
+				# the junctions it makes can now take over the other streets' ends
+				for o in _touching(s):
+					_build_later(o)
 		# lay it out in a few steps rather than remaking it every frame
 		elif int(before / 0.1) != int(_laying[id] / 0.1):
 			_build(s)
@@ -370,7 +383,13 @@ func _process(delta: float) -> void:
 
 ## Finishes laying and remaking every street now (tests, loading).
 func flush() -> void:
-	_laying.clear()
+	if not _laying.is_empty():
+		for id in _laying:
+			var s := by_id(id)
+			if s:
+				for o in _touching(s) + [s]:
+					_pending[o.id] = o
+		_laying.clear()
 	for id in _pending.keys():
 		_build(_pending[id])
 	_pending.clear()
@@ -386,16 +405,6 @@ func is_settling(s: Street) -> bool:
 
 func _build_later(s: Street) -> void:
 	_pending[s.id] = s
-
-
-## Whether a point lies on another street's asphalt or pavement.
-func _covered(p: Vector2, s: Street, margin: float, among: Array = streets) -> bool:
-	for o in among:
-		if o == s or not o.near_box(p, o.reach()):
-			continue
-		if o.closest(p).x < o.w() + margin:
-			return true
-	return false
 
 
 class MeshBuf:
@@ -425,20 +434,24 @@ class MeshBuf:
 		else:
 			idx.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
 
-	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, e: float) -> void:
+	## `level` shades it as if flat, so a fan of slightly tilted pieces reads as one surface.
+	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, e: float, level := false) -> void:
 		var nrm := (b - a).cross(c - a)
 		if nrm.length_squared() < 1e-10:
 			return
 		nrm = nrm.normalized()
 		if nrm.y < 0.0:
 			nrm = -nrm
+		var face := nrm
+		if level:
+			nrm = Vector3.UP
 		var base := verts.size()
 		verts.append_array([a, b, c])
 		for k in 3:
 			norms.append(nrm)
 			cols.append(col)
 			uvs.append(Vector2(e, 0.0))
-		if (b - a).cross(c - a).dot(nrm) > 0.0:
+		if (b - a).cross(c - a).dot(face) > 0.0:
 			idx.append_array([base, base + 2, base + 1])
 		else:
 			idx.append_array([base, base + 1, base + 2])
@@ -453,27 +466,31 @@ func _build(s: Street) -> void:
 	var w := s.w()
 	var buf := MeshBuf.new()
 	var asphalt := Palette.ASPHALT.darkened(0.05) if s.kind == "main" else Palette.ASPHALT
-	# where junction corners take over this street's pavements, per side
+	# where junction corners take over this street's pavements, per side,
+	# and where a junction's own asphalt takes over from this street's
 	var cuts := {-1.0: PackedVector2Array(), 1.0: PackedVector2Array()}
-	var near := _touching(s)
+	var skip := PackedVector2Array()
 	var last_i := int(upto)
-	# only samples close to a junction can run into another street: sample -> those streets
-	var close := {}
-	for o in near:
-		for m in _meetings(s, o):
-			_junction(s, m.x, o, m.y, cuts, buf, upto, asphalt)
-			for i in range(maxi(0, int(m.x) - 12), mini(last_i, int(m.x) + 13) + 1):
-				if not close.has(i):
-					close[i] = []
-				if not o in close[i]:
-					close[i].append(o)
-	var gaps := []
-	for i in last_i + 1:
-		if not close.has(i):
-			gaps.append([false, false])
-			continue
-		var nrm := _side(s, i)
-		gaps.append([_covered(s.pts[i] - nrm * (w + PAVE * 0.5), s, PAVE * 0.8, close[i]), _covered(s.pts[i] + nrm * (w + PAVE * 0.5), s, PAVE * 0.8, close[i])])
+	if not _laying.has(s.id):
+		for jn in junctions():
+			var mine := false
+			var settled := true
+			for arm in jn.arms:
+				mine = mine or arm.st == s
+				settled = settled and not _laying.has(arm.st.id)
+			if not mine or not settled:
+				continue
+			for arm in jn.arms:
+				if arm.st != s:
+					continue
+				skip.append(Vector2(minf(arm.f, arm.f_end), maxf(arm.f, arm.f_end)))
+				for q in 2:
+					if arm.cut[q] <= 0.0:
+						continue
+					var fc: float = arm.f + arm.sgn * arm.cut[q] / SAMPLE
+					cuts[arm.sgn * (-1.0 if q == 0 else 1.0)].append(Vector2(minf(arm.f, fc), maxf(arm.f, fc)))
+			if jn.owner == s.id:
+				_build_junction(jn, buf)
 	# which rows to keep: every bend, slope change and pavement gap; straight even runs collapse
 	var rows := {0.0: true, upto: true}
 	var last := 0
@@ -482,12 +499,11 @@ func _build(s: Street) -> void:
 		var d1 := (s.pts[i + 1] - s.pts[i]).normalized()
 		var bend := absf(d0.angle_to(d1)) > 0.08
 		var grade_change := absf((s.ys[i + 1] - s.ys[i]) - (s.ys[i] - s.ys[i - 1])) > 0.007
-		var gap_change: bool = gaps[i] != gaps[i - 1] or gaps[i] != gaps[i + 1]
-		if bend or grade_change or gap_change or (i - last) * SAMPLE >= 3.0:
+		if bend or grade_change or (i - last) * SAMPLE >= 3.0:
 			rows[float(i)] = true
 			last = i
-	for side in cuts:
-		for c in cuts[side]:
+	for list in [cuts[-1.0], cuts[1.0], skip]:
+		for c in list:
 			for f in [c.x, c.y]:
 				if f > 0.0 and f < upto:
 					rows[f] = true
@@ -517,15 +533,10 @@ func _build(s: Street) -> void:
 		var n1 := rn[r + 1]
 		var y0 := ry[r]
 		var y1 := ry[r + 1]
-		# where a corner takes over, the asphalt reaches a little under it so no seam shows
-		var wl := w + (0.2 if _in_cuts(cuts[-1.0], fm) else 0.0)
-		var wr := w + (0.2 if _in_cuts(cuts[1.0], fm) else 0.0)
-		_band(buf, p0, n0, y0, p1, n1, y1, -wl, 0.0, wr, 0.0, asphalt, MeshKit.ASPHALT, Vector3.UP)
+		if not _in_cuts(skip, fm):
+			_band(buf, p0, n0, y0, p1, n1, y1, -w, 0.0, w, 0.0, asphalt, MeshKit.ASPHALT, Vector3.UP)
 		for side: float in [-1.0, 1.0]:
 			if _in_cuts(cuts[side], fm):
-				continue
-			var gi := clampi(int(round(fm)), 0, last_i)
-			if gaps[gi][0 if side < 0.0 else 1] and gaps[clampi(int(f0), 0, last_i)][0 if side < 0.0 else 1]:
 				continue
 			var out_dir := (n0 + n1) * 0.5 * side
 			var out3 := Vector3(out_dir.x, 0.0, out_dir.y)
@@ -538,7 +549,7 @@ func _build(s: Street) -> void:
 		var along := 0.0
 		for i in last_i:
 			along += SAMPLE
-			if fmod(along, 1.4) < SAMPLE and not (close.has(i) and (_covered(s.pts[i], s, 0.3, close[i]) or _covered(s.pts[i + 1], s, 0.3, close[i]))):
+			if fmod(along, 1.4) < SAMPLE and not _in_cuts(skip, i + 0.5) and not _in_cuts(skip, i - 0.5) and not _in_cuts(skip, i + 1.5):
 				_dash(buf, s, i, paint)
 	var mi: MeshInstance3D = _meshes.get(s.id)
 	if mi == null:
@@ -623,92 +634,238 @@ func _arms(st: Street, f: float) -> Array:
 	return out
 
 
-## Rounded kerbs for the corners between the streets meeting at one junction.
-## Each street leaves its pavement off where a corner takes over; the newer of
-## the two streets builds the corner itself: the asphalt swept round into the
-## corner, a curved kerb, pavement and its edge.
-func _junction(s: Street, fs: float, o: Street, fo: float, cuts: Dictionary, buf: MeshBuf, upto: float, asphalt: Color) -> void:
-	var arms := _arms(s, fs) + _arms(o, fo)
+## Every place where streets meet, worked out once after streets change. Each
+## is one flat-topped piece: the arms' asphalt stops a little short of the
+## middle and the junction fills in between, its corners rounded with kerbs
+## and pavement, so streets meeting at any angle join without seams or holes.
+## {at, y, arms: [{st, f, sgn, dir, back}], edge: [Vector3], corners: [[Vector3]], owner}
+func junctions() -> Array:
+	if _junctions_dirty:
+		_junctions = _find_junctions()
+		_junctions_dirty = false
+	return _junctions
+
+
+func _find_junctions() -> Array:
+	var found: Array = []
+	for i in streets.size():
+		for k in range(i + 1, streets.size()):
+			var a: Street = streets[i]
+			var b: Street = streets[k]
+			if not _boxes_overlap(a, b):
+				continue
+			for m in _meetings(a, b):
+				var at := (_ptf(a, m.x) + _ptf(b, m.y)) * 0.5
+				var jn: Dictionary = {}
+				for q in found:
+					if q.at.distance_to(at) < 3.0:
+						jn = q
+						break
+				if jn.is_empty():
+					jn = {"at": at, "meets": []}
+					found.append(jn)
+				jn.meets.append([a, m.x, b, m.y])
+	for jn in found:
+		_shape_junction(jn)
+	return found.filter(func(q): return q.arms.size() >= 2)
+
+
+## Arms, corners and the outline of one junction.
+func _shape_junction(jn: Dictionary) -> void:
+	# the same street meeting the junction twice close together counts once
+	var spots := {}
+	var at := Vector2.ZERO
+	for m in jn.meets:
+		at += (_ptf(m[0], m[1]) + _ptf(m[2], m[3])) * 0.5
+		for e in [[m[0], m[1]], [m[2], m[3]]]:
+			var st: Street = e[0]
+			var list: Array = spots.get(st, [])
+			var merged := false
+			for qi in list.size():
+				var q: Vector2 = list[qi]
+				if not merged and absf(q.x - e[1]) < 8.0:
+					list[qi] = Vector2((q.x * q.y + e[1]) / (q.y + 1.0), q.y + 1.0)
+					merged = true
+			if not merged:
+				list.append(Vector2(e[1], 1.0))
+			spots[st] = list
+	at /= jn.meets.size()
+	var arms: Array = []
+	var y := 0.0
+	var ny := 0
+	var owner := 0
+	for st: Street in spots:
+		owner = maxi(owner, st.id)
+		for q: Vector2 in spots[st]:
+			y += _yf(st, q.x)
+			ny += 1
+			arms.append_array(_arms(st, q.x))
+	arms.sort_custom(func(p, q): return p.dir.angle() < q.dir.angle())
+	jn.at = at
+	jn.y = y / maxf(ny, 1.0) + 0.03
+	jn.arms = arms
+	jn.owner = owner
+	jn.edge = []
+	jn.corners = []
 	if arms.size() < 2:
 		return
-	arms.sort_custom(func(p, q): return p.dir.angle() < q.dir.angle())
-	var j := (_ptf(s, fs) + _ptf(o, fo)) * 0.5
+	for arm in arms:
+		arm.cut = [0.0, 0.0]  # pavement taken over: toward the previous arm, toward the next
+	# the curve between each arm and the next, going round
+	var curves: Array = []
 	for k in arms.size():
 		var A: Dictionary = arms[k]
 		var B: Dictionary = arms[(k + 1) % arms.size()]
-		if A.st == B.st:
+		curves.append(_corner_curve(at, A, B))
+	# each arm's asphalt stops where its farther corner begins
+	for arm in arms:
+		arm.back = maxf(maxf(arm.cut[0], arm.cut[1]), 0.3)
+		arm.f_end = clampf(arm.f + arm.sgn * arm.back / SAMPLE, 0.0, arm.st.pts.size() - 1.0)
+	# the outline, going round: each arm's end, then the way round to the next
+	for k in arms.size():
+		var A: Dictionary = arms[k]
+		var B: Dictionary = arms[(k + 1) % arms.size()]
+		var sa: float = A.sgn
+		var sb: float = -B.sgn
+		jn.edge.append(_kerb_pt(A.st, A.f_end, -sa))
+		jn.edge.append(_kerb_pt(A.st, A.f_end, sa))
+		var c: Dictionary = curves[k]
+		if c.same:
+			# one street running on through: follow its kerb
+			_kerb_run(jn.edge, A.st, A.f_end, B.f_end, sa)
 			continue
-		var a: Vector2 = A.dir
-		var b: Vector2 = B.dir
-		var th := wrapf(b.angle() - a.angle(), 0.0, TAU)
-		if th < 0.45 or th > PI - 0.25:
-			continue
-		var wa: float = A.st.w()
-		var wb: float = B.st.w()
-		var na := a.rotated(PI * 0.5)
-		var nb := b.rotated(-PI * 0.5)
+		_kerb_run(jn.edge, A.st, A.f_end, c.fa, sa)
+		jn.edge.append_array(c.pts)
+		jn.corners.append(c.pts)
+		_kerb_run(jn.edge, B.st, c.fb, B.f_end, sb)
+
+
+## The rounded kerb from arm A round to the next arm B, and how far along each
+## arm it starts. Sharp corners get a tighter round, and where two arms are
+## almost in line (or the gap is the outside of a bend) the kerb swings round
+## the junction's middle instead.
+func _corner_curve(j: Vector2, A: Dictionary, B: Dictionary) -> Dictionary:
+	if A.st == B.st:
+		return {"same": true}
+	var a: Vector2 = A.dir
+	var b: Vector2 = B.dir
+	var th := wrapf(b.angle() - a.angle(), 0.0, TAU)
+	var wa: float = A.st.w()
+	var wb: float = B.st.w()
+	var sa: float = A.sgn
+	var sb: float = -B.sgn
+	var na := a.rotated(PI * 0.5)
+	var nb := b.rotated(-PI * 0.5)
+	var pts: Array = []
+	var ta := 0.0
+	var tb := 0.0
+	if th < PI - 0.12:
+		var r := KERB_R * clampf(th / 1.2, 0.35, 1.0)
 		var det := -a.cross(b)
-		if absf(det) < 1e-3:
-			continue
-		# how far along each arm the curve starts
-		var d := nb * (wb + KERB_R) - na * (wa + KERB_R)
-		var ta := b.cross(d) / det
-		var tb := a.cross(d) / det
-		if ta <= 0.0 or tb <= 0.0:
-			continue
-		var fa: float = A.f + A.sgn * ta / SAMPLE
-		var fb: float = B.f + B.sgn * tb / SAMPLE
-		var side_a: float = A.sgn
-		var side_b: float = -B.sgn
-		if A.st == s:
-			cuts[side_a].append(Vector2(minf(A.f, fa), maxf(A.f, fa)))
-		if B.st == s:
-			cuts[side_b].append(Vector2(minf(B.f, fb), maxf(B.f, fb)))
-		var other: Street = B.st if A.st == s else A.st
-		if s.id < other.id:
-			continue
-		var na_st: Street = A.st
-		var nb_st: Street = B.st
-		if fa < 0.0 or fb < 0.0 or fa > na_st.pts.size() - 1 or fb > nb_st.pts.size() - 1:
-			continue
-		if (na_st == s and fa > upto) or (nb_st == s and fb > upto):
-			continue
-		var pa := _ptf(na_st, fa) + _sidef(na_st, fa) * side_a * wa
-		var pb := _ptf(nb_st, fb) + _sidef(nb_st, fb) * side_b * wb
+		var d := nb * (wb + r) - na * (wa + r)
+		ta = maxf(b.cross(d) / det, 0.0)
+		tb = maxf(a.cross(d) / det, 0.0)
+	var fa := clampf(A.f + A.sgn * ta / SAMPLE, 0.0, A.st.pts.size() - 1.0)
+	var fb := clampf(B.f + B.sgn * tb / SAMPLE, 0.0, B.st.pts.size() - 1.0)
+	A.cut[1] = absf(fa - A.f) * SAMPLE
+	B.cut[0] = absf(fb - B.f) * SAMPLE
+	var pa := _kerb_pt(A.st, fa, sa)
+	var pb := _kerb_pt(B.st, fb, sb)
+	var pa2 := Vector2(pa.x, pa.z)
+	var pb2 := Vector2(pb.x, pb.z)
+	if th < PI - 0.12:
+		# a curve between the two kerbs, bending through where they would meet
+		var det := -a.cross(b)
 		var dc := nb * wb - na * wa
 		var c := j + na * wa + a * (b.cross(dc) / det)
-		var ya := _yf(na_st, fa) + 0.03
-		var yb := _yf(nb_st, fb) + 0.03
-		_corner(buf, pa, c, pb, ya, yb, asphalt)
+		var steps := 6 if th > 0.9 else 4
+		for k in steps + 1:
+			var t := float(k) / steps
+			var p := pa2 * (1.0 - t) * (1.0 - t) + c * 2.0 * t * (1.0 - t) + pb2 * t * t
+			pts.append(Vector3(p.x, lerpf(pa.y, pb.y, t), p.y))
+	else:
+		# round the outside of the junction's middle
+		var r0 := pa2.distance_to(j)
+		var r1 := pb2.distance_to(j)
+		var a0 := (pa2 - j).angle()
+		var sweep := wrapf((pb2 - j).angle() - a0, 0.0, TAU)
+		var steps := clampi(ceili(sweep / 0.45), 1, 10)
+		for k in steps + 1:
+			var t := float(k) / steps
+			var p := j + Vector2.from_angle(a0 + sweep * t) * lerpf(r0, r1, t)
+			pts.append(Vector3(p.x, lerpf(pa.y, pb.y, t), p.y))
+	return {"same": false, "pts": pts, "fa": fa, "fb": fb}
 
 
-func _corner(buf: MeshBuf, pa: Vector2, c: Vector2, pb: Vector2, ya: float, yb: float, asphalt: Color) -> void:
-	const K := 4
+## A point on a street's kerb line (asphalt height) at index f on `side`.
+func _kerb_pt(st: Street, f: float, side: float) -> Vector3:
+	var p := _ptf(st, f) + _sidef(st, f) * side * st.w()
+	return Vector3(p.x, _yf(st, f) + 0.03, p.y)
+
+
+## Kerb points strictly between f0 and f1 (either order), added to `out` in that order.
+func _kerb_run(out: Array, st: Street, f0: float, f1: float, side: float) -> void:
+	var dirn := signf(f1 - f0)
+	if dirn == 0.0:
+		return
+	var f := floorf(f0) + 1.0 if dirn > 0.0 else ceilf(f0) - 1.0
+	while (f1 - f) * dirn > 0.05:
+		out.append(_kerb_pt(st, f, side))
+		f += dirn * 2.0
+
+
+## Lowers the ground under the junctions a street is part of, so none shows
+## through where the arms' slopes differ.
+func _conform_junctions(s: Street) -> void:
+	for jn in junctions():
+		var mine := false
+		for arm in jn.arms:
+			mine = mine or arm.st == s
+		if not mine:
+			continue
+		var j3 := Vector2(jn.at.x, jn.at.y)
+		for arm in jn.arms:
+			var e := _ptf(arm.st, arm.f_end)
+			land.conform(PackedVector2Array([j3, e]), PackedFloat32Array([jn.y - 0.03, _yf(arm.st, arm.f_end)]), arm.st.w() + 0.2, 0.0, true)
+		for c in jn.corners:
+			var cp := PackedVector2Array()
+			var cy := PackedFloat32Array()
+			for p: Vector3 in c:
+				cp.append(Vector2(p.x, p.z))
+				cy.append(p.y - 0.03)
+			land.conform(cp, cy, PAVE + 0.2 + Land.STEP * 0.75, 0.0, true)
+
+
+## Builds a junction's asphalt and corner kerbs into a street's mesh.
+func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
+	var main := false
+	for arm in jn.arms:
+		main = main or arm.st.kind == "main"
+	var asphalt := Palette.ASPHALT.darkened(0.05) if main else Palette.ASPHALT
+	var c3 := Vector3(jn.at.x, jn.y, jn.at.y)
+	var edge: Array = jn.edge
+	for k in edge.size():
+		buf.tri(c3, edge[k], edge[(k + 1) % edge.size()], asphalt, MeshKit.ASPHALT, true)
 	var pave := Palette.SIDEWALK
 	var kerb := Palette.SIDEWALK.darkened(0.12)
-	var cy := (ya + yb) * 0.5
-	var c3 := Vector3(c.x, cy, c.y)
-	var prev_p := Vector3.ZERO
-	var prev_o := Vector3.ZERO
-	var prev_n := Vector3.ZERO
-	for k in K + 1:
-		var t := float(k) / K
-		var p := pa * (1.0 - t) * (1.0 - t) + c * 2.0 * t * (1.0 - t) + pb * t * t
-		var tan := (c - pa) * 2.0 * (1.0 - t) + (pb - c) * 2.0 * t
-		var nrm := tan.normalized().rotated(-PI * 0.5)
-		var y := lerpf(ya, yb, t)
-		var p3 := Vector3(p.x, y, p.y)
-		var o := p + nrm * PAVE
-		var o3 := Vector3(o.x, y, o.y)
-		var n3 := Vector3(nrm.x, 0.0, nrm.y)
-		if k > 0:
-			buf.tri(c3, prev_p, p3, asphalt, MeshKit.ASPHALT)
-			buf.quad(prev_p, p3, p3 + Vector3.UP * CURB, prev_p + Vector3.UP * CURB, kerb, 0.0, -(n3 + prev_n))
-			buf.quad(prev_p + Vector3.UP * CURB, p3 + Vector3.UP * CURB, o3 + Vector3.UP * CURB, prev_o + Vector3.UP * CURB, pave, MeshKit.SLABS, Vector3.UP)
-			buf.quad(prev_o + Vector3.UP * CURB, o3 + Vector3.UP * CURB, o3 + Vector3.DOWN * SKIRT, prev_o + Vector3.DOWN * SKIRT, kerb, 0.0, n3 + prev_n)
-		prev_p = p3
-		prev_o = o3
-		prev_n = n3
+	for c: Array in jn.corners:
+		var prev_p := Vector3.ZERO
+		var prev_o := Vector3.ZERO
+		var prev_n := Vector3.ZERO
+		for k in c.size():
+			var p3: Vector3 = c[k]
+			var tan: Vector3 = c[mini(k + 1, c.size() - 1)] - c[maxi(k - 1, 0)]
+			var n3 := Vector3(-tan.z, 0.0, tan.x).normalized()
+			if n3.dot(p3 - c3) < 0.0:
+				n3 = -n3
+			var o3 := p3 + n3 * PAVE
+			if k > 0:
+				buf.quad(prev_p, p3, p3 + Vector3.UP * CURB, prev_p + Vector3.UP * CURB, kerb, 0.0, -(n3 + prev_n))
+				buf.quad(prev_p + Vector3.UP * CURB, p3 + Vector3.UP * CURB, o3 + Vector3.UP * CURB, prev_o + Vector3.UP * CURB, pave, MeshKit.SLABS, Vector3.UP)
+				buf.quad(prev_o + Vector3.UP * CURB, o3 + Vector3.UP * CURB, o3 + Vector3.DOWN * SKIRT, prev_o + Vector3.DOWN * SKIRT, kerb, 0.0, n3 + prev_n)
+			prev_p = p3
+			prev_o = o3
+			prev_n = n3
 
 
 # ------------------------------------------------------------------ sampling
@@ -801,6 +958,7 @@ func from_data(data: Array) -> void:
 		var s := _from_dict(d)
 		if s:
 			streets.append(s)
+			_junctions_dirty = true
 	for s in streets:
 		_build(s)
 	for s in streets:
@@ -813,6 +971,7 @@ func add_data(d: Dictionary) -> Street:
 	if s == null:
 		return null
 	streets.append(s)
+	_junctions_dirty = true
 	_build(s)
 	for o in _touching(s):
 		_build_later(o)
