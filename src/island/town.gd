@@ -105,6 +105,9 @@ class Lot:
 	var group: Array = []
 	## set back inside the block, near a street but not on it
 	var inner := false
+	## which side of the plot (-1 left, +1 right in its own frame) runs along
+	## another street, on a corner; 0 if neither
+	var corner := 0.0
 	## the back of the plot in its own frame, left to right: (x along the
 	## street, z going in from it, negative), as deep as the block allows
 	var back := PackedVector2Array()
@@ -909,6 +912,11 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 	for k in range(2, poly.size()):
 		var q := poly[k] - l.origin
 		l.back.append(Vector2(q.dot(right), q.dot(fwd)))
+	for sx: float in [-1.0, 1.0]:
+		var q := l.origin + right * sx * (l.width * 0.5 + 1.1) - fwd * minf(1.5, depth * 0.5)
+		var c := _cell(q)
+		if c.x >= 0 and c.y >= 0 and c.x < RES and c.y < RES and _occ[c.y * RES + c.x] < 0 and _occ[c.y * RES + c.x] != RESERVED:
+			l.corner = sx
 	if l.back.size() > 1 and l.back[0].x > l.back[l.back.size() - 1].x:
 		l.back.reverse()
 	l.dense = dense

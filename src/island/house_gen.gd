@@ -226,13 +226,16 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	if not dense and hd > 1.0:
 		for sx: float in [-1.0, 1.0]:
 			mk.window_grid(Vector3(sx * hw * 0.5, 0, 0), Vector3.RIGHT * sx, hd, side_count, floors, 0.24, Palette.GLASS)
+	elif l.corner != 0.0 and squeeze.is_empty() and hd > 1.0:
+		# on a corner the end wall looks onto the other street: windows there too
+		mk.window_grid(Vector3(l.corner * hw * 0.5, 0, 0), Vector3.RIGHT * l.corner, hd, side_count, floors, 0.24, Palette.GLASS)
 	# a little iron balcony under one upper window
 	if floors >= 2 and rng.randf() < K.balcony and not boxes:
 		var fl := 1 + rng.randi() % (floors - 1)
 		var bx := -hw * 0.5 + (rng.randi() % count + 0.5) * hw / count
 		var by := fl * FH + 0.08
-		mk.box_faces(Vector3(bx, by, front + 0.12), Vector3(0.46, 0.04, 0.24), STONE, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
-		mk.box_faces(Vector3(bx, by + 0.11, front + 0.235), Vector3(0.46, 0.18, 0.012), IRON, MeshKit.FRONT | MeshKit.BACK)
+		mk.box_faces(Vector3(bx, by, front + 0.12), Vector3(0.46, 0.04, 0.24), STONE, MeshKit.TOP | MeshKit.FRONT)
+		mk.box_faces(Vector3(bx, by + 0.11, front + 0.235), Vector3(0.46, 0.18, 0.012), IRON, MeshKit.FRONT)
 	# front door with a step, and on some a little canopy
 	if not shop:
 		mk.box_faces(Vector3(door_x, 0.27, front + 0.015), Vector3(0.3, 0.5, 0.03), door, MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT | MeshKit.TOP)
@@ -484,6 +487,9 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		var shop := (main or rng.randf() < 0.45) and run > 1.3
 		l.floors = floors
 		l.shop = shop
+		# the ground floor in a heavier base: stone under brick, a darker render elsewhere
+		var base := STONE if we == MeshKit.BRICKS else wall.darkened(0.12)
+		mk.box_faces(Vector3(0, FH * 0.5, 0.004), Vector3(run, FH, 0.008), base, MeshKit.FRONT)
 		var count := maxi(1, int(run / 0.55))
 		if shop:
 			_shopfront(mk, rng, run, 0.0, wall)
@@ -500,9 +506,9 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			var bx := -run * 0.5 + (rng.randi() % count + 0.5) * run / count
 			for fl in range(1, floors):
 				var by := fl * FH + 0.08
-				mk.box_faces(Vector3(bx, by, 0.12), Vector3(0.46, 0.04, 0.24), STONE, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
-				mk.box_faces(Vector3(bx, by + 0.11, 0.235), Vector3(0.46, 0.18, 0.012), IRON, MeshKit.FRONT | MeshKit.BACK)
-		if posmod(seed_value + k, 2) == 0:
+				mk.box_faces(Vector3(bx, by, 0.12), Vector3(0.46, 0.04, 0.24), STONE, MeshKit.TOP | MeshKit.FRONT)
+				mk.box_faces(Vector3(bx, by + 0.11, 0.235), Vector3(0.46, 0.18, 0.012), IRON, MeshKit.FRONT)
+		if posmod(seed_value + k, 3) == 0:
 			CivicGen._lamp(mk, Vector3(run * 0.5, street_y - y0, 0.36))
 		mk.pop()
 	# the top: a slate attic set back behind the parapet in the old quarters,
@@ -621,7 +627,9 @@ static func _prism(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color
 ## A flat roof over an outline, behind a low parapet.
 static func _flat_roof(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color) -> void:
 	var tris := Geometry2D.triangulate_polygon(pts)
-	var top := Color(0.55, 0.55, 0.57)
+	# grey felt, dark tar, pale gravel, and now and then a planted roof
+	var top: Color = [Color(0.55, 0.55, 0.57), Color(0.55, 0.55, 0.57), Color(0.55, 0.55, 0.57), Color(0.38, 0.39, 0.42), Color(0.38, 0.39, 0.42),
+		Color(0.68, 0.64, 0.57), Color(0.68, 0.64, 0.57), Color(0.5, 0.6, 0.4)][mk.rng.randi() % 8]
 	for k in range(0, tris.size(), 3):
 		var a := pts[tris[k]]
 		var b := pts[tris[k + 1]]
