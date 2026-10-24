@@ -41,6 +41,8 @@ var show_zone := false:
 			for c in _chunks.keys():
 				_dirty[c] = true
 var _chunks := {}
+## counts up whenever the ground or its painting changes
+var revision := 0
 # a coarser copy of the ground drawn only into the shadow map, so hills cast
 # shadows across the valleys for a quarter of the triangles
 var _shadow: MeshInstance3D
@@ -378,6 +380,8 @@ func pad(outline: PackedVector2Array, y: float, blend: float, keep_off := Callab
 
 ## Remake changed chunks, spending at most `budget_us` microseconds.
 func rebuild_dirty(budget_us := 4000) -> void:
+	if not _dirty.is_empty():
+		revision += 1
 	var start := Time.get_ticks_usec()
 	for c in _dirty.keys():
 		_build_chunk(c)

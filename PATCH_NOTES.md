@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 03:29 UTC
+- The countryside is no longer bare grass: woods spread over the hills, with copses and lone trees across the meadows.
+- Pines take over higher up, in stands of their own, while broadleaf trees fill the lower ground.
+- Trees keep off beaches, bare rock and the verges of streets, and give way wherever you paint Grow, so the town clears its own ground as it spreads.
+- Painting green away from the streets now grows a proper wood.
+- The woods cost very few triangles, so the frame stays well under budget.
+
 ## 2026-10-24 03:13 UTC
 - Corner houses now have windows on the wall that faces the side street, instead of a blank end wall.
 - Flat roofs vary: grey felt, dark tar, pale gravel and the odd planted green roof.
