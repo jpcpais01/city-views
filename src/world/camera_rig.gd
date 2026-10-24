@@ -16,14 +16,14 @@ var ground_fn: Callable
 var limit := 64.0
 
 const MIN_D := 9.0
-const MAX_D := 95.0
+const MAX_D := 92.0
 
 
 func _ready() -> void:
 	cam = Camera3D.new()
 	cam.fov = 40.0
 	cam.near = 0.3
-	cam.far = 600.0
+	cam.far = 1100.0
 	add_child(cam)
 	cam.make_current()
 

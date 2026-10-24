@@ -174,6 +174,17 @@ void fragment() {
 			crack *= smoothstep(0.62, 0.75, g_noise(p * 0.45 + 9.0));
 			base *= mix(1.0, (1.0 - patched * 0.1) * (1.0 - crack * 0.25), fade);
 			base *= 0.95 + 0.1 * g_noise(p * 0.35);
+			if (v_emit > 0.115) {
+				// a dashed white centre line: 0.5 m dashes every 1.4 m, 7 cm wide
+				// on a 1.56 m carriageway (COLOR.a runs kerb to kerb, UV.y along)
+				float across = (COLOR.a - 0.5) * 1.56;
+				float aw = fwidth(across);
+				float line = 1.0 - smoothstep(0.035 - aw, 0.035 + aw, abs(across));
+				float d = fract(v_rand / 1.4) * 1.4;
+				float al = fwidth(v_rand);
+				float dash = smoothstep(-al, al, d) * (1.0 - smoothstep(0.5 - al, 0.5 + al, d));
+				base = mix(base, vec3(1.0, 0.93, 0.79), line * dash * 0.95);
+			}
 		} else if (v_emit > 0.13 && v_emit < 0.19) {
 			// pavement: small square slabs with fine joints and the odd odd-toned one
 			vec2 q = v_world.xz * 3.0;

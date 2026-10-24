@@ -481,6 +481,27 @@ class MeshBuf:
 		else:
 			idx.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
 
+	## A stretch of carriageway whose markings the city shader paints: a-b
+	## across the start (a on the left kerb), c-d across the end. Colour alpha
+	## carries the way across (0 left kerb, 1 right), UV.y the way along.
+	func road(a: Vector3, b: Vector3, c: Vector3, d: Vector3, col: Color, e: float, s0: float, s1: float) -> void:
+		var nrm := (c - a).cross(d - b)
+		if nrm.length_squared() < 1e-10:
+			return
+		nrm = nrm.normalized()
+		if nrm.y < 0.0:
+			nrm = -nrm
+		var base := verts.size()
+		verts.append_array([a, b, c, d])
+		for k in 4:
+			norms.append(nrm)
+		cols.append_array([Color(col, 0.0), Color(col, 1.0), Color(col, 1.0), Color(col, 0.0)])
+		uvs.append_array([Vector2(e, s0), Vector2(e, s0), Vector2(e, s1), Vector2(e, s1)])
+		if (b - a).cross(c - a).dot(nrm) > 0.0:
+			idx.append_array([base, base + 2, base + 1, base, base + 3, base + 2])
+		else:
+			idx.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
+
 	## `level` shades it as if flat, so a fan of slightly tilted pieces reads as one surface.
 	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, e: float, level := false) -> void:
 		var nrm := (b - a).cross(c - a)
@@ -547,7 +568,7 @@ func _build(s: Street) -> void:
 		var d1 := (s.pts[i + 1] - s.pts[i]).normalized()
 		var bend := absf(d0.angle_to(d1)) > 0.08
 		var grade_change := absf((s.ys[i + 1] - s.ys[i]) - (s.ys[i] - s.ys[i - 1])) > 0.007
-		if bend or grade_change or (i - last) * SAMPLE >= 3.0:
+		if bend or grade_change or (i - last) * SAMPLE >= 6.0:
 			rows[float(i)] = true
 			last = i
 	for list in [cuts[-1.0], cuts[1.0], skip]:
@@ -582,7 +603,15 @@ func _build(s: Street) -> void:
 		var y0 := ry[r]
 		var y1 := ry[r + 1]
 		if not _in_cuts(skip, fm):
-			_band(buf, p0, n0, y0, p1, n1, y1, -w, 0.0, w, 0.0, asphalt, MeshKit.ASPHALT, Vector3.UP)
+			if KINDS[s.kind].dash:
+				# the centre line is painted by the shader, not drawn
+				var a := p0 - n0 * w
+				var b := p0 + n0 * w
+				var c := p1 + n1 * w
+				var d := p1 - n1 * w
+				buf.road(Vector3(a.x, y0, a.y), Vector3(b.x, y0, b.y), Vector3(c.x, y1, c.y), Vector3(d.x, y1, d.y), asphalt, MeshKit.ASPHALT_DASHED, f0 * SAMPLE, f1 * SAMPLE)
+			else:
+				_band(buf, p0, n0, y0, p1, n1, y1, -w, 0.0, w, 0.0, asphalt, MeshKit.ASPHALT, Vector3.UP)
 		for side: float in [-1.0, 1.0]:
 			if _in_cuts(cuts[side], fm):
 				continue
@@ -592,13 +621,6 @@ func _build(s: Street) -> void:
 			_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * w, CURB, kerb, 0.0, -out3)
 			_band(buf, p0, n0, y0, p1, n1, y1, side * w, CURB, side * (w + PAVE), CURB, pave, MeshKit.SLABS, Vector3.UP)
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
-	if KINDS[s.kind].dash:
-		var paint := Color(1.0, 0.97, 0.9)
-		var along := 0.0
-		for i in last_i:
-			along += SAMPLE
-			if fmod(along, 1.4) < SAMPLE and not _in_cuts(skip, i + 0.5) and not _in_cuts(skip, i - 0.5) and not _in_cuts(skip, i + 1.5):
-				_dash(buf, s, i, paint)
 	var mi: MeshInstance3D = _meshes.get(s.id)
 	if mi == null:
 		mi = MeshInstance3D.new()
@@ -864,7 +886,7 @@ func _corner_curve(j: Vector2, A: Dictionary, B: Dictionary) -> Dictionary:
 		var c := j + na * wa + a * (b.cross(dc) / det)
 		if c.distance_to(j) > MAX_CUT + wa:
 			c = (pa2 + pb2) * 0.5
-		var steps := 6 if th > 0.9 else 4
+		var steps := 4 if th > 0.9 else 3
 		for k in steps + 1:
 			var t := float(k) / steps
 			var p := pa2 * (1.0 - t) * (1.0 - t) + c * 2.0 * t * (1.0 - t) + pb2 * t * t
@@ -1012,11 +1034,6 @@ static func _band(buf: MeshBuf, p0: Vector2, n0: Vector2, y0: float, p1: Vector2
 	var c := p1 + n1 * o1
 	var d := p1 + n1 * o0
 	buf.quad(Vector3(a.x, y0 + dy0, a.y), Vector3(b.x, y0 + dy1, b.y), Vector3(c.x, y1 + dy1, c.y), Vector3(d.x, y1 + dy0, d.y), col, e, hint)
-
-
-func _dash(buf: MeshBuf, s: Street, i: int, col: Color) -> void:
-	var hw := 0.035
-	buf.quad(_atf(s, i, -hw, 0.006), _atf(s, i, hw, 0.006), _atf(s, i + 1, hw, 0.006), _atf(s, i + 1, -hw, 0.006), col, 0.0, Vector3.UP)
 
 
 # ------------------------------------------------------------------ saving

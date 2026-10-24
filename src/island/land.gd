@@ -1,16 +1,31 @@
 class_name Land
 extends Node3D
-## The new island's ground: one continuous height field (no tiles), grown from
+## The map's ground: one continuous height field (no tiles), grown from
 ## noise into hills, ridges, coves, beaches and the odd cliff, and reshaped by
 ## the player's brushes. Built in chunks so a brush stroke only remakes the
-## ground it touched.
+## ground it touched. Each chunk is drawn as blocks that are as coarse as the
+## ground allows (flat land and deep sea take a handful of triangles, hills
+## keep every sample), stitched so neighbouring blocks always meet exactly.
 
-const SIZE := 128.0
+const SIZE := 384.0
 const HALF := SIZE * 0.5
-const CELLS := 128
+const CELLS := 384
 const STEP := SIZE / CELLS
 const SIDE := CELLS + 1
-const CHUNK := 16
+const CHUNK := 32
+# blocks inside a chunk, each drawn every 1, 2, 4 or 8 samples
+const BLOCK := 8
+const BLOCKS := CELLS / BLOCK
+# how far a coarser block may stray from the ground it stands for: closely
+# where anyone has built, shaped or painted, more loosely over wild country
+const TOL := 0.05
+const TOL_WILD := 0.08
+const TOL_DEEP := 0.5
+const TOL_COL := 0.07
+# the size of the first islands (version 1 saves), which sit in the middle of the map
+const LEGACY_SIZE := 128.0
+# the kinds of map a new game can start on
+const KINDS := ["island"]
 const LOW := -4.6
 const HIGH := 11.0
 # sea floor deeper than this is drawn coarser (it is barely seen through the water)
@@ -45,16 +60,27 @@ var _chunks := {}
 var revision := 0
 # a coarser copy of the ground drawn only into the shadow map, so hills cast
 # shadows across the valleys for a quarter of the triangles
-var _shadow: MeshInstance3D
-var _shadow_dirty := true
+var _shadow := {}
 var _dirty := {}
+## how far from the middle the land reaches (ships pass beyond it)
+var reach := 0.0
+## what kind of map this is ("legacy": the first, small islands)
+var kind := "island"
+# each sample's colour, and how coarsely each block is drawn
+var _col := PackedColorArray()
+var _steps := PackedByteArray()
+var _ready_chunks := {}
+var _pending_build := false
 var _noise := FastNoiseLite.new()
 var _warp := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
 
 
-## Fresh island for a seed.
-func generate(seed_value: int) -> void:
+## Fresh ground for a seed and a kind of map.
+## With `build` off the ground is only worked out, not drawn, until finish()
+## (so a save's edits go in first and every chunk is drawn once).
+func generate(seed_value: int, map_kind := "island", build := true) -> void:
+	kind = map_kind
 	_noise.seed = seed_value
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
@@ -70,22 +96,70 @@ func generate(seed_value: int) -> void:
 	_detail.fractal_octaves = 2
 	_detail.frequency = 1.0 / 9.0
 	heights.resize(SIDE * SIDE)
-	for j in SIDE:
-		for i in SIDE:
-			heights[j * SIDE + i] = _natural(_pos(i, j))
+	if kind == "legacy":
+		for j in SIDE:
+			for i in SIDE:
+				heights[j * SIDE + i] = _natural(_pos(i, j))
+	else:
+		# worked out every other sample and filled in between: the land is
+		# smoothed after anyway, and it takes a quarter of the time
+		var half := CELLS / 2 + 1
+		var coarse := PackedFloat32Array()
+		coarse.resize(half * half)
+		for j in half:
+			for i in half:
+				coarse[j * half + i] = _natural(_pos(i * 2, j * 2))
+		for j in SIDE:
+			var cj := mini(j / 2, half - 2)
+			var v := (j - cj * 2) * 0.5
+			for i in SIDE:
+				var ci := mini(i / 2, half - 2)
+				var u := (i - ci * 2) * 0.5
+				var a := cj * half + ci
+				heights[j * SIDE + i] = lerpf(lerpf(coarse[a], coarse[a + 1], u), lerpf(coarse[a + half], coarse[a + half + 1], u), v)
+	if kind != "legacy":
+		# rounded, rolling land: the big maps are seen from far out, where
+		# crisp little creases only cost triangles
+		for pass_i in 8:
+			_blur(heights)
 	_base = heights.duplicate()
+	reach = 0.0
+	for j in range(0, SIDE, 4):
+		for i in range(0, SIDE, 4):
+			if heights[j * SIDE + i] > -1.0:
+				reach = maxf(reach, _pos(i, j).length())
+	_col.resize(SIDE * SIDE)
+	_steps.resize(BLOCKS * BLOCKS)
+	_steps.fill(0)
 	zone.resize(SIDE * SIDE)
 	zone.fill(0.0)
 	green.resize(SIDE * SIDE)
 	green.fill(0.0)
 	level.resize(SIDE * SIDE)
 	level.fill(0.0)
+	_mark(0, 0, CELLS, CELLS)
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
+	_pending_build = true
+	if build:
+		finish()
+
+
+## Draws freshly generated ground (see generate()).
+func finish() -> void:
+	if not _pending_build:
+		return
+	_pending_build = false
+	# how coarse every block can be first, so each chunk meets its neighbours
+	for cz in CELLS / CHUNK:
+		for cx in CELLS / CHUNK:
+			_prepare(Vector2i(cx, cz))
+	_dirty.clear()
 	for cz in CELLS / CHUNK:
 		for cx in CELLS / CHUNK:
 			_dirty[Vector2i(cx, cz)] = true
+			_ready_chunks[Vector2i(cx, cz)] = true
 	rebuild_dirty(1 << 20)
 	rebuild_shadow()
 	changed.emit()
@@ -95,13 +169,46 @@ func _pos(i: int, j: int) -> Vector2:
 	return Vector2(i * STEP - HALF, j * STEP - HALF)
 
 
-## The untouched landscape at a point: a warped, roughly round island whose
-## coast wanders, inland hills and ridges, broad beaches and a few cliffs.
+## The untouched landscape at a point.
 func _natural(p: Vector2) -> float:
-	var w := Vector2(_warp.get_noise_2d(p.x, p.y), _warp.get_noise_2d(p.x + 91.0, p.y - 37.0)) * 20.0
+	if kind == "legacy":
+		return _legacy(p)
+	return _island(p)
+
+
+## A big island: a warped, roughly round coast with bays and headlands, broad
+## lowlands for a city, inland hills and ridges, beaches and a few cliffs.
+func _island(p: Vector2) -> float:
+	var s := HALF / (LEGACY_SIZE * 0.5)
+	var w := Vector2(_warp.get_noise_2d(p.x / s, p.y / s), _warp.get_noise_2d(p.x / s + 91.0, p.y / s - 37.0)) * 20.0 * s
 	w += Vector2(_detail.get_noise_2d(p.x * 0.5, p.y * 0.5), _detail.get_noise_2d(p.x * 0.5 + 50.0, p.y * 0.5)) * 2.0
 	var q := p + w
 	var r := q.length() / HALF
+	var cliff := smoothstep(0.3, 0.55, _warp.get_noise_2d(q.x * 0.6 - 200.0, q.y * 0.6))
+	var mask := 1.0 - smoothstep(lerpf(0.5, 0.66, cliff), lerpf(0.9, 0.78, cliff), r)
+	var hills := (_noise.get_noise_2d(q.x * 0.8, q.y * 0.8) * 0.5 + 0.5)
+	hills = pow(hills, 2.7) * 8.5
+	var ridge := 1.0 - absf(_noise.get_noise_2d(q.x * 0.5 + 400.0, q.y * 0.5))
+	hills += pow(ridge, 6.0) * 1.5 * smoothstep(0.0, 0.4, _warp.get_noise_2d(q.x * 0.3 + 300.0, q.y * 0.3))
+	var inland := smoothstep(0.1, 0.7, mask)
+	inland *= inland
+	var land := 0.8 + hills * inland + cliff * 1.2 * smoothstep(0.0, 0.3, mask)
+	var h := lerpf(LOW, land, mask)
+	return _beach(h)
+
+
+## The first, small islands (kept so version 1 saves come back as they were),
+## in the middle of the map with open sea all round.
+func _legacy(p: Vector2) -> float:
+	# (the warp moves the coast by 22 m at most)
+	if p.length() > LEGACY_SIZE * 0.6 + 24.0:
+		return _beach(LOW)
+	var w := Vector2(_warp.get_noise_2d(p.x, p.y), _warp.get_noise_2d(p.x + 91.0, p.y - 37.0)) * 20.0
+	w += Vector2(_detail.get_noise_2d(p.x * 0.5, p.y * 0.5), _detail.get_noise_2d(p.x * 0.5 + 50.0, p.y * 0.5)) * 2.0
+	var q := p + w
+	var r := q.length() / (LEGACY_SIZE * 0.5)
+	if r > 1.2:
+		return _beach(LOW)
 	# where the coast is cliffy the land rises sharply out of the sea
 	var cliff := smoothstep(0.3, 0.55, _warp.get_noise_2d(q.x * 0.6 - 200.0, q.y * 0.6))
 	var mask := 1.0 - smoothstep(lerpf(0.42, 0.62, cliff), lerpf(0.86, 0.72, cliff), r)
@@ -116,6 +223,17 @@ func _natural(p: Vector2) -> float:
 	var land := 0.8 + hills * inland + _detail.get_noise_2d(p.x, p.y) * 0.06 + cliff * 1.2 * smoothstep(0.0, 0.3, mask)
 	var h := lerpf(LOW, land, mask)
 	return _beach(h)
+
+
+## One pass of a 3x3 blur over a whole layer (its rim left as it is).
+static func _blur(a: PackedFloat32Array) -> void:
+	var src := a.duplicate()
+	for j in range(1, CELLS):
+		var r := j * SIDE
+		for i in range(1, CELLS):
+			var k := r + i
+			a[k] = (src[k] * 4.0 + src[k - 1] + src[k + 1] + src[k - SIDE] + src[k + SIDE]) * 0.125
+	return
 
 
 ## Flattens the ground just above and below the waterline into wide beaches.
@@ -285,7 +403,25 @@ func take_touched() -> Rect2i:
 	return r
 
 
+## A revision count per TILE x TILE metres, bumped whenever anything there
+## changes, so the woods and yards know which of their pieces to redo.
+const TILE := 16
+const TILES := CELLS / TILE
+var tile_rev := PackedInt32Array()
+
+
+func tile_sig(t: Vector2i) -> int:
+	if tile_rev.is_empty():
+		return 0
+	return tile_rev[clampi(t.y, 0, TILES - 1) * TILES + clampi(t.x, 0, TILES - 1)]
+
+
 func _mark(i0: int, j0: int, i1: int, j1: int) -> void:
+	if tile_rev.size() != TILES * TILES:
+		tile_rev.resize(TILES * TILES)
+	for tz in range(maxi(0, (j0 - 2) / TILE), mini(TILES - 1, (j1 + 2) / TILE) + 1):
+		for tx in range(maxi(0, (i0 - 2) / TILE), mini(TILES - 1, (i1 + 2) / TILE) + 1):
+			tile_rev[tz * TILES + tx] += 1
 	touched_lo = touched_lo.min(Vector2i(maxi(i0, 0), maxi(j0, 0)))
 	touched_hi = touched_hi.max(Vector2i(mini(i1, CELLS), mini(j1, CELLS)))
 	for cz in range(maxi(0, (j0 - 1) / CHUNK), mini(CELLS / CHUNK - 1, (j1 + 1) / CHUNK) + 1):
@@ -382,8 +518,12 @@ func pad(outline: PackedVector2Array, y: float, blend: float, keep_off := Callab
 func rebuild_dirty(budget_us := 4000) -> void:
 	if not _dirty.is_empty():
 		revision += 1
+		_shadow_dirty = true
 	var start := Time.get_ticks_usec()
 	for c in _dirty.keys():
+		# (unless generate() has just worked it out)
+		if not _ready_chunks.erase(c):
+			_prepare(c)
 		_build_chunk(c)
 		_dirty.erase(c)
 		if Time.get_ticks_usec() - start > budget_us:
@@ -394,52 +534,186 @@ func is_settled() -> bool:
 	return _dirty.is_empty()
 
 
-## Remake the shadow stand-in (call once a stroke has finished).
+var _shadow_dirty := true
+# the shadow stand-in is cut into tiles this many samples across
+const SHADOW_TILE := 96
+
+
+## Remake the shadow stand-in (call once a stroke has finished): the ground
+## every 4 samples, sunk a little, only where it is hilly enough to shade
+## anything, in tiles so only what is in view is drawn.
 func rebuild_shadow() -> void:
-	const S := 2
+	if not _shadow_dirty and not _shadow.is_empty():
+		return
+	_shadow_dirty = false
+	const S := 4
 	var n := CELLS / S + 1
-	var verts := PackedVector3Array()
-	var idx := PackedInt32Array()
-	verts.resize(n * n)
+	var hs := PackedFloat32Array()
+	hs.resize(n * n)
 	for j in n:
 		for i in n:
-			var p := _pos(i * S, j * S)
-			# sunk a little so the real ground never shadows itself in stripes
-			# and never above the real ground around it, so cuttings and streets stay lit
+			# never above the real ground around it, so cuttings and streets stay lit
 			var gi := i * S
 			var gj := j * S
 			var h := heights[gj * SIDE + gi]
-			if h > -0.6:
-				if gi > 0 and gj > 0 and gi < CELLS and gj < CELLS:
-					var k := gj * SIDE + gi
-					h = minf(minf(minf(h, heights[k - 1]), minf(heights[k + 1], heights[k - SIDE])), minf(minf(heights[k + SIDE], heights[k - SIDE - 1]), minf(minf(heights[k - SIDE + 1], heights[k + SIDE - 1]), heights[k + SIDE + 1])))
-				else:
-					for dj in range(-1, 2):
-						for di in range(-1, 2):
-							h = minf(h, heights[index(gi + di, gj + dj)])
-			verts[j * n + i] = Vector3(p.x, maxf(h, -0.6) - 0.12, p.y)
-	for j in n - 1:
-		for i in n - 1:
-			var a := j * n + i
-			# nothing on the sea floor needs shading by the ground
-			if maxf(maxf(verts[a].y, verts[a + 1].y), maxf(verts[a + n].y, verts[a + n + 1].y)) < -0.65:
+			for dj in range(-2, 3):
+				for di in range(-2, 3):
+					h = minf(h, heights[index(gi + di, gj + dj)])
+			hs[j * n + i] = maxf(h, -0.6) - 0.12
+	var per := SHADOW_TILE / S
+	for tj in CELLS / SHADOW_TILE:
+		for ti in CELLS / SHADOW_TILE:
+			var verts := PackedVector3Array()
+			var idx := PackedInt32Array()
+			var at := {}
+			for j in range(tj * per, tj * per + per):
+				for i in range(ti * per, ti * per + per):
+					var ks := [j * n + i, j * n + i + 1, (j + 1) * n + i, (j + 1) * n + i + 1]
+					var lo := INF
+					var hi := -INF
+					for k in ks:
+						lo = minf(lo, hs[k])
+						hi = maxf(hi, hs[k])
+					# flat ground and the sea floor shade nothing
+					if hi < -0.65 or hi - lo < 0.12:
+						continue
+					var vi := PackedInt32Array()
+					for k in ks:
+						if not at.has(k):
+							at[k] = verts.size()
+							var p := _pos((k % n) * S, (k / n) * S)
+							verts.append(Vector3(p.x, hs[k], p.y))
+						vi.append(at[k])
+					idx.append_array([vi[0], vi[1], vi[2], vi[1], vi[3], vi[2]])
+			var key := Vector2i(ti, tj)
+			var mi: MeshInstance3D = _shadow.get(key)
+			if idx.is_empty():
+				if mi:
+					mi.mesh = null
 				continue
-			idx.append_array([a, a + 1, a + n, a + 1, a + n + 1, a + n])
-	var arr := []
-	arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = verts
-	arr[Mesh.ARRAY_INDEX] = idx
-	var m := ArrayMesh.new()
-	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-	if _shadow == null:
-		_shadow = MeshInstance3D.new()
-		_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-		add_child(_shadow)
-	m.surface_set_material(0, Palette.shadow_material())
-	_shadow.mesh = m
+			var arr := []
+			arr.resize(Mesh.ARRAY_MAX)
+			arr[Mesh.ARRAY_VERTEX] = verts
+			arr[Mesh.ARRAY_INDEX] = idx
+			var m := ArrayMesh.new()
+			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			m.surface_set_material(0, Palette.shadow_material())
+			if mi == null:
+				mi = MeshInstance3D.new()
+				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+				add_child(mi)
+				_shadow[key] = mi
+			mi.mesh = m
 
 
 # ------------------------------------------------------------------ mesh
+
+## Colours every sample of a chunk and works out how coarsely each of its
+## blocks can be drawn. A border block that changes how coarse it is makes
+## the chunk next to it redraw too, so their seam stays closed.
+func _prepare(c: Vector2i) -> void:
+	for j in CHUNK + 1:
+		for i in CHUNK + 1:
+			var gi := c.x * CHUNK + i
+			var gj := c.y * CHUNK + j
+			_col[gj * SIDE + gi] = _sample_colour(gi, gj)
+	var per := CHUNK / BLOCK
+	for bj in per:
+		for bi in per:
+			var gb := Vector2i(c.x * per + bi, c.y * per + bj)
+			var s := _block_step(gb.x * BLOCK, gb.y * BLOCK)
+			var k := gb.y * BLOCKS + gb.x
+			if s == _steps[k]:
+				continue
+			_steps[k] = s
+			for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+				if (bi == 0 and d.x < 0) or (bi == per - 1 and d.x > 0) or (bj == 0 and d.y < 0) or (bj == per - 1 and d.y > 0):
+					var nc := c + d
+					if nc.x >= 0 and nc.y >= 0 and nc.x < CELLS / CHUNK and nc.y < CELLS / CHUNK:
+						_dirty[nc] = true
+
+
+## The coarsest step (8, 4, 2 or 1 samples) a block can be drawn at while
+## staying within TOL of the ground and TOL_COL of its colours.
+func _block_step(i0: int, j0: int) -> int:
+	var deep := true
+	var wild := true
+	for j in range(j0, j0 + BLOCK + 1):
+		for i in range(i0, i0 + BLOCK + 1):
+			var k := j * SIDE + i
+			if heights[k] > DEEP:
+				deep = false
+			if zone[k] > 0.0 or green[k] > 0.0 or absf(heights[k] - _base[k]) > 0.005:
+				wild = false
+	var tol := TOL_DEEP if deep else (TOL_WILD if wild else TOL)
+	for s: int in [8, 4, 2]:
+		var ok := true
+		for j in range(j0, j0 + BLOCK + 1):
+			var cj := j0 + ((j - j0) / s) * s
+			var cj1 := mini(cj + s, j0 + BLOCK)
+			var v := float(j - cj) / s if cj1 > cj else 0.0
+			for i in range(i0, i0 + BLOCK + 1):
+				if (i - i0) % s == 0 and (j - j0) % s == 0:
+					continue
+				var ci := i0 + ((i - i0) / s) * s
+				var ci1 := mini(ci + s, i0 + BLOCK)
+				var u := float(i - ci) / s if ci1 > ci else 0.0
+				var a := cj * SIDE
+				var b := cj1 * SIDE
+				var h := lerpf(lerpf(heights[a + ci], heights[a + ci1], u), lerpf(heights[b + ci], heights[b + ci1], u), v)
+				if absf(h - heights[j * SIDE + i]) > tol:
+					ok = false
+					break
+				if not deep:
+					var col := _col[a + ci].lerp(_col[a + ci1], u).lerp(_col[b + ci].lerp(_col[b + ci1], u), v)
+					var o := _col[j * SIDE + i]
+					if absf(col.r - o.r) > TOL_COL or absf(col.g - o.g) > TOL_COL or absf(col.b - o.b) > TOL_COL:
+						ok = false
+						break
+			if not ok:
+				break
+		if ok:
+			return s
+	return 1
+
+
+## How far apart the samples along a block's edge are: the finer of the block
+## and its neighbour that way (the map's rim keeps the block's own).
+func _edge(bx: int, bz: int, d: Vector2i, own: int) -> int:
+	var nx := bx + d.x
+	var nz := bz + d.y
+	if nx < 0 or nz < 0 or nx >= BLOCKS or nz >= BLOCKS:
+		return own
+	var o := _steps[nz * BLOCKS + nx]
+	return mini(own, o) if o > 0 else 1
+
+
+func _sample_colour(gi: int, gj: int) -> Color:
+	var h := heights[gj * SIDE + gi]
+	var p := _pos(gi, gj)
+	var hx := heights[index(gi + 1, gj)] - heights[index(gi - 1, gj)]
+	var hz := heights[index(gi, gj + 1)] - heights[index(gi, gj - 1)]
+	var up := 2.0 * STEP / Vector3(-hx, 2.0 * STEP, -hz).length()
+	# hollows a touch darker, crests a touch lighter: the land's shape reads from any angle
+	var lap := (heights[index(gi - 2, gj)] + heights[index(gi + 2, gj)] + heights[index(gi, gj - 2)] + heights[index(gi, gj + 2)] - 4.0 * h) / (4.0 * STEP * STEP)
+	var col := _colour(p, h, up)
+	var zn := zone[gj * SIDE + gi]
+	if zn > 0.0 and h > 0.0:
+		if show_zone:
+			# while growing, the painted ground shows its level: warmer is taller
+			var lv := level[gj * SIDE + gi]
+			var t: Color = LEVEL_TINTS[clampi(int(round(lv if lv >= 0.5 else LEVEL_DEFAULT)), 1, LEVEL_TINTS.size() - 1)]
+			col = col.lerp(t, minf(zn * 1.4, 1.0) * 0.82)
+		else:
+			col = col.lerp(Color("b5c97a"), zn * 0.18)
+	var gn := green[gj * SIDE + gi]
+	if gn > 0.0 and h > 0.0:
+		# park lawns, a lusher green
+		col = col.lerp(Color("2fd35a") if show_zone else Color("74bf5e"), minf(gn * 1.4, 1.0) * 0.82 if show_zone else gn * 0.3)
+	if h > -0.3:
+		col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
+	return col
+
 
 func _build_chunk(c: Vector2i) -> void:
 	var n := CHUNK + 1
@@ -447,75 +721,57 @@ func _build_chunk(c: Vector2i) -> void:
 	var norms := PackedVector3Array()
 	var cols := PackedColorArray()
 	var idx := PackedInt32Array()
-	verts.resize(n * n)
-	norms.resize(n * n)
-	cols.resize(n * n)
-	for j in n:
-		for i in n:
-			var gi := c.x * CHUNK + i
-			var gj := c.y * CHUNK + j
-			var h := heights[gj * SIDE + gi]
-			var p := _pos(gi, gj)
-			var hx := heights[index(gi + 1, gj)] - heights[index(gi - 1, gj)]
-			var hz := heights[index(gi, gj + 1)] - heights[index(gi, gj - 1)]
-			var nrm := Vector3(-hx, 2.0 * STEP, -hz).normalized()
-			var k := j * n + i
-			verts[k] = Vector3(p.x, h, p.y)
-			norms[k] = nrm
-			# hollows a touch darker, crests a touch lighter: the land's shape reads from any angle
-			var lap := (heights[index(gi - 2, gj)] + heights[index(gi + 2, gj)] + heights[index(gi, gj - 2)] + heights[index(gi, gj + 2)] - 4.0 * h) / (4.0 * STEP * STEP)
-			var col := _colour(p, h, nrm.y)
-			var zn := zone[gj * SIDE + gi]
-			if zn > 0.0 and h > 0.0:
-				if show_zone:
-					# while growing, the painted ground shows its level: warmer is taller
-					var lv := level[gj * SIDE + gi]
-					var t: Color = LEVEL_TINTS[clampi(int(round(lv if lv >= 0.5 else LEVEL_DEFAULT)), 1, 4)]
-					col = col.lerp(t, minf(zn * 1.4, 1.0) * 0.82)
-				else:
-					col = col.lerp(Color("b5c97a"), zn * 0.18)
-			var gn := green[gj * SIDE + gi]
-			if gn > 0.0 and h > 0.0:
-				# park lawns, a lusher green
-				col = col.lerp(Color("2fd35a") if show_zone else Color("74bf5e"), minf(gn * 1.4, 1.0) * 0.82 if show_zone else gn * 0.3)
-			if h > -0.3:
-				col = col.darkened(clampf(lap * 0.9, 0.0, 0.14)) if lap > 0.0 else col.lightened(clampf(-lap * 0.5, 0.0, 0.08))
-			cols[k] = col
-	const B := 8
-	for bj in CHUNK / B:
-		for bi in CHUNK / B:
-			var deep := true
-			for j in range(bj * B, bj * B + B + 1):
-				for i in range(bi * B, bi * B + B + 1):
-					if verts[j * n + i].y > DEEP:
-						deep = false
-			if deep:
-				# deep sea floor, seen only faintly through the water: a fan from the
-				# middle out to every edge vertex, so it still meets its neighbours exactly
-				var ring := PackedInt32Array()
-				for i in range(bi * B, bi * B + B):
-					ring.append(bj * B * n + i)
-				for j in range(bj * B, bj * B + B):
-					ring.append(j * n + bi * B + B)
-				for i in range(bi * B + B, bi * B, -1):
-					ring.append((bj * B + B) * n + i)
-				for j in range(bj * B + B, bj * B, -1):
-					ring.append(j * n + bi * B)
-				var mid := (bj * B + B / 2) * n + bi * B + B / 2
-				for k in ring.size():
-					idx.append_array([mid, ring[k], ring[(k + 1) % ring.size()]])
-				continue
-			for j in range(bj * B, bj * B + B):
-				for i in range(bi * B, bi * B + B):
-					var a := j * n + i
-					var b := a + 1
-					var cc := a + n
-					var d := cc + 1
-					# split each square along the diagonal that follows the land best
-					if absf(verts[a].y - verts[d].y) < absf(verts[b].y - verts[cc].y):
-						idx.append_array([a, b, d, a, d, cc])
-					else:
-						idx.append_array([a, b, cc, b, d, cc])
+	var at := PackedInt32Array()
+	at.resize(n * n)
+	at.fill(-1)
+	var per := CHUNK / BLOCK
+	var ring := PackedInt32Array()
+	for bj in per:
+		for bi in per:
+			var bx := c.x * per + bi
+			var bz := c.y * per + bj
+			var s := maxi(_steps[bz * BLOCKS + bx], 1)
+			# samples along each edge: north (-z), south, west (-x), east
+			var en := _edge(bx, bz, Vector2i(0, -1), s)
+			var es := _edge(bx, bz, Vector2i(0, 1), s)
+			var ew := _edge(bx, bz, Vector2i(-1, 0), s)
+			var ee := _edge(bx, bz, Vector2i(1, 0), s)
+			var li0 := bi * BLOCK
+			var lj0 := bj * BLOCK
+			for cj in range(lj0, lj0 + BLOCK, s):
+				for ci in range(li0, li0 + BLOCK, s):
+					var top := cj == lj0 and en < s
+					var bottom := cj + s == lj0 + BLOCK and es < s
+					var left := ci == li0 and ew < s
+					var right := ci + s == li0 + BLOCK and ee < s
+					if not (top or bottom or left or right):
+						var a := _vert(c, ci, cj, at, verts, norms, cols)
+						var b := _vert(c, ci + s, cj, at, verts, norms, cols)
+						var cc := _vert(c, ci, cj + s, at, verts, norms, cols)
+						var d := _vert(c, ci + s, cj + s, at, verts, norms, cols)
+						# split along the diagonal that follows the land best
+						if absf(verts[a].y - verts[d].y) < absf(verts[b].y - verts[cc].y):
+							idx.append_array([a, b, d, a, d, cc])
+						else:
+							idx.append_array([a, b, cc, b, d, cc])
+						continue
+					# a finer neighbour: fan from the middle out to every sample on the edge
+					ring.clear()
+					var e := en if top else s
+					for i in range(ci, ci + s, e):
+						ring.append(_vert(c, i, cj, at, verts, norms, cols))
+					e = ee if right else s
+					for j in range(cj, cj + s, e):
+						ring.append(_vert(c, ci + s, j, at, verts, norms, cols))
+					e = es if bottom else s
+					for i in range(ci + s, ci, -e):
+						ring.append(_vert(c, i, cj + s, at, verts, norms, cols))
+					e = ew if left else s
+					for j in range(cj + s, cj, -e):
+						ring.append(_vert(c, ci, j, at, verts, norms, cols))
+					var mid := _vert(c, ci + s / 2, cj + s / 2, at, verts, norms, cols)
+					for k in ring.size():
+						idx.append_array([mid, ring[k], ring[(k + 1) % ring.size()]])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
@@ -534,10 +790,27 @@ func _build_chunk(c: Vector2i) -> void:
 	mi.mesh = m
 
 
+## The vertex for chunk-local sample (i, j), made the first time it is needed.
+func _vert(c: Vector2i, i: int, j: int, at: PackedInt32Array, verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray) -> int:
+	var k := j * (CHUNK + 1) + i
+	if at[k] >= 0:
+		return at[k]
+	var gi := c.x * CHUNK + i
+	var gj := c.y * CHUNK + j
+	var p := _pos(gi, gj)
+	var hx := heights[index(gi + 1, gj)] - heights[index(gi - 1, gj)]
+	var hz := heights[index(gi, gj + 1)] - heights[index(gi, gj - 1)]
+	at[k] = verts.size()
+	verts.append(Vector3(p.x, heights[gj * SIDE + gi], p.y))
+	norms.append(Vector3(-hx, 2.0 * STEP, -hz).normalized())
+	cols.append(_col[gj * SIDE + gi])
+	return at[k]
+
+
 ## Ground colour from height, steepness and a little noise: wet and dry sand,
 ## meadow grass that is lusher low down and drier up high, rock on steep slopes.
 func _colour(p: Vector2, h: float, up: float) -> Color:
-	var n := _detail.get_noise_2d(p.x * 1.7, p.y * 1.7)
+	var n := _detail.get_noise_2d(p.x * 0.45, p.y * 0.45)
 	var slope := 1.0 - up
 	var sand_line := 0.32 + n * 0.12
 	var col: Color
@@ -643,8 +916,7 @@ func apply_level(e: Dictionary) -> void:
 		var i := int(k)
 		if i >= 0 and i < level.size():
 			level[i] = clampf(float(e[k]), 0.0, 4.0)
-	for c in _chunks.keys():
-		_dirty[c] = true
+	_mark_keys(e)
 
 
 func apply_green(e: Dictionary) -> void:
@@ -652,8 +924,7 @@ func apply_green(e: Dictionary) -> void:
 		var i := int(k)
 		if i >= 0 and i < green.size():
 			green[i] = clampf(float(e[k]), 0.0, 1.0)
-	for c in _chunks.keys():
-		_dirty[c] = true
+	_mark_keys(e)
 
 
 func apply_zone(e: Dictionary) -> void:
@@ -661,8 +932,7 @@ func apply_zone(e: Dictionary) -> void:
 		var i := int(k)
 		if i >= 0 and i < zone.size():
 			zone[i] = clampf(float(e[k]), 0.0, 1.0)
-	for c in _chunks.keys():
-		_dirty[c] = true
+	_mark_keys(e)
 
 
 ## Heights, growing area and green all at once, as snapshot() took them.
@@ -680,6 +950,21 @@ func restore(snap: Array) -> void:
 	for c in _chunks.keys():
 		_dirty[c] = true
 	changed.emit()
+
+
+## Where sample k of a version 1 (128 m) island lies on this map.
+static func legacy_index(k: int) -> int:
+	var old := int(LEGACY_SIZE) + 1
+	var off := (CELLS - int(LEGACY_SIZE)) / 2
+	return (k / old + off) * SIDE + k % old + off
+
+
+## A version 1 save's samples, moved to where they lie on this map.
+static func legacy_cells(e: Dictionary) -> Dictionary:
+	var out := {}
+	for k in e:
+		out[str(legacy_index(int(k)))] = e[k]
+	return out
 
 
 ## The natural ground height at sample k, before anyone reshaped it.
@@ -709,13 +994,30 @@ func set_samples(layer: String, values: Dictionary) -> void:
 		_mark(x, z, x, z)
 
 
+## Marks the box round a set of sample keys as changed.
+func _mark_keys(e: Dictionary) -> void:
+	if e.is_empty():
+		return
+	var lo := Vector2i(SIDE, SIDE)
+	var hi := Vector2i(-1, -1)
+	for k in e:
+		var i := int(k)
+		if i < 0 or i >= SIDE * SIDE:
+			continue
+		var c := Vector2i(i % SIDE, i / SIDE)
+		lo = lo.min(c)
+		hi = hi.max(c)
+	if hi.x >= 0:
+		_mark(lo.x, lo.y, hi.x, hi.y)
+
+
 func apply_edits(e: Dictionary) -> void:
 	for k in e:
 		var i := int(k)
 		if i >= 0 and i < heights.size():
 			heights[i] = _base[i] + float(e[k])
-	for c in _chunks.keys():
-		_dirty[c] = true
-	rebuild_dirty(1 << 20)
-	rebuild_shadow()
+	_mark_keys(e)
+	if not _pending_build:
+		rebuild_dirty(1 << 20)
+		rebuild_shadow()
 	changed.emit()

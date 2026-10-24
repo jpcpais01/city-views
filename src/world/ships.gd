@@ -50,7 +50,8 @@ func _process(delta: float) -> void:
 
 ## Sends a ship of `kind` past the island on a fresh course.
 func spawn(kind: int, halfway := false) -> void:
-	var r := Land.HALF + OFFSHORE + _rng.randf() * 12.0
+	var land: Land = world.get("land")
+	var r := minf(land.reach if land else Land.HALF, Land.HALF * 1.2) + OFFSHORE + _rng.randf() * 12.0
 	var side := _rng.randf() * TAU
 	var mid := Vector2.from_angle(side) * r
 	var dir := Vector2.from_angle(side + PI * 0.5) * (1.0 if _rng.randf() < 0.5 else -1.0)

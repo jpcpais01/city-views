@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 14:10 UTC
+- Much bigger maps: a new island is now 384 m across, nine times the land, with room for a real city and countryside around it.
+- Your current island carries over exactly as it was, sitting in the middle of the bigger sea.
+- Rolling, rounded hills and a smarter ground mesh that spends detail only where the land needs it, so big maps stay smooth to play.
+- Houses, streets and gardens are much lighter on your phone: centre lines are painted on the road, and window sills on back walls run as one ledge per floor.
+- Co-op rooms made before this update can't be joined any more: start a fresh room to build together on the big maps.
+
 ## 2026-10-24 12:16 UTC
 - Gentler islands: hills are half as tall and the land rolls more smoothly, leaving more room for towns to spread.
 - Every house window now has a real stone sill beneath it and a hood above, giving the walls depth.

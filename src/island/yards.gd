@@ -10,8 +10,8 @@ extends Node3D
 ## Everything follows from the island's seed and its town, so every co-op
 ## builder sees the same yards.
 
-const CHUNKS := 8
-const SPAN := Land.SIZE / CHUNKS
+const SPAN := float(Land.TILE)
+const CHUNKS := Land.TILES
 # one candidate yard per GAP x GAP metres, nudged off the grid
 const GAP := 2.0
 const PER := int(SPAN / GAP)
@@ -24,7 +24,7 @@ const WALL_GAP := 0.3
 # how far it looks for the building it belongs to
 const NEAR := 4.5
 # the most yards one chunk holds
-const MOST := 64
+const MOST := 32
 # where a corner may shift to when the spot itself is too tight; never so
 # far that its little patch reaches a neighbouring yard's
 const NUDGES: Array[Vector2] = [Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.5), Vector2(0, -0.5)]
@@ -67,10 +67,11 @@ func _process(delta: float) -> void:
 func rebuild_all() -> void:
 	_seed = world.island_seed
 	_todo.clear()
+	var near := _lots_near()
 	for cz in CHUNKS:
 		for cx in CHUNKS:
 			var c := Vector2i(cx, cz)
-			_sigs[c] = _chunk_sig(c)
+			_sigs[c] = _chunk_sig(c, near)
 			_build(c)
 
 
@@ -85,10 +86,11 @@ func _queue_changed() -> void:
 	if _seed != world.island_seed:
 		_seed = world.island_seed
 		_sigs.clear()
+	var near := _lots_near()
 	for cz in CHUNKS:
 		for cx in CHUNKS:
 			var c := Vector2i(cx, cz)
-			var s := _chunk_sig(c)
+			var s := _chunk_sig(c, near)
 			if _sigs.get(c, -1) != s:
 				_sigs[c] = s
 				_todo.append(c)
@@ -96,7 +98,24 @@ func _queue_changed() -> void:
 
 ## A fingerprint of what a chunk's yards depend on: the town map round it
 ## (with a margin for the buildings they belong to) and the ground.
-func _chunk_sig(c: Vector2i) -> int:
+## Each building's fingerprint, filed under every chunk it stands near.
+func _lots_near() -> Dictionary:
+	var out := {}
+	var m := NEAR + 8.0
+	for l: Town.Lot in world.town.lots.values():
+		var h := hash([l.id, l.foot, l.host, l.arrays.is_empty()])
+		var a := Vector2i(((l.origin - Vector2(m, m)) + Vector2(Land.HALF, Land.HALF)) / SPAN)
+		var b := Vector2i(((l.origin + Vector2(m, m)) + Vector2(Land.HALF, Land.HALF)) / SPAN)
+		for cz in range(a.y, b.y + 1):
+			for cx in range(a.x, b.x + 1):
+				var c := Vector2i(cx, cz)
+				if not out.has(c):
+					out[c] = []
+				out[c].append(h)
+	return out
+
+
+func _chunk_sig(c: Vector2i, near: Dictionary) -> int:
 	var parts := [_seed]
 	var cells := int(SPAN / Town.CELL)
 	var m := int(NEAR / Town.CELL) + 2
@@ -105,16 +124,8 @@ func _chunk_sig(c: Vector2i) -> int:
 	for tj in range(maxi(c.y * cells - m, 0), mini((c.y + 1) * cells + m, Town.RES)):
 		parts.append(hash(world.town._occ.slice(tj * Town.RES + ti0, tj * Town.RES + ti1)))
 	# and the buildings standing round it
-	var lo := Vector2(c.x * SPAN - Land.HALF - NEAR - 8.0, c.y * SPAN - Land.HALF - NEAR - 8.0)
-	var area := Rect2(lo, Vector2.ONE * (SPAN + (NEAR + 8.0) * 2.0))
-	for l: Town.Lot in world.town.lots.values():
-		if area.has_point(l.origin):
-			parts.append(hash([l.id, l.foot, l.host, l.arrays.is_empty()]))
-	var land := world.land
-	var i0 := c.x * Land.CHUNK
-	for j in range(c.y * Land.CHUNK, (c.y + 1) * Land.CHUNK + 1):
-		var a := j * Land.SIDE + i0
-		parts.append(hash(land.heights.slice(a, a + Land.CHUNK + 1)))
+	parts.append(hash(near.get(c, [])))
+	parts.append(world.land.tile_sig(c))
 	return hash(parts)
 
 

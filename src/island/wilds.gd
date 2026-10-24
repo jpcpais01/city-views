@@ -7,8 +7,8 @@ extends Node3D
 ## clears its own ground as it spreads. Everything follows from the island's
 ## seed, ground, painting and town, so every co-op builder sees the same woods.
 
-const CHUNKS := 8
-const SPAN := Land.SIZE / CHUNKS
+const SPAN := float(Land.TILE)
+const CHUNKS := Land.TILES
 # one candidate spot per GAP x GAP metres, nudged off the grid
 const GAP := 1.5
 const PER := int(SPAN / GAP)
@@ -99,12 +99,7 @@ func _queue_changed() -> void:
 func _chunk_sig(c: Vector2i) -> int:
 	var land := world.land
 	var parts := [_seed]
-	var i0 := c.x * Land.CHUNK
-	for j in range(c.y * Land.CHUNK, (c.y + 1) * Land.CHUNK + 1):
-		var a := j * Land.SIDE + i0
-		parts.append(hash(land.heights.slice(a, a + Land.CHUNK + 1)))
-		parts.append(hash(land.zone.slice(a, a + Land.CHUNK + 1)))
-		parts.append(hash(land.green.slice(a, a + Land.CHUNK + 1)))
+	parts.append(land.tile_sig(c))
 	# the town map, with a margin for the clearance round the chunk's edge
 	var cells := int(SPAN / Town.CELL)
 	var m := 4

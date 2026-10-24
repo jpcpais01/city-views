@@ -3,7 +3,7 @@ extends Node3D
 ## The island's stage: materials, sky and day/night, sun, sea and clouds.
 
 const DAY_LENGTH := 420.0
-const SEA_FLOOR := -3.4
+const SEA_FLOOR := -6.3
 
 var time_of_day := 0.3
 var night := 0.0
@@ -102,14 +102,14 @@ func _make_environment() -> void:
 
 func _make_sea() -> void:
 	var water := MeshInstance3D.new()
-	water.mesh = _sea_mesh(40, 350.0)
+	water.mesh = _sea_mesh(48, 900.0)
 	water.extra_cull_margin = 2.0
 	water.material_override = water_mat
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(water)
 	var floor_mi := MeshInstance3D.new()
 	var fm := PlaneMesh.new()
-	fm.size = Vector2(700, 700)
+	fm.size = Vector2(2000, 2000)
 	floor_mi.mesh = fm
 	var fmat := StandardMaterial3D.new()
 	fmat.albedo_color = Color(0.72, 0.7, 0.56)
@@ -159,7 +159,7 @@ func _make_clouds() -> void:
 	cloud_sh.code = (load("res://shaders/blob.gdshader") as Shader).code.replace("cull_disabled;", "cull_disabled, shadows_disabled;")
 	var cloud_mat := ShaderMaterial.new()
 	cloud_mat.shader = cloud_sh
-	for i in 9:
+	for i in 18:
 		var mk := MeshKit.new()
 		var puffs := rng.randi_range(3, 6)
 		for k in puffs:
@@ -180,7 +180,7 @@ func _make_clouds() -> void:
 		m.rim = 0.4
 		mi.mesh = mk.commit(m)
 		mi.material_override = cloud_mat
-		mi.position = Vector3(rng.randf_range(-120, 120), rng.randf_range(22, 30), rng.randf_range(-120, 120))
+		mi.position = Vector3(rng.randf_range(-280, 280), rng.randf_range(24, 34), rng.randf_range(-280, 280))
 		mi.scale = Vector3.ONE * rng.randf_range(0.8, 1.4)
 		mi.set_meta("speed", rng.randf_range(0.8, 1.6))
 		add_child(mi)
