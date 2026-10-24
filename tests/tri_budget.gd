@@ -4,6 +4,8 @@ extends RefCounted
 ## shadow pass redraws them) so tests can hold the frame under budget.
 
 const BUDGET := 200000
+## all the way out, past CameraRig.FAR_D, a little more is allowed (João, 2026-10-24)
+const FAR_BUDGET := 240000
 
 
 static func count(root: Node) -> Dictionary:

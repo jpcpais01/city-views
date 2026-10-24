@@ -20,6 +20,8 @@ func _ready() -> void:
 		f = Vector3(float(parts[0]), 0, float(parts[1]))
 	island.rig.focus(f)
 	island.rig._t_dist = float(OS.get_environment("CV_DIST")) if OS.get_environment("CV_DIST") != "" else 70.0
+	if OS.get_environment("CV_TILT") != "":
+		island.rig._t_tilt = deg_to_rad(float(OS.get_environment("CV_TILT")))
 	if OS.get_environment("CV_YAW") != "":
 		island.rig._t_yaw = deg_to_rad(float(OS.get_environment("CV_YAW")))
 	if OS.get_environment("CV_BRUSH") != "":

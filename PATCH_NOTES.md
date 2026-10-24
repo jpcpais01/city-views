@@ -2,6 +2,7 @@
 
 ## 2026-10-24 20:07 UTC
 - Bus stops: main streets and avenues get glass shelters with a bench and an advert that lights up at night, and buses now keep to the kerb lane and pull in at each stop.
+- Zoom out twice as far to take in your whole city and the country around it, and on PC tilt the camera up towards the horizon much further (right mouse button, slide up or down).
 
 ## 2026-10-24 19:00 UTC
 - Undo and Redo are instant: they only put back what your last stroke changed instead of reloading the whole city, and taking up a street is much quicker too.

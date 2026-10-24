@@ -19,9 +19,13 @@ var ground_fn: Callable
 var limit := 64.0
 
 const MIN_D := 9.0
-## how far the player may tilt the view either way from the zoom's own tilt
+## how far the player may tilt the view from the zoom's own tilt: up towards
+## the horizon (negative) and down towards straight below
+const MIN_TILT := deg_to_rad(-32.0)
 const MAX_TILT := deg_to_rad(15.0)
-const MAX_D := 92.0
+const MAX_D := 184.0
+## past this the camera only pulls back, looking down a little more steeply
+const FAR_D := 92.0
 
 
 func _ready() -> void:
@@ -34,8 +38,9 @@ func _ready() -> void:
 
 
 func pitch_for(d: float) -> float:
-	var t := clampf((d - MIN_D) / (MAX_D - MIN_D), 0.0, 1.0)
-	return deg_to_rad(lerpf(28.0, 62.0, pow(t, 0.7)))
+	var t := clampf((d - MIN_D) / (FAR_D - MIN_D), 0.0, 1.0)
+	var far := clampf((d - FAR_D) / (MAX_D - FAR_D), 0.0, 1.0)
+	return deg_to_rad(lerpf(28.0, 62.0, pow(t, 0.7)) + far * 6.0)
 
 
 func pan_screen(delta: Vector2) -> void:
@@ -58,7 +63,7 @@ func rotate_by(a: float) -> void:
 
 ## Tilts the view up or down from the tilt the zoom gives it (right-drag on PC).
 func tilt_by(a: float) -> void:
-	_t_tilt = clampf(_t_tilt + a, -MAX_TILT, MAX_TILT)
+	_t_tilt = clampf(_t_tilt + a, MIN_TILT, MAX_TILT)
 
 
 func focus(p: Vector3) -> void:
@@ -74,7 +79,7 @@ func _process(delta: float) -> void:
 	yaw = lerp_angle(yaw, _t_yaw, k)
 	dist = lerpf(dist, _t_dist, k)
 	tilt = lerpf(tilt, _t_tilt, k)
-	var pitch := clampf(pitch_for(dist) + tilt, deg_to_rad(12.0), deg_to_rad(86.0))
+	var pitch := clampf(pitch_for(dist) + tilt, deg_to_rad(8.0), deg_to_rad(86.0))
 	var ground := _ground_height(target)
 	var focus_p := Vector3(target.x, ground, target.z)
 	var off := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * dist

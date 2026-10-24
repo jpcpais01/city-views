@@ -13,7 +13,7 @@ extends Node3D
 const SPAN := float(Land.TILE)
 const CHUNKS := Land.TILES
 # one candidate yard per GAP x GAP metres, nudged off the grid
-const GAP := 2.0
+const GAP := 2.3
 const PER := int(SPAN / GAP)
 # a yard needs this many free town cells round its middle (0.5 m each)
 const FREE := 2
