@@ -2,7 +2,7 @@ extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one), CV_GROW=radius (paints and grows the town),
-## CV_MARK=kind (looks at that landmark once it stands), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
+## CV_MARK=kind (looks at that landmark once it stands), CV_PHOTO=1 (photo mode), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
 
 
 func _ready() -> void:
@@ -91,6 +91,8 @@ func _ready() -> void:
 			frames += 1
 			last = now
 		print("live: %d streets, %d houses, slowest frame %d ms, %d of %d frames over 16 ms" % [island.streets.streets.size(), island.town.house_count(), worst / 1000, slow, frames])
+	if OS.get_environment("CV_PHOTO") != "":
+		hud.set_photo(true)
 	if OS.get_environment("CV_MENU") != "":
 		hud._page = OS.get_environment("CV_MENU")
 		hud._set_menu(true)
