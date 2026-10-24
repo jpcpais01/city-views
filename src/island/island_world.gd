@@ -8,6 +8,8 @@ signal brush_changed
 signal history_changed
 ## something the player should hear about, such as a brush they can't use yet
 signal note(text: String, kind: String)
+## the island was renamed (here or by a co-op builder)
+signal name_changed
 
 const SAVE_PATH := "user://island.json"
 const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
@@ -21,11 +23,15 @@ var town: Town
 var cars: Traffic
 var folk: People
 var wildlife: Life
+var ships: Ships
 var brush := ""
 var brush_radius := 5.0
 ## how far the Grow brush lets the town grow up: 1 village .. 4 centre
 var grow_level := 2
 var island_seed := 0
+## what the player calls this island (empty: the default name)
+var island_name := ""
+const NAME_MAX := 24
 var _stroke := false
 var _stroke_level := 0.0
 var _stroke_screen := Vector2.ZERO
@@ -101,6 +107,10 @@ func _ready() -> void:
 	wildlife.land = land
 	wildlife.town = town
 	add_child(wildlife)
+	ships = Ships.new()
+	ships.material = city_mat
+	ships.world = self
+	add_child(ships)
 	_make_clouds()
 	_make_ring()
 	sync = IslandSync.new()
@@ -138,6 +148,8 @@ func _exit_tree() -> void:
 
 func new_island(s: int) -> void:
 	island_seed = s
+	island_name = ""
+	name_changed.emit()
 	_undo.clear()
 	_redo.clear()
 	history_changed.emit()
@@ -172,7 +184,7 @@ func load_own() -> void:
 func to_dict() -> Dictionary:
 	return {"v": 1, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
 		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(), "level": land.level_edits(),
-		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages()}
+		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name}
 
 
 func _apply_save(data: Dictionary) -> void:
@@ -184,6 +196,8 @@ func _apply_save(data: Dictionary) -> void:
 	var sg: Variant = data.get("stages", {})
 	town.keep_stages(sg if sg is Dictionary else {})
 	island_seed = int(data.seed)
+	island_name = str(data.get("name", "")).left(NAME_MAX)
+	name_changed.emit()
 	land.generate(island_seed)
 	var ed: Variant = data.get("land", {})
 	land.apply_edits(ed if ed is Dictionary else {})
@@ -228,8 +242,26 @@ func load_room(seed_value: int, state: Variant) -> void:
 					sd["id"] = str(key)
 					list.append(sd)
 		d["streets"] = list
+		d["name"] = str(state.get("name", ""))
 	_apply_save(d)
 	sync.begin()
+
+
+## Renames the island: saved with it, and shared with everyone in a co-op room.
+func set_island_name(text: String) -> void:
+	text = text.strip_edges().left(NAME_MAX)
+	if text == island_name:
+		return
+	island_name = text
+	name_changed.emit()
+	if Net.in_room():
+		Firebase.db_put("rooms/%s/island/name" % Net.room_code, text)
+	else:
+		_save()
+
+
+func display_name() -> String:
+	return island_name if island_name != "" else "Your island"
 
 
 func _save() -> void:
@@ -335,7 +367,8 @@ func _process(delta: float) -> void:
 			_apply_brush(_ring_at, delta)
 	time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
 	_update_sky()
-	_update_beams(landmarks.beams())
+	# the lighthouse beam shines in the air only: no light patches swept over the ground and sea
+	_update_beams(PackedVector4Array())
 	for c in _clouds:
 		c.position.x += c.get_meta("speed") * delta
 		if c.position.x > 160.0:

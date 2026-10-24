@@ -413,37 +413,9 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	for l: Town.Lot in ls:
 		stage = maxi(stage, l.stage)
 	var floors := 4 + rng.randi() % 2 if stage < 4 else 5 + rng.randi() % 3
-	var deepest := 4.4 if stage < 4 else 5.0
-	# the outline in the first plot's frame: the fronts in order, then each
-	# plot's back, last to first, brought in to leave a yard behind
-	var fronts := PackedVector2Array()
-	var backs := PackedVector2Array()
-	for l: Town.Lot in ls:
-		var a := l.quad[0]
-		var b := l.quad[1]
-		if fronts.is_empty():
-			fronts.append(_local(a, h.origin, right, fwd))
-		fronts.append(_local(b, h.origin, right, fwd))
-	for li in range(ls.size() - 1, -1, -1):
-		# a straight back wall per plot, slanting where the plot tapers: as
-		# deep as the shallower half of the plot allows at each end
-		var l: Town.Lot = ls[li]
-		var n := l.quad.size() - 2
-		var d_a := INF
-		var d_b := INF
-		for j in n:
-			var u := (n - 1 - j) / float(maxi(n - 1, 1))
-			var d := l.quad[2 + j].distance_to(l.quad[0].lerp(l.quad[1], u))
-			if u >= 0.5:
-				d_b = minf(d_b, d)
-			if u <= 0.5:
-				d_a = minf(d_a, d)
-		var na := (l.quad[l.quad.size() - 1] - l.quad[0]).normalized()
-		var nb := (l.quad[2] - l.quad[1]).normalized()
-		backs.append(_local(l.quad[1] + nb * clampf(d_b - 0.5, 1.2, deepest), h.origin, right, fwd))
-		backs.append(_local(l.quad[0] + na * clampf(d_a - 0.5, 1.2, deepest), h.origin, right, fwd))
-	var pts := fronts.duplicate()
-	pts.append_array(backs)
+	var pts := block_outline(ls)
+	var fronts := pts.slice(0, ls.size() + 1)
+	var backs := pts.slice(ls.size() + 1)
 	# the ground under it, and the floor it stands on
 	var lo := INF
 	var hi := -INF
@@ -480,7 +452,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		if run < 0.4:
 			continue
 		var t := (b - a) / run
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		var m := (a + b) * 0.5
 		var l: Town.Lot = ls[k]
 		mk.push_at(Vector3(m.x, 0, m.y), atan2(out.x, out.y))
@@ -539,6 +511,70 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]
 
 
+## The outline of a joined building, in its first plot's frame: the fronts
+## in order, then each plot's back, last to first, brought in to leave a yard.
+static func block_outline(ls: Array) -> PackedVector2Array:
+	var h: Town.Lot = ls[0]
+	var right := Vector2(cos(h.yaw), -sin(h.yaw))
+	var fwd := Vector2(sin(h.yaw), cos(h.yaw))
+	var stage := 0
+	for l: Town.Lot in ls:
+		stage = maxi(stage, l.stage)
+	var deepest := 4.4 if stage < 4 else 5.0
+	var fronts := PackedVector2Array()
+	var backs := PackedVector2Array()
+	for l: Town.Lot in ls:
+		var a := l.quad[0]
+		var b := l.quad[1]
+		if fronts.is_empty():
+			fronts.append(_local(a, h.origin, right, fwd))
+		fronts.append(_local(b, h.origin, right, fwd))
+	for li in range(ls.size() - 1, -1, -1):
+		# a straight back wall per plot, slanting where the plot tapers: as
+		# deep as the shallower half of the plot allows at each end
+		var l: Town.Lot = ls[li]
+		var n := l.quad.size() - 2
+		var d_a := INF
+		var d_b := INF
+		for j in n:
+			var u := (n - 1 - j) / float(maxi(n - 1, 1))
+			var d := l.quad[2 + j].distance_to(l.quad[0].lerp(l.quad[1], u))
+			if u >= 0.5:
+				d_b = minf(d_b, d)
+			if u <= 0.5:
+				d_a = minf(d_a, d)
+		var na := (l.quad[l.quad.size() - 1] - l.quad[0]).normalized()
+		var nb := (l.quad[2] - l.quad[1]).normalized()
+		backs.append(_local(l.quad[1] + nb * clampf(d_b - 0.5, 1.2, deepest), h.origin, right, fwd))
+		backs.append(_local(l.quad[0] + na * clampf(d_a - 0.5, 1.2, deepest), h.origin, right, fwd))
+	var pts := fronts.duplicate()
+	pts.append_array(backs)
+	return pts
+
+
+## Whether an outline is one clean shape: no edge crossing another, and
+## enough of it to put a roof on.
+static func outline_ok(raw: PackedVector2Array) -> bool:
+	var pts := PackedVector2Array()
+	for p in raw:
+		if pts.is_empty() or p.distance_to(pts[pts.size() - 1]) > 0.02:
+			pts.append(p)
+	if pts.size() > 1 and pts[0].distance_to(pts[pts.size() - 1]) <= 0.02:
+		pts.remove_at(pts.size() - 1)
+	var n := pts.size()
+	if n < 3 or Geometry2D.triangulate_polygon(pts).is_empty():
+		return false
+	for i in n:
+		var a := pts[i]
+		var b := pts[(i + 1) % n]
+		for j in range(i + 2, n):
+			if (j + 1) % n == i:
+				continue
+			if Geometry2D.segment_intersects_segment(a, b, pts[j], pts[(j + 1) % n]) != null:
+				return false
+	return true
+
+
 static func _local(p: Vector2, origin: Vector2, right: Vector2, fwd: Vector2) -> Vector2:
 	var q := p - origin
 	return Vector2(q.dot(right), q.dot(fwd))
@@ -553,7 +589,7 @@ static func _walls(mk: MeshKit, pts: PackedVector2Array, y0: float, y1: float, c
 		if a.distance_to(b) < 0.02:
 			continue
 		var t := (b - a).normalized()
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		mk.quad(Vector3(a.x, y0, a.y), Vector3(b.x, y0, b.y), Vector3(b.x, y1, b.y), Vector3(a.x, y1, a.y), Vector3(out.x, 0, out.y), col)
 
 
@@ -607,7 +643,7 @@ static func _prism(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color
 		if run < 0.02:
 			continue
 		var t := (b - a) / run
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		var o3 := Vector3(out.x, 0, out.y)
 		mk.quad(Vector3(a.x, 0, a.y), Vector3(b.x, 0, b.y), Vector3(b.x, hgt, b.y), Vector3(a.x, hgt, a.y), o3, wall, we)
 		if k < fronts or run < 0.5:
@@ -643,7 +679,7 @@ static func _flat_roof(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: C
 		if a.distance_to(b) < 0.02:
 			continue
 		var t := (b - a).normalized()
-		var out := Vector2(t.y, -t.x) if cw else Vector2(-t.y, t.x)
+		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
 		var a2 := a + out * 0.03
 		var b2 := b + out * 0.03
 		var o3 := Vector3(out.x, 0, out.y)

@@ -14,6 +14,7 @@ func check(cond: bool, msg: String) -> void:
 
 func _ready() -> void:
 	_streets()
+	await _junction_fuzz()
 	await _island_budget()
 	await _island_undo()
 	await _island_coop()
@@ -24,6 +25,57 @@ func _ready() -> void:
 	await _island_progress()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+## Hand-drawn streets meeting at every angle, shallow ones included: every
+## junction stays a compact piece of road round where they meet, and every
+## joined building stands on a clean outline.
+func _junction_fuzz() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(5)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	for n in 22:
+		var a := Vector2(rng.randf_range(-30, 30), rng.randf_range(-30, 30))
+		var heading := rng.randf() * TAU
+		var pts := PackedVector2Array()
+		for k in 30:
+			pts.append(a)
+			heading += rng.randf_range(-0.35, 0.35)
+			a += Vector2.from_angle(heading) * 1.0
+		island.streets.add_stroke(pts)
+	# a street joining another at a shallow angle, and one crossing almost along it
+	island.streets.add_stroke(PackedVector2Array([Vector2(-20, 34), Vector2(20, 34)]))
+	island.streets.add_stroke(PackedVector2Array([Vector2(-20, 30), Vector2(0, 33.6)]))
+	island.streets.add_stroke(PackedVector2Array([Vector2(-5, 32), Vector2(20, 36)]))
+	island.streets.flush()
+	var worst := 0.0
+	var where := Vector2.ZERO
+	for jn in island.streets.junctions():
+		for p: Vector3 in jn.edge:
+			var d: float = Vector2(p.x, p.z).distance_to(jn.at)
+			if d > worst:
+				worst = d
+				where = jn.at
+	check(worst < 4.5, "junctions stay compact, whatever the angle (%.1f m at %s)" % [worst, where])
+	island.land.paint_zone(Vector3.ZERO, 40.0, 2.0)
+	island.land.paint_level(Vector3.ZERO, 40.0, 4.0, 2.0)
+	island.town.fill_all()
+	island.town.evolve_all()
+	var bad := 0
+	var blocks := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.group.size() > 1:
+			blocks += 1
+			var ls: Array = []
+			for m in l.group:
+				ls.append(island.town.lots[m])
+			if not HouseGen.outline_ok(HouseGen.block_outline(ls)):
+				bad += 1
+	check(bad == 0, "joined buildings stand on clean outlines (%d bad of %d)" % [bad, blocks])
+	island.queue_free()
+	await get_tree().process_frame
 
 
 ## Island streets: a drawn line becomes a graded street the ground meets, the
@@ -439,6 +491,9 @@ func _island_budget() -> void:
 	var lh: Vector2 = island.landmarks.spots.get("lighthouse", Vector2.ZERO)
 	check(island.town.is_built(lh) and island.landmarks.beams().size() <= 1, "the town leaves room round a landmark")
 	island.wilds.rebuild_all()
+	# the two biggest ships passing at once
+	island.ships.spawn(0, true)
+	island.ships.spawn(1, true)
 	var acc := TriBudget.count(island)
 	for k in acc:
 		print("  island tris %-16s %7d +shadow %7d" % [k, acc[k][0], acc[k][1]])

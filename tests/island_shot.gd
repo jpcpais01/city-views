@@ -42,6 +42,23 @@ func _ready() -> void:
 			lines = [[]]
 			for k in 41:
 				lines[0].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z + sin(k / 40.0 * PI) * 3.0))
+		if OS.get_environment("CV_STREETS") == "fuzz":
+			# the hand-drawn tangle the logic test checks junctions on
+			lines = []
+			var rng := RandomNumberGenerator.new()
+			rng.seed = 77
+			for n in 22:
+				var a := Vector2(rng.randf_range(-30, 30), rng.randf_range(-30, 30))
+				var heading := rng.randf() * TAU
+				var line := []
+				for k in 30:
+					line.append(a)
+					heading += rng.randf_range(-0.35, 0.35)
+					a += Vector2.from_angle(heading) * 1.0
+				lines.append(line)
+			lines.append([Vector2(-20, 34), Vector2(20, 34)])
+			lines.append([Vector2(-20, 30), Vector2(0, 33.6)])
+			lines.append([Vector2(-5, 32), Vector2(20, 36)])
 		if OS.get_environment("CV_STREETS") == "3":
 			# two long streets 24 m apart, a deep block between
 			lines = [[], []]
@@ -77,6 +94,12 @@ func _ready() -> void:
 			if l.type != "house":
 				print("  %s at %.1f,%.1f" % [l.type, l.origin.x, l.origin.y])
 		print("kits: ", kits)
+	if OS.get_environment("CV_SHIP") != "":
+		# a ship of that kind halfway along its run, for a look at it
+		island.ships.spawn(int(OS.get_environment("CV_SHIP")), true)
+		var sh: Dictionary = island.ships._ships[-1]
+		var sp: Vector2 = sh.a + sh.dir * sh.d
+		island.rig.focus(Vector3(sp.x, 0, sp.y))
 	if OS.get_environment("CV_LOOK") != "":
 		# look somewhere else than where the town was grown from
 		var parts := OS.get_environment("CV_LOOK").split(",")

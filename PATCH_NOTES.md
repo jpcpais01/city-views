@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 04:02 UTC
+- Fixed see-through, inside-out buildings: big joined buildings and squeezed terraces now have solid walls facing the right way, and only join along fairly straight streets.
+- Fixed streets that met at a shallow angle spreading into huge wedges of asphalt, and kerbs or pavements standing across another road.
+- A tidier HUD: smaller town goals, the brush buttons stand on their own with no bar behind them, and undo and redo sit at the left of the row. Tap the island's name to rename it (co-op builders see it too).
+- Cruise liners, container ships and ferries now sail past the island now and then.
+- The lighthouse beam no longer throws light patches over the ground and sea.
+
 ## 2026-10-24 03:29 UTC
 - The countryside is no longer bare grass: woods spread over the hills, with copses and lone trees across the meadows.
 - Pines take over higher up, in stands of their own, while broadleaf trees fill the lower ground.
