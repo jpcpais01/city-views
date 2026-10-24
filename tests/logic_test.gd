@@ -1021,6 +1021,21 @@ func _road_kinds() -> void:
 	island.streets.flush()
 	check(a != null and h != null and a.kind == "avenue" and h.kind == "highway", "the Street brush lays avenues and highways")
 	check(a.w() > Streets.KINDS.main.w * 1.6 and h.w() > a.w(), "avenues are wider than streets, highways wider still")
+	# a shaky hand: streets keep the wobble, avenues smooth it, highways more so
+	var shaky := PackedVector2Array()
+	for k in 61:
+		shaky.append(Vector2(-30 + k, -40.0 + (0.45 if k % 2 == 0 else -0.45) + sin(k * 0.9) * 0.6))
+	var wob := {}
+	for kind in ["main", "avenue", "highway"]:
+		var pts := Streets._resample(shaky, 1.2)
+		pts = Streets._relax(pts, Streets.SMOOTHING.get(kind, 0))
+		pts = Streets._resample(Streets._chaikin(Streets._chaikin(pts)), Streets.SAMPLE)
+		# how sharply it bends from point to point
+		var bend := 0.0
+		for i in range(1, pts.size() - 1):
+			bend = maxf(bend, (pts[i + 1] - pts[i]).angle_to(pts[i] - pts[i - 1]))
+		wob[kind] = bend
+	check(wob.avenue < wob.main * 0.5 and wob.highway < wob.avenue * 0.7, "drawn avenues and highways even out a shaky line (%s)" % str(wob))
 	island.land.paint_zone(Vector3(0, 0, 5), 40.0, 2.0)
 	island.growth.focus = Vector2(0, 5)
 	island.growth.grow_all(30)
