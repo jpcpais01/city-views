@@ -6,10 +6,16 @@ extends Node3D
 ## furthest into the sea once it is a proper town, its beam sweeping the
 ## water at night. Where the windmill and lighthouse stand follows from the
 ## land itself; once standing, the town leaves room around each one.
+## A big shopping district at the top levels brings its own attractions: a
+## Ferris wheel turning beside the stores, and a stadium under floodlights.
 
-const NEED := {"windmill": 30, "pier": 55, "lighthouse": 90}
-const NAMES := {"windmill": "A windmill now turns on the hilltop", "pier": "A pier now reaches out from the harbour", "lighthouse": "A lighthouse now guards the headland"}
-const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0}
+const NEED := {"windmill": 30, "pier": 55, "lighthouse": 90, "wheel": 0, "stadium": 0}
+const NAMES := {"windmill": "A windmill now turns on the hilltop", "pier": "A pier now reaches out from the harbour", "lighthouse": "A lighthouse now guards the headland",
+	"wheel": "A Ferris wheel now turns by the shops", "stadium": "A stadium now stands by the shopping district"}
+const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0, "wheel": 2.4, "stadium": 6.6}
+## how many stores, malls and cinemas a shopping district needs for each attraction
+const RETAIL := {"wheel": 3, "stadium": 6}
+const TEAM := [[Color("2f5f9f"), Color("e9e6df")], [Color("c8553d"), Color("f2f1ec")], [Color("2f8f83"), Color("e3a33b")], [Color("6a4c9c"), Color("e9e6df")]]
 const WHITE := Color(0.97, 0.96, 0.93)
 const RED := Color("d9534f")
 const STONE := Color(0.72, 0.7, 0.66)
@@ -42,7 +48,7 @@ func _process(delta: float) -> void:
 		return
 	_check = 2.0
 	for kind in NEED:
-		var want: bool = world.progress.residents >= int(NEED[kind])
+		var want := _wants(kind)
 		if spots.has(kind) and (not want or not _fits(kind, spots[kind], true)):
 			_remove(kind)
 		if want and not spots.has(kind):
@@ -57,6 +63,23 @@ func _process(delta: float) -> void:
 				if world.progress._hush <= 0.0:
 					world.note.emit(NAMES[kind], "title")
 					Sfx.play("unlock", 0.9)
+
+
+## Whether the town is big enough for `kind`: the old landmarks go by
+## residents, the attractions by how much the shopping district has grown.
+func _wants(kind: String) -> bool:
+	if RETAIL.has(kind):
+		return _retail().size() >= int(RETAIL[kind])
+	return world.progress.residents >= int(NEED[kind])
+
+
+## Where the stores, malls and cinemas stand.
+func _retail() -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for l: Town.Lot in world.town.lots.values():
+		if l.use == "retail" and l.host == 0:
+			out.append(l.origin)
+	return out
 
 
 ## Where the lighthouse beams point, for the lit surfaces.
@@ -105,7 +128,19 @@ func _fits(kind: String, p: Vector2, standing := false) -> bool:
 		return false
 	if kind == "windmill" and h < 1.2:
 		return false
+	if RETAIL.has(kind) and h < 0.3:
+		return false
 	var r: float = ROOM[kind]
+	if RETAIL.has(kind):
+		# a wide one: every ring of ground under it is dry, level and clear
+		for ring in [0.35, 0.7, 1.0]:
+			for k in 16:
+				var q: Vector2 = p + Vector2.from_angle(k * TAU / 16.0) * r * ring
+				var g: float = land.height_at(q.x, q.y)
+				if absf(g - h) > 0.7 or g < 0.2:
+					return false
+				if not standing and world.town.is_built(q):
+					return false
 	for k in 8:
 		var q := p + Vector2.from_angle(k * TAU / 8.0) * r
 		var g := p + Vector2.from_angle(k * TAU / 8.0) * r * 0.6
@@ -198,6 +233,32 @@ func _find(kind: String) -> Variant:
 			gx += 1.0
 		return found
 
+	if RETAIL.has(kind):
+		var shops := _retail()
+		if shops.is_empty():
+			return null
+		var mid := Vector2.ZERO
+		for q in shops:
+			mid += q
+		mid /= shops.size()
+		var best_d := INF
+		var found: Variant = null
+		var gx := -40.0
+		while gx <= 40.0:
+			var gz := -40.0
+			while gz <= 40.0:
+				var p: Vector2 = mid + Vector2(gx, gz)
+				var dd := Vector2(gx, gz).length()
+				for other in spots:
+					if p.distance_to(spots[other]) < float(ROOM[kind]) + float(ROOM[other]) + 2.0:
+						dd = INF
+				if dd < best_d and absf(p.x) < Land.HALF - 10.0 and absf(p.y) < Land.HALF - 10.0 and _fits(kind, p):
+					best_d = dd
+					found = p
+				gz += 2.0
+			gx += 2.0
+		return found
+
 	var best := -INF
 	var at: Variant = null
 	# only round the town: the map is far bigger than anyone would walk
@@ -272,10 +333,11 @@ func _place(kind: String, p: Vector2) -> void:
 	var yaw := atan2(-p.x, -p.y)
 	var mk := MeshKit.new(hash(kind))
 	mk.push_at(Vector3.ZERO, yaw)
-	if kind == "lighthouse":
-		_lighthouse(mk, root)
-	else:
-		_windmill(mk, root, yaw)
+	match kind:
+		"lighthouse": _lighthouse(mk, root)
+		"stadium": _stadium(mk, hash(p))
+		"wheel": _wheel(mk, root, yaw)
+		_: _windmill(mk, root, yaw)
 	mk.pop()
 	var body := MeshInstance3D.new()
 	body.mesh = mk.commit(world.city_mat)
@@ -407,6 +469,115 @@ func _lighthouse(mk: MeshKit, root: Node3D) -> void:
 	# the turning beam, out both sides of the lamp, only lit at night
 	_beam = _spinner(root, _beam_mesh(), Vector3(0, top + 0.28, 0), Vector3.UP, 0.9)
 	_beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## A stadium: an oval bowl of stands in the team's colours round a striped
+## pitch, a white roof over the upper tier and four floodlight masts.
+func _stadium(mk: MeshKit, seed_value: int) -> void:
+	var team: Array = TEAM[posmod(seed_value, TEAM.size())]
+	var n := 24
+	var rx := 6.2
+	var rz := 4.7
+	var ring := func(k: int, s: float, y: float) -> Vector3:
+		var a := TAU * k / n
+		return Vector3(cos(a) * rx * s, y, sin(a) * rz * s)
+	var concrete := Color(0.86, 0.85, 0.82)
+	for k in n:
+		# down into the ground, so a slope never shows under it
+		var a0: Vector3 = ring.call(k, 1.0, -0.6)
+		var b0: Vector3 = ring.call(k + 1, 1.0, -0.6)
+		var a1: Vector3 = ring.call(k, 1.0, 1.35)
+		var b1: Vector3 = ring.call(k + 1, 1.0, 1.35)
+		var out := ((a0 + b0) * 0.5).normalized()
+		# the outer wall, with a band of the team's colour round the top
+		mk.quad(a0, b0, b1, a1, out, concrete)
+		mk.quad(a1, b1, ring.call(k + 1, 1.0, 1.6), ring.call(k, 1.0, 1.6), out, team[0])
+		# two tiers of seats stepping down to the pitch, in stripes
+		var seat: Color = team[k % 2] if k % 6 < 3 else team[(k + 1) % 2]
+		mk.quad(ring.call(k, 0.97, 1.5), ring.call(k + 1, 0.97, 1.5), ring.call(k + 1, 0.8, 0.85), ring.call(k, 0.8, 0.85), Vector3.UP, seat.darkened(0.05))
+		mk.quad(ring.call(k, 0.8, 0.8), ring.call(k + 1, 0.8, 0.8), ring.call(k + 1, 0.64, 0.25), ring.call(k, 0.64, 0.25), Vector3.UP, seat)
+		# the roof over the upper tier
+		mk.quad(ring.call(k, 1.02, 1.85), ring.call(k + 1, 1.02, 1.85), ring.call(k + 1, 0.84, 1.75), ring.call(k, 0.84, 1.75), Vector3.UP, Color(0.95, 0.95, 0.94))
+		mk.shadow = false
+		mk.quad(ring.call(k, 1.02, 1.84), ring.call(k + 1, 1.02, 1.84), ring.call(k + 1, 0.84, 1.74), ring.call(k, 0.84, 1.74), Vector3.DOWN, Color(0.7, 0.7, 0.72))
+		mk.shadow = true
+	# the pitch, mown in stripes, with its lines, on a level floor
+	mk.shadow = false
+	for k in n:
+		mk.tri(Vector3(0, 0.24, 0), ring.call(k, 0.65, 0.24), ring.call(k + 1, 0.65, 0.24), Color("4a8f42"), 0.0, 0.0, Vector3.UP)
+	var px := rx * 0.5
+	var pz := rz * 0.48
+	for k in 6:
+		var x0 := -px + 2.0 * px * k / 6.0
+		var x1 := -px + 2.0 * px * (k + 1) / 6.0
+		var g := Color("4f9a45") if k % 2 == 0 else Color("5ba851")
+		mk.quad(Vector3(x0, 0.26, -pz), Vector3(x1, 0.26, -pz), Vector3(x1, 0.26, pz), Vector3(x0, 0.26, pz), Vector3.UP, g)
+	var white := Color(0.97, 0.97, 0.95)
+	for side in [[Vector3(-px, 0.27, -pz), Vector3(px, 0.27, -pz)], [Vector3(-px, 0.27, pz), Vector3(px, 0.27, pz)], [Vector3(0, 0.27, -pz), Vector3(0, 0.27, pz)]]:
+		var a: Vector3 = side[0]
+		var b: Vector3 = side[1]
+		var w := (b - a).normalized().cross(Vector3.UP) * 0.03
+		mk.quad(a - w, b - w, b + w, a + w, Vector3.UP, white)
+	for sx in [-1.0, 1.0]:
+		mk.quad(Vector3(sx * px - 0.03, 0.27, -pz), Vector3(sx * px + 0.03, 0.27, -pz), Vector3(sx * px + 0.03, 0.27, pz), Vector3(sx * px - 0.03, 0.27, pz), Vector3.UP, white)
+	mk.shadow = true
+	# floodlights on the four corners, bright at night
+	for k in 4:
+		var a := PI * 0.25 + PI * 0.5 * k
+		var foot := Vector3(cos(a) * rx * 1.04, 0.0, sin(a) * rz * 1.04)
+		mk.cylinder(foot, 0.07, 3.2, 4, Color(0.7, 0.72, 0.75), false, null, 0.045)
+		var face := -Vector3(foot.x, 0, foot.z).normalized()
+		mk.push(Transform3D(Basis(Vector3.UP, atan2(face.x, face.z)), foot + Vector3(0, 3.25, 0)))
+		mk.box(Vector3.ZERO, Vector3(0.6, 0.35, 0.06), Color(0.95, 0.97, 1.0), null, false, 2.7)
+		mk.pop()
+
+
+## A Ferris wheel: two white A-frames holding a turning wheel of coloured
+## gondolas, its rim lit up at night, and a ticket kiosk at its foot.
+func _wheel(mk: MeshKit, root: Node3D, yaw: float) -> void:
+	var white := Color(0.95, 0.95, 0.94)
+	var r := 2.1
+	var hub := r + 0.5
+	mk.rbox(Vector3(0, -0.15, 0), Vector3(2.0, 0.4, 1.6), 0.1, STONE)
+	for sz in [-0.45, 0.45]:
+		for sx in [-1.0, 1.0]:
+			# legs leaning in to the axle
+			var foot := Vector3(sx * 1.1, 0.0, sz)
+			var top := Vector3(0, hub, sz)
+			var up := (top - foot).normalized()
+			var x := up.cross(Vector3.BACK).normalized()
+			mk.push(Transform3D(Basis(x, up, x.cross(up)), foot))
+			mk.box(Vector3(0, (top - foot).length() * 0.5, 0), Vector3(0.1, (top - foot).length(), 0.1), white)
+			mk.pop()
+	mk.rbox(Vector3(0.9, 0.3, 0.75), Vector3(0.5, 0.5, 0.4), 0.05, Color("e3a33b"))
+	var wheel := MeshKit.new(7)
+	var cabins := [Color("c8553d"), Color("3f8cff"), Color("e3a33b"), Color("2f8f83"), Color("ff6fae"), Color("8ad14a")]
+	var n := 16
+	for k in n:
+		var a0 := TAU * k / n
+		var a1 := TAU * (k + 1) / n
+		var p0 := Vector3(cos(a0), sin(a0), 0) * r
+		var p1 := Vector3(cos(a1), sin(a1), 0) * r
+		var m := (p0 + p1) * 0.5
+		# the rim, two rings of lights tied together
+		wheel.push(Transform3D(Basis(Vector3.BACK, (a0 + a1) * 0.5 + PI * 0.5), m))
+		for sz in [-0.3, 0.3]:
+			wheel.box(Vector3(0, 0, sz), Vector3(p0.distance_to(p1), 0.07, 0.07), Color(1.0, 0.85, 0.55), null, false, 2.7)
+		wheel.pop()
+		if k % 2 == 0:
+			# a spoke to each side of the rim, and a gondola hanging from it
+			wheel.push(Transform3D(Basis(Vector3.BACK, a0 - PI * 0.5), Vector3.ZERO))
+			wheel.box(Vector3(0, r * 0.5, 0), Vector3(0.04, r, 0.6), white)
+			wheel.pop()
+			wheel.box(p0 * 1.04 + Vector3(0, -0.2, 0), Vector3(0.3, 0.3, 0.4), cabins[(k / 2) % cabins.size()])
+	wheel.cylinder(Vector3(0, 0, -0.4), 0.16, 0.8, 8, white)
+	var turn := _spinner(root, wheel.commit(world.city_mat), Vector3(0, hub, 0).rotated(Vector3.UP, yaw), Vector3.BACK, 0.12)
+	turn.get_parent().rotation.y = yaw
+	var sh := MeshInstance3D.new()
+	sh.mesh = wheel.commit_shadow(Palette.shadow_material())
+	sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	turn.add_child(sh)
+	turn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func _windmill(mk: MeshKit, root: Node3D, yaw: float) -> void:

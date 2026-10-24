@@ -332,11 +332,15 @@ func describe(l: Lot) -> Dictionary:
 	if l.use == "industry":
 		title = ["Workshop", "Workshop", "Warehouse", "Factory", "Factory", "Works", "Works"][clampi(l.stage, 0, 6)]
 	elif l.use == "office":
-		title = "Office block" if joined else "Offices"
+		title = ("Office tower" if l.stage >= 6 else "Office block") if joined else "Offices"
+	elif l.use == "retail":
+		title = HouseGen.RETAIL_NAMES.get(l.trade, "Store")
 	elif l.trade != "":
 		title = "%s with flats above" % TRADE_NAMES.get(l.trade, "Shop") if l.floors > 1 else TRADE_NAMES.get(l.trade, "Shop")
 	elif joined:
-		title = "Apartment block"
+		title = "Residential tower" if l.stage >= 6 else "Apartment block"
+	elif l.stage >= 5:
+		title = "Residential tower" if l.stage >= 6 else "Apartments"
 	var level := "Level %d of %d" % [l.stage + 1, l.cap + 1]
 	if l.stage < l.cap:
 		level += ", still growing"
@@ -353,6 +357,9 @@ func describe(l: Lot) -> Dictionary:
 ## The jobs an office or works brings: a few per office floor, more as a
 ## works grows.
 static func workers(l: Lot) -> int:
+	if l.use == "retail":
+		# shop staff, cinema ushers, the mall's cleaners and guards
+		return 8 + l.floors * 3
 	return l.floors * 2 if l.use == "office" else 4 + l.stage * 3
 
 

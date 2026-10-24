@@ -808,6 +808,7 @@ func _districts() -> void:
 	var shops_all := true
 	var offices := 0
 	var tall := 0
+	var homes_office := 0
 	for l: Town.Lot in island.town.lots.values():
 		if l.type != "house" or l.host != 0 or absf(l.origin.y - 3.0) > 8.0:
 			continue
@@ -822,9 +823,11 @@ func _districts() -> void:
 			offices += int(l.use == "office")
 		elif absf(x - 30) < 5.0:
 			tall += int(l.stage == 6)
+			homes_office += int(l.use != "home")
 	check(works >= 2 and works_ok, "an industrial district grows works, each on its own plot (%d)" % works)
 	check(shops >= 2 and shops_all, "a shops district puts a shop under every house (%d)" % shops)
 	check(offices >= 2, "an office district grows offices (%d)" % offices)
+	check(tall >= 1 and homes_office == 0, "homes grow into residential towers, never offices (%d tall, %d not homes)" % [tall, homes_office])
 	# smoke rises from the stacks of the works, never from anything else
 	var stacks := island.smoke.stacks()
 	var stacks_ok := true
@@ -860,7 +863,7 @@ func _districts() -> void:
 	pr.title = "Hamlet"
 	pr.best = maxi(pr.best, 1300)
 	pr.recount(false)
-	check(pr.title == "Big City" and pr.coins >= before + pr.milestone_reward("Big City") - 0.01, "a milestone gives a title and coins (%s, +%d)" % [pr.title, int(pr.coins - before)])
+	check(pr.title in ["Big City", "Large City", "Metropolis"] and pr.coins >= before + pr.milestone_reward(pr.title) - 0.01, "a milestone gives a title and coins (%s, +%d)" % [pr.title, int(pr.coins - before)])
 	check(pr.can_use("level6") and pr.can_use("industry") and pr.can_use("offices"), "milestones open the Skyline level and the districts")
 	var sane := true
 	for d in pr.demand:
@@ -871,6 +874,28 @@ func _districts() -> void:
 	var quick := island.town._delay(any, Vector2.ZERO)
 	island.town.demand = [0.0, 0.0, 0.0, 0.0]
 	check(island.town._delay(any, Vector2.ZERO) > quick * 2.0, "a district in demand grows faster")
+	# at the top levels a shops district grows stores, malls and cinemas, not offices
+	island.land.paint_level(Vector3(-30, 0, 3), 9.0, 6.0, 9.0, HouseGen.SHOPS)
+	island.town.zone_changed(Vector2(-30, 3), 9.0)
+	island.town.fill_all()
+	island.town.evolve_all()
+	var retail := {}
+	var shop_offices := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "house" and absf(l.origin.x + 30) < 5.0 and absf(l.origin.y - 3.0) < 8.0:
+			if l.use == "retail":
+				retail[l.trade] = true
+			shop_offices += int(l.use == "office")
+	check(not retail.is_empty() and shop_offices == 0, "a top-level shops district grows %s, never offices" % str(retail.keys()))
+	# and brings its attractions: a Ferris wheel, and with enough stores a stadium
+	island.landmarks._looked.clear()
+	island.landmarks._check = 0.0
+	island.landmarks._process(0.0)
+	print("  retail plots: %d, attractions: %s" % [island.landmarks._retail().size(), str(island.landmarks.spots.keys())])
+	check(island.landmarks.spots.has("wheel"), "a Ferris wheel turns by the shops")
+	if island.landmarks.spots.has("stadium"):
+		var st: Vector2 = island.landmarks.spots.stadium
+		check(not island.town.lots.values().any(func(l: Town.Lot) -> bool: return l.origin.distance_to(st) < 5.0), "the stadium stands clear of the houses")
 	island.queue_free()
 	await get_tree().process_frame
 

@@ -125,11 +125,11 @@ func recount(silent: bool) -> void:
 			"house":
 				h += 1
 				# offices and industry bring jobs rather than residents
-				if l.use == "office" or l.use == "industry":
+				if l.use == "office" or l.use == "industry" or l.use == "retail":
 					j += Town.workers(l)
 					if l.use == "office":
 						oj += Town.workers(l)
-					else:
+					elif l.use == "industry":
 						wk += 1
 				else:
 					r += maxi(1, l.floors * 2 - int(l.shop))

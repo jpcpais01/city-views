@@ -304,7 +304,7 @@ func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> 
 	var y := world.land.height_at(p.x, p.y)
 	mk.push_at(Vector3(p.x, y, p.y), l.yaw + (rng.randi() % 2) * PI)
 	var near := p.distance_to(l.origin)
-	var tall := l.use == "office" or l.group.size() > 1 or l.stage >= 3
+	var tall := l.use == "office" or l.use == "retail" or l.group.size() > 1 or l.stage >= 3
 	var roll := rng.randf()
 	if (l.trade == "cafe" or l.trade == "bakery") and near < 5.0 and roll < 0.7:
 		_terrace(mk, rng, p, y)
@@ -315,7 +315,7 @@ func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> 
 			_green(mk, rng, p, y)
 		else:
 			_garden(mk, rng, p, y)
-	elif l.use == "office" or l.use == "industry":
+	elif l.use == "office" or l.use == "industry" or l.use == "retail":
 		if roll < 0.55 or l.use == "industry":
 			_service(mk, rng, p, y)
 		else:
@@ -341,7 +341,7 @@ func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> 
 func _corner(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> void:
 	var y := world.land.height_at(p.x, p.y)
 	mk.push_at(Vector3(p.x, y, p.y), l.yaw + (rng.randi() % 4) * PI * 0.5)
-	var tall := l.use == "office" or l.group.size() > 1 or l.stage >= 3
+	var tall := l.use == "office" or l.use == "retail" or l.group.size() > 1 or l.stage >= 3
 	var roll := rng.randf()
 	if tall and roll < 0.35:
 		# bins by a back door
