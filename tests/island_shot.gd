@@ -167,6 +167,10 @@ func _ready() -> void:
 			frames += 1
 			last = now
 		print("live: %d streets, %d houses, slowest frame %d ms, %d of %d frames over 16 ms" % [island.streets.streets.size(), island.town.house_count(), worst / 1000, slow, frames])
+	if OS.get_environment("CV_STATS") != "":
+		# the city stats panel open
+		island.progress.recount(true)
+		hud._toggle_stats()
 	if OS.get_environment("CV_TOP") != "":
 		# straight down at the camera's focus, CV_TOP metres across, no HUD
 		hud.visible = false
