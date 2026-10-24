@@ -44,7 +44,7 @@ func spans() -> Array:
 			by_street[l.street].append(l)
 	var out := []
 	for s: Streets.Street in world.streets.streets:
-		if s.kind != "main" or not by_street.has(s.id):
+		if not s.major() or not by_street.has(s.id):
 			continue
 		var f := 2.0
 		var last := -INF

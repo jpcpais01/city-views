@@ -174,7 +174,23 @@ void fragment() {
 			crack *= smoothstep(0.62, 0.75, g_noise(p * 0.45 + 9.0));
 			base *= mix(1.0, (1.0 - patched * 0.1) * (1.0 - crack * 0.25), fade);
 			base *= 0.95 + 0.1 * g_noise(p * 0.35);
-			if (v_emit > 0.115) {
+			if (v_emit > 0.122) {
+				// one side of an avenue (1.2 m) or a highway (1.65 m): solid
+				// lines along both edges, a dashed one between its two lanes
+				// (COLOR.a runs across it, UV.y along)
+				bool hwy = v_emit > 0.126;
+				float width = hwy ? 1.65 : 1.2;
+				float x = COLOR.a * width;
+				float aw = fwidth(x);
+				float edge = min(abs(x - 0.06), abs(x - (width - 0.06)));
+				float solid = 1.0 - smoothstep(0.025 - aw, 0.025 + aw, edge);
+				float mid = 1.0 - smoothstep(0.03 - aw, 0.03 + aw, abs(x - width * 0.5));
+				float every = hwy ? 2.4 : 1.6;
+				float d = fract(v_rand / every) * every;
+				float al = fwidth(v_rand);
+				float dash = smoothstep(-al, al, d) * (1.0 - smoothstep(every * 0.4 - al, every * 0.4 + al, d));
+				base = mix(base, vec3(1.0, 0.97, 0.9), max(solid, mid * dash) * 0.92);
+			} else if (v_emit > 0.115) {
 				// a dashed white centre line: 0.5 m dashes every 1.4 m, 7 cm wide
 				// on a 1.56 m carriageway (COLOR.a runs kerb to kerb, UV.y along)
 				float across = (COLOR.a - 0.5) * 1.56;

@@ -14,7 +14,7 @@ signal title_changed(title: String)
 
 const TITLES := [[0, "Hamlet"], [30, "Village"], [120, "Town"], [300, "City"], [600, "Big City"], [1000, "Metropolis"]]
 ## residents needed before a brush can be used
-const UNLOCK := {"green": 12, "smooth": 30, "flatten": 60}
+const UNLOCK := {"green": 12, "smooth": 30, "flatten": 60, "avenue": 150, "highway": 400}
 const START_COINS := 300.0
 const STREET_COST := 0.5 # per metre
 const SHAPE_COST := 4.0 # per second of sculpting

@@ -18,6 +18,12 @@ const BRUSH_INFO := {
 }
 const ICONS := {"street": "road", "grow": "house", "green": "park", "clear": "bulldoze"}
 const SIZES := [["S", 1.5], ["M", 3.33], ["L", 8.5]]
+## what the Street brush can lay: id -> [name, help]
+const ROADS := {
+	"main": ["Street", "Draw a line: the street lays itself over the land"],
+	"avenue": ["Avenue", "A wide boulevard with a planted middle: side streets branch off it and shops line it"],
+	"highway": ["Highway", "Four fast lanes across the country: no houses along it, no side streets off it"],
+}
 const LEVELS := ["Village", "Town", "City", "Centre", "Downtown", "Skyline"]
 const LEVEL_INFO := ["cottages and small houses", "houses and low terraces", "terraces with shops", "tall terraces and blocks, shops everywhere",
 	"apartment blocks and offices", "towers over a busy podium"]
@@ -27,6 +33,8 @@ var _brush_keys := {}
 var _size_btn: Button
 var _size_i := 1
 var _level_bar: Control
+var _road_bar: Control
+var _road_keys := {}
 var _level_keys: Array[Button] = []
 var _help: Label
 var _island_name: LineEdit
@@ -413,6 +421,12 @@ func _on_title(title: String) -> void:
 
 
 func _on_brush_unlocked(id: String) -> void:
+	if ROADS.has(id):
+		show_toast("New road: %s" % ROADS[id][0], "unlock")
+		Sfx.play("unlock")
+		_confetti()
+		_refresh_brushes()
+		return
 	show_toast("New brush: %s" % BRUSH_INFO[id][0], "unlock")
 	Sfx.play("unlock")
 	_confetti()
@@ -575,8 +589,50 @@ func _build_brushes() -> void:
 		_refresh_brushes())
 	row.add_child(_size_btn)
 	_build_levels()
+	_build_roads()
 	island.history_changed.connect(_refresh_history)
 	_refresh_history()
+
+
+## While the Street brush is in hand: which kind of road it lays.
+func _build_roads() -> void:
+	var holder := CenterContainer.new()
+	holder.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	holder.offset_top = -188
+	holder.offset_bottom = -118
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(holder)
+	_road_bar = holder
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(row)
+	var i := 0
+	for id: String in ROADS:
+		var b := _key(116, 50)
+		var h := HBoxContainer.new()
+		h.set_anchors_preset(Control.PRESET_FULL_RECT)
+		h.alignment = BoxContainer.ALIGNMENT_CENTER
+		h.add_theme_constant_override("separation", 4)
+		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(h)
+		var ic := _icon("road_" + id, 34)
+		ic.custom_minimum_size = Vector2(34, 34)
+		h.add_child(ic)
+		h.add_child(_label(ROADS[id][0], 14, true, INK))
+		var pitch := 0.85 + i * 0.15
+		b.pressed.connect(func():
+			if not island.progress.can_use(id):
+				show_toast(island.progress.unlock_text(id), "warn")
+				Sfx.play("error", 1.0, -6.0)
+				_refresh_brushes()
+				return
+			Sfx.play("click", pitch, -4.0)
+			island.street_kind = id
+			_refresh_brushes())
+		row.add_child(b)
+		_road_keys[id] = b
+		i += 1
 
 
 ## While the Grow brush is in hand: how far the town may grow up where it is
@@ -639,12 +695,20 @@ func _refresh_brushes() -> void:
 		_brush_keys[id].set_pressed_no_signal(id == island.brush)
 	island.brush_radius = SIZES[_size_i][1]
 	_size_btn.text = SIZES[_size_i][0]
+	if _road_bar:
+		_road_bar.visible = island.brush == "street" and not _photo
+		for id: String in _road_keys:
+			var k: Button = _road_keys[id]
+			k.set_pressed_no_signal(island.street_kind == id)
+			k.modulate.a = 1.0 if island.progress.can_use(id) else 0.5
 	if _level_bar:
 		_level_bar.visible = island.brush == "grow" and not _photo
 		for i in _level_keys.size():
 			_level_keys[i].set_pressed_no_signal(island.grow_level == i + 1)
 	if island.brush != "":
 		_help.text = BRUSH_INFO[island.brush][1]
+		if island.brush == "street":
+			_help.text = ROADS[island.street_kind][1]
 		if island.brush == "grow":
 			_help.text = "Paint beside a street. %s: %s" % [LEVELS[island.grow_level - 1], LEVEL_INFO[island.grow_level - 1]]
 	else:

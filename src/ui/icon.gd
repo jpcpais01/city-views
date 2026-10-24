@@ -52,6 +52,27 @@ func _draw() -> void:
 			_rr(Rect2(P.call(0.3, 0.08), Vector2(0.4, 0.84) * s), 0.08 * s, Color(0.36, 0.38, 0.43))
 			for i in 3:
 				draw_rect(Rect2(P.call(0.47, 0.16 + i * 0.27), Vector2(0.06, 0.16) * s), Color(1, 0.95, 0.8))
+		"road_main":
+			_rr(Rect2(P.call(0.32, 0.08), Vector2(0.36, 0.84) * s), 0.06 * s, Color(0.36, 0.38, 0.43))
+			for i in 3:
+				draw_rect(Rect2(P.call(0.475, 0.16 + i * 0.27), Vector2(0.05, 0.15) * s), Color(1, 0.95, 0.8))
+		"road_avenue":
+			# two carriageways with a green strip and little trees between
+			_rr(Rect2(P.call(0.12, 0.08), Vector2(0.76, 0.84) * s), 0.06 * s, Color(0.36, 0.38, 0.43))
+			draw_rect(Rect2(P.call(0.44, 0.08), Vector2(0.12, 0.84) * s), Color("7fbf5f"))
+			for i in 3:
+				_circle(P.call(0.5, 0.2 + i * 0.3), 0.09 * s, Color("3f8f4a"))
+				draw_rect(Rect2(P.call(0.27, 0.16 + i * 0.27), Vector2(0.04, 0.14) * s), Color(1, 0.95, 0.8))
+				draw_rect(Rect2(P.call(0.69, 0.16 + i * 0.27), Vector2(0.04, 0.14) * s), Color(1, 0.95, 0.8))
+		"road_highway":
+			# four lanes, a barrier down the middle, a blue sign over it
+			_rr(Rect2(P.call(0.06, 0.08), Vector2(0.88, 0.84) * s), 0.06 * s, Color(0.32, 0.34, 0.38))
+			draw_rect(Rect2(P.call(0.47, 0.08), Vector2(0.06, 0.84) * s), Color(0.85, 0.85, 0.82))
+			for x: float in [0.25, 0.73]:
+				for i in 3:
+					draw_rect(Rect2(P.call(x, 0.4 + i * 0.2), Vector2(0.035, 0.1) * s), Color(1, 1, 1, 0.85))
+			_rr(Rect2(P.call(0.14, 0.12), Vector2(0.72, 0.2) * s), 0.04 * s, Color("2f6fb5"))
+			draw_rect(Rect2(P.call(0.24, 0.19), Vector2(0.52, 0.05) * s), Color(1, 1, 1, 0.9))
 		"house":
 			draw_colored_polygon(PackedVector2Array([P.call(0.12, 0.5), P.call(0.5, 0.14), P.call(0.88, 0.5)]), Color("e0684f"))
 			_rr(Rect2(P.call(0.22, 0.48), Vector2(0.56, 0.4) * s), 0.06 * s, Color("fbefd9"))

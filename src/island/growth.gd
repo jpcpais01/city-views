@@ -162,9 +162,12 @@ func _sorted(list: Array) -> Array:
 
 func _seeds(s: Streets.Street) -> Array:
 	var out: Array = []
+	# streets don't branch off a highway (it has no pavements, and nobody lives along it)
+	if s.kind == "highway":
+		return out
 	var n := s.pts.size()
 	var total := (n - 1) * Streets.SAMPLE
-	var spacing := FRONTAGE if s.kind == "main" else DEPTH
+	var spacing := FRONTAGE if s.major() else DEPTH
 	var contacts := _contacts(s)
 	for side: float in [-1.0, 1.0]:
 		# each side of each street keeps its own slight irregularity

@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-24 16:40 UTC
+- New roads on the Street brush: pick Street, Avenue or Highway from the bar above the brushes.
+- Avenues are wide boulevards with a planted strip down the middle and two marked lanes each way. Shops line them, and side streets grow off them.
+- Highways carry four fast lanes across the country, with shoulders instead of pavements. Nobody lives along them and no side streets branch off.
+- Avenues open at 150 residents and highways at 400. They cost more per metre than a street.
+
 ## 2026-10-24 15:50 UTC
 - Two new Grow levels: Downtown grows apartment blocks of eight to ten floors, and Skyline grows towers of twelve floors and more.
 - Towers stand on a podium with shops at street level, set back above it, with a plant storey on top and a mast on some.

@@ -28,6 +28,7 @@ func _ready() -> void:
 	await _island_grow()
 	await _island_levels()
 	await _island_skyline()
+	await _road_kinds()
 	await _island_inner()
 	await _island_wilds()
 	await _island_progress()
@@ -676,6 +677,62 @@ func _island_skyline() -> void:
 	check(mid >= 2, "Downtown grows apartment blocks of eight to ten floors (%d)" % mid)
 	check(tall >= 2 and top > 12 * Town.FH, "Skyline grows towers (%d, the tallest %.1f m)" % [tall, top])
 	check(bad == 0, "every building is drawn")
+	island.queue_free()
+	await get_tree().process_frame
+
+
+## Avenues and highways: an avenue is lined with shops and houses and side
+## streets grow off it; nobody lives along a highway and nothing branches off
+## it; both come back from a save as what they were.
+func _road_kinds() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(4, "island")
+	var av := PackedVector2Array()
+	var hw := PackedVector2Array()
+	for k in 61:
+		av.append(Vector2(-30 + k, -12.0))
+		hw.append(Vector2(-30 + k, 22.0))
+	var a := island.streets.add_stroke(av, "avenue")
+	var h := island.streets.add_stroke(hw, "highway")
+	island.streets.flush()
+	check(a != null and h != null and a.kind == "avenue" and h.kind == "highway", "the Street brush lays avenues and highways")
+	check(a.w() > Streets.KINDS.main.w * 1.6 and h.w() > a.w(), "avenues are wider than streets, highways wider still")
+	island.land.paint_zone(Vector3(0, 0, 5), 40.0, 2.0)
+	island.growth.focus = Vector2(0, 5)
+	island.growth.grow_all(30)
+	island.streets.flush()
+	island.town.fill_all()
+	var off_avenue := 0
+	var off_highway := 0
+	for s: Streets.Street in island.streets.streets:
+		if s == a or s == h:
+			continue
+		for e in [s.pts[0], s.pts[s.pts.size() - 1]]:
+			if a.closest(e).x < a.reach() + 1.0:
+				off_avenue += 1
+			if h.closest(e).x < h.reach() + 1.0 and h.closest(s.pts[s.pts.size() / 2]).x > 6.0 and absf(s.pts[s.pts.size() / 2].y - 22.0) < 3.0:
+				off_highway += 1
+	var on_avenue := 0
+	var on_highway := 0
+	var main := true
+	for l: Town.Lot in island.town.lots.values():
+		if l.street == a.id:
+			on_avenue += 1
+			main = main and l.main
+		if l.street == h.id:
+			on_highway += 1
+	check(off_avenue >= 2, "side streets grow off an avenue (%d)" % off_avenue)
+	check(on_avenue >= 6 and main, "houses and shops line an avenue, as on a main street (%d)" % on_avenue)
+	check(on_highway == 0, "nobody lives along a highway")
+	var seeds: Array = island.growth._seeds(h)
+	check(seeds.is_empty(), "no street branches off a highway")
+	var data := island.to_dict()
+	island._apply_save(JSON.parse_string(JSON.stringify(data)))
+	var kinds := {}
+	for s: Streets.Street in island.streets.streets:
+		kinds[s.kind] = kinds.get(s.kind, 0) + 1
+	check(kinds.get("avenue", 0) == 1 and kinds.get("highway", 0) == 1, "avenues and highways come back from a save (%s)" % kinds)
 	island.queue_free()
 	await get_tree().process_frame
 

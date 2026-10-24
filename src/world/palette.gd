@@ -8,6 +8,8 @@ const GLASS := Color(0.32, 0.47, 0.6)
 const GLASS_LIGHT := Color(0.55, 0.72, 0.84)
 const ASPHALT := Color(0.36, 0.38, 0.43)
 const SIDEWALK := Color(0.88, 0.85, 0.8)
+# the planted strip down the middle of an avenue
+const VERGE := Color(0.5, 0.72, 0.38)
 const LEAF := [Color("6fb35a"), Color("5ea552"), Color("82c063"), Color("4e9a54"), Color("97c45a")]
 const BLOSSOM := [Color("f4a7c0"), Color("f7c2d4"), Color("ee8fb0"), Color("fbe3ea")]
 const LAUNDRY := [Color("ffffff"), Color("7fb8e6"), Color("ef7f6a"), Color("f2c14e"), Color("f4a7c0"), Color("3fae8c")]

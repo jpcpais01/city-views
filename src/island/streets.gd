@@ -20,10 +20,17 @@ const SKIRT := 0.2
 const KERB_R := 1.1
 # the farthest a junction's corner starts along a street from where they meet
 const MAX_CUT := 2.2
+## w: half the width kerb to kerb; median: half the width of the planted
+## strip down the middle (avenues, highways), the lanes either side of it;
+## verge: no pavements, just a shoulder (highways, which nobody lives along)
 const KINDS := {
-	"main": {"w": 0.78, "dash": true},
-	"side": {"w": 0.56, "dash": false},
+	"main": {"w": 0.78, "dash": true, "median": 0.0, "verge": false},
+	"side": {"w": 0.56, "dash": false, "median": 0.0, "verge": false},
+	"avenue": {"w": 1.5, "dash": true, "median": 0.3, "verge": false},
+	"highway": {"w": 1.95, "dash": true, "median": 0.3, "verge": true},
 }
+## the kinds a player can draw, with what a metre costs compared with a street
+const DRAWN := {"main": 1.0, "avenue": 2.5, "highway": 4.0}
 
 var land: Land
 var material: Material
@@ -60,6 +67,10 @@ class Street:
 
 	func reach() -> float:
 		return w() + Streets.PAVE
+
+	## A street that matters more than a back street: busier, with shops.
+	func major() -> bool:
+		return kind == "main" or kind == "avenue"
 
 	func update_bounds() -> void:
 		lo = Vector2(INF, INF)
@@ -533,7 +544,9 @@ func _build(s: Street) -> void:
 		upto = clampf((n - 1) * (1.0 - pow(1.0 - t, 3.0)), 1.0, n - 1)
 	var w := s.w()
 	var buf := MeshBuf.new()
-	var asphalt := Palette.ASPHALT.darkened(0.05) if s.kind == "main" else Palette.ASPHALT
+	var asphalt := Palette.ASPHALT.darkened(0.05) if s.kind != "side" else Palette.ASPHALT
+	var median: float = KINDS[s.kind].median
+	var verge: bool = KINDS[s.kind].verge
 	# where junction corners take over this street's pavements, per side,
 	# and where a junction's own asphalt takes over from this street's
 	var cuts := {-1.0: PackedVector2Array(), 1.0: PackedVector2Array()}
@@ -602,7 +615,20 @@ func _build(s: Street) -> void:
 		var n1 := rn[r + 1]
 		var y0 := ry[r]
 		var y1 := ry[r + 1]
-		if not _in_cuts(skip, fm):
+		if not _in_cuts(skip, fm) and median > 0.0:
+			# two carriageways with lanes painted on, and a planted strip
+			# between them behind low kerbs
+			var code := MeshKit.ASPHALT_HIGHWAY if verge else MeshKit.ASPHALT_AVENUE
+			for side: float in [-1.0, 1.0]:
+				var a := p0 + n0 * side * w
+				var b := p0 + n0 * side * median
+				var c := p1 + n1 * side * median
+				var d := p1 + n1 * side * w
+				buf.road(Vector3(a.x, y0, a.y), Vector3(b.x, y0, b.y), Vector3(c.x, y1, c.y), Vector3(d.x, y1, d.y), asphalt, code, f0 * SAMPLE, f1 * SAMPLE)
+				var out_dir := (n0 + n1) * 0.5 * side
+				_band(buf, p0, n0, y0, p1, n1, y1, side * median, 0.0, side * median, CURB, kerb, 0.0, Vector3(out_dir.x, 0.0, out_dir.y))
+			_band(buf, p0, n0, y0, p1, n1, y1, -median, CURB, median, CURB, Palette.VERGE, MeshKit.MOWN_X, Vector3.UP)
+		elif not _in_cuts(skip, fm):
 			if KINDS[s.kind].dash:
 				# the centre line is painted by the shader, not drawn
 				var a := p0 - n0 * w
@@ -617,6 +643,11 @@ func _build(s: Street) -> void:
 				continue
 			var out_dir := (n0 + n1) * 0.5 * side
 			var out3 := Vector3(out_dir.x, 0.0, out_dir.y)
+			if verge:
+				# a pale shoulder line and the edge of the road down into the ground
+				_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * (w + 0.12), 0.0, kerb, 0.0, Vector3.UP)
+				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + 0.12), 0.0, side * (w + 0.3), -SKIRT, kerb.darkened(0.1), 0.0, out3 + Vector3.UP)
+				continue
 			# kerb face, pavement, and the pavement's outer edge down into the ground
 			_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * w, CURB, kerb, 0.0, -out3)
 			_band(buf, p0, n0, y0, p1, n1, y1, side * w, CURB, side * (w + PAVE), CURB, pave, MeshKit.SLABS, Vector3.UP)
@@ -948,7 +979,7 @@ func _conform_junctions(s: Street) -> void:
 func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 	var main := false
 	for arm in jn.arms:
-		main = main or arm.st.kind == "main"
+		main = main or arm.st.kind != "side"
 	var asphalt := Palette.ASPHALT.darkened(0.05) if main else Palette.ASPHALT
 	var c3 := Vector3(jn.at.x, jn.y, jn.at.y)
 	var edge: Array = jn.edge
