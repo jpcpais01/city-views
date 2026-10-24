@@ -65,6 +65,13 @@ var _patches := {}
 var _reserved := {}
 const RESERVED := -(1 << 30)
 var _dirty_patches := {}
+# what each lot's building was when last drawn, and the buildings rising on
+# their own nodes before they join their patch (built while playing, not on load)
+var _shown := {}
+var _rising := {}
+var _live := false
+## how long a new building takes to rise, with a little bounce at the top
+const RISE_TIME := 0.75
 # the town's own clock, for when houses next grow
 var _clock := 0.0
 var _evolve_wait := 0.0
@@ -231,6 +238,75 @@ func is_built(p: Vector2) -> bool:
 	return _occ[c.y * RES + c.x] != 0
 
 
+## How tall a lot's building stands above its plot, roughly, for picking it.
+static func _pick_height(l: Lot) -> float:
+	match l.type:
+		"house":
+			return maxf(l.floors, 1) * FH + 0.9
+		"church":
+			return 5.0
+		"hall":
+			return 3.4
+		"school", "market":
+			return 2.4
+	return 0.4
+
+
+## The lot whose building (or open ground, for a park or square) a ray from
+## `from` along `dir` meets first, or null. A plot that is part of a joined
+## building gives back the building's first plot.
+func lot_on_ray(from: Vector3, dir: Vector3, reach := 400.0) -> Lot:
+	var t := 0.0
+	while t < reach:
+		var p := from + dir * t
+		t += 0.15
+		var c := _cell(Vector2(p.x, p.z))
+		if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
+			continue
+		var id := _occ[c.y * RES + c.x]
+		if id <= 0 or not lots.has(id):
+			continue
+		var l: Lot = lots[id]
+		if l.host != 0 and lots.has(l.host):
+			l = lots[l.host]
+		if p.y <= l.street_y + _pick_height(l):
+			return l
+		if p.y < land.height_at(p.x, p.z):
+			return null
+	return null
+
+
+const TRADE_NAMES := {"shop": "Shop", "cafe": "Café", "bakery": "Bakery", "grocer": "Grocer", "pharmacy": "Pharmacy"}
+const CIVIC_NAMES := {"park": "Park", "square": "Square", "church": "Church", "hall": "Town hall", "school": "School", "market": "Market hall"}
+const QUARTER_NAMES := ["Harbour", "Pastel", "Brick", "Stone", "Southern", "Nordic"]
+
+
+## What a lot holds, for the info card: a title and a few short lines.
+func describe(l: Lot) -> Dictionary:
+	var quarter := "%s quarter" % QUARTER_NAMES[clampi(l.kit, 0, QUARTER_NAMES.size() - 1)]
+	if l.type != "house":
+		return {"title": CIVIC_NAMES.get(l.type, l.type.capitalize()), "lines": [quarter]}
+	var title: String = STAGE_NAMES[clampi(l.stage, 0, STAGE_NAMES.size() - 1)].capitalize()
+	var joined := l.group.size() > 1
+	if l.use == "office":
+		title = "Office block" if joined else "Offices"
+	elif l.trade != "":
+		title = "%s with flats above" % TRADE_NAMES.get(l.trade, "Shop") if l.floors > 1 else TRADE_NAMES.get(l.trade, "Shop")
+	elif joined:
+		title = "Apartment block"
+	var level := "Level %d of %d" % [l.stage + 1, l.cap + 1]
+	if l.stage < l.cap:
+		level += ", still growing"
+	var lines := [level]
+	var people := 0
+	for id in (l.group if joined else [l.id]):
+		var o: Lot = lots.get(id, l)
+		people += o.floors if o.use == "office" else maxi(1, o.floors * 2 - int(o.shop))
+	lines.append(("%d workers" if l.use == "office" else "%d residents") % people)
+	lines.append(quarter)
+	return {"title": title, "lines": lines}
+
+
 func house_count() -> int:
 	return lots.size()
 
@@ -285,6 +361,8 @@ func _drop(l: Lot) -> void:
 		if _occ[k] == l.id:
 			_occ[k] = 0
 	lots.erase(l.id)
+	_shown.erase(l.id)
+	_stop_rising(l.id)
 	_dirty_patches[l.patch] = true
 	_split(l)
 
@@ -377,11 +455,14 @@ func _process(delta: float) -> void:
 				break
 		if _step(_job, start + 2500):
 			_job = {}
+	_live = true
 	for c in _dirty_patches.keys():
 		if Time.get_ticks_usec() - start > 3000:
 			break
 		_dirty_patches.erase(c)
 		_commit_patch(c)
+	_live = false
+	_animate_rising(delta)
 	_evolve_wait -= delta
 	if _evolve_wait <= 0.0 and _job.is_empty() and _new_streets.is_empty() and _dirty_patches.is_empty():
 		_evolve_wait = 0.2
@@ -1103,6 +1184,17 @@ func _commit_patch(c: Vector2i) -> void:
 		var l: Lot = lots[id]
 		if l.patch != c or l.arrays.is_empty():
 			continue
+		if _rising.has(id) and not is_same(_rising[id].arrays, l.arrays):
+			# rebuilt again while still going up: start over from where it is
+			_stop_rising(id)
+		if _live and not _rising.has(id) and not is_same(_shown.get(id), l.arrays):
+			_start_rising(l, 0.0 if not _shown.has(id) else 0.6)
+		if _rising.has(id):
+			if not _rising[id].done:
+				continue
+			# risen: it joins the patch, and its own node goes in the same frame
+			_stop_rising(id)
+		_shown[id] = l.arrays
 		for i in 18:
 			if sets[i] == null:
 				sets[i] = l.arrays[i].duplicate()
@@ -1114,9 +1206,14 @@ func _commit_patch(c: Vector2i) -> void:
 		_patches.erase(c)
 	if sets[0] == null:
 		return
-	node = Node3D.new()
+	node = _make_node(sets)
 	add_child(node)
 	_patches[c] = node
+
+
+## The meshes for a set of building arrays (a patch, or one rising building).
+func _make_node(sets: Array) -> Node3D:
+	var node := Node3D.new()
 	var mesh := ArrayMesh.new()
 	for k in [0, 4]:
 		var v: PackedVector3Array = sets[k]
@@ -1159,3 +1256,43 @@ func _commit_patch(c: Vector2i) -> void:
 		if k == 14:
 			bl.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		node.add_child(bl)
+	return node
+
+
+## A building just built or grown goes up on its own node, rising out of
+## the ground (from `from` of its height) and settling with a small bounce.
+func _start_rising(l: Lot, from: float) -> void:
+	var node := _make_node(l.arrays)
+	add_child(node)
+	var r := {"arrays": l.arrays, "node": node, "t": 0.0, "from": from, "done": false,
+		"pivot": Vector3(l.origin.x, l.street_y, l.origin.y), "patch": l.patch}
+	_rising[l.id] = r
+	_rise_pose(r)
+
+
+func _stop_rising(id: int) -> void:
+	var r: Dictionary = _rising.get(id, {})
+	if r.is_empty():
+		return
+	(r.node as Node3D).queue_free()
+	_rising.erase(id)
+
+
+func _animate_rising(delta: float) -> void:
+	for id in _rising:
+		var r: Dictionary = _rising[id]
+		if r.done:
+			continue
+		r.t += delta
+		_rise_pose(r)
+		if r.t >= RISE_TIME:
+			r.done = true
+			_dirty_patches[r.patch] = true
+
+
+func _rise_pose(r: Dictionary) -> void:
+	var k := clampf(r.t / RISE_TIME, 0.0, 1.0)
+	var sy := maxf(Tween.interpolate_value(r.from, 1.0 - r.from, k, 1.0, Tween.TRANS_BACK, Tween.EASE_OUT) as float, 0.02)
+	var sxz := lerpf(0.9, 1.0, minf(k * 1.6, 1.0)) if r.from == 0.0 else 1.0
+	var b := Basis.from_scale(Vector3(sxz, sy, sxz))
+	(r.node as Node3D).transform = Transform3D(b, r.pivot - b * r.pivot)

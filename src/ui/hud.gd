@@ -17,7 +17,7 @@ const BRUSH_INFO := {
 	"flatten": ["Flatten", "Drag to level the ground to where you started"],
 }
 const ICONS := {"street": "road", "grow": "house", "green": "park", "clear": "bulldoze"}
-const SIZES := [["S", 3.0], ["M", 5.0], ["L", 8.5]]
+const SIZES := [["S", 1.5], ["M", 3.33], ["L", 8.5]]
 const LEVELS := ["Village", "Town", "City", "Centre"]
 
 var island: IslandWorld
@@ -224,11 +224,14 @@ func _ready() -> void:
 	_build_brushes()
 	_build_fps()
 	_build_toasts()
+	_build_info()
 	_build_goals()
 	_build_menu()
 	_build_photo_exit()
 	island.brush_changed.connect(_refresh_brushes)
 	island.note.connect(func(t, k): show_toast(t, k))
+	island.inspected.connect(_show_info)
+	island.brush_changed.connect(func(): _hide_info())
 	var pr := island.progress
 	pr.stats_changed.connect(_refresh_stats)
 	pr.goals_changed.connect(_refresh_goals)
@@ -731,6 +734,69 @@ func _squish(c: Control, to: float) -> void:
 	tw.tween_property(c, "scale", Vector2(to, to), 0.12 if to < 1.0 else 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
+# ------------------------------------------------------------------ building info
+
+var _info: PanelContainer
+var _info_title: Label
+var _info_lines: Label
+var _info_tw: Tween
+
+
+## A small card above the brushes saying what a tapped building is.
+func _build_info() -> void:
+	var holder := CenterContainer.new()
+	holder.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	holder.offset_top = -236
+	holder.offset_bottom = -118
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(holder)
+	_info = PanelContainer.new()
+	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info.material = _glass_light
+	_info.add_theme_stylebox_override("panel", _glass_box(GLASS, 20, 14))
+	holder.add_child(_info)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info.add_child(v)
+	_info_title = _label("", 20, true, INK)
+	_info_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_info_title)
+	_info_lines = _label("", 14, false, INK)
+	_info_lines.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_info_lines)
+	_info.visible = false
+
+
+func _show_info(lot: Variant) -> void:
+	if lot == null or _photo:
+		_hide_info()
+		return
+	var d: Dictionary = island.town.describe(lot)
+	_info_title.text = d.title
+	_info_lines.text = "\n".join(d.lines)
+	Sfx.play("click", 1.2, -6.0)
+	if _info_tw:
+		_info_tw.kill()
+	_info.visible = true
+	_info.modulate.a = 0.0
+	_info.pivot_offset = _info.size * 0.5
+	_info.scale = Vector2(0.85, 0.85)
+	_info_tw = create_tween()
+	_info_tw.set_parallel(true)
+	_info_tw.tween_property(_info, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_info_tw.tween_property(_info, "modulate:a", 1.0, 0.15)
+	_info_tw.chain().tween_interval(5.0)
+	_info_tw.chain().tween_property(_info, "modulate:a", 0.0, 0.4)
+	_info_tw.chain().tween_callback(func(): _info.visible = false)
+
+
+func _hide_info() -> void:
+	if _info_tw:
+		_info_tw.kill()
+	_info.visible = false
+
+
 # ------------------------------------------------------------------ toasts
 
 func _build_toasts() -> void:
@@ -763,10 +829,15 @@ func show_toast(text: String, kind := "info") -> void:
 		size = 26
 		p.material = _glass_accent
 	elif kind == "warn":
+		# warnings stay small: a slim red pill, not a banner
 		bg = Color(0.85, 0.3, 0.27)
 		col = Color.WHITE
+		size = 13
 		p.material = _glass_accent
-	p.add_theme_stylebox_override("panel", _glass_box(bg, 24, 18, Color(1, 1, 1, 0.5 if bg == GLASS_DARK else 0.95)))
+	var warn := kind == "warn"
+	p.add_theme_stylebox_override("panel", _glass_box(bg, 14 if warn else 24, 8 if warn else 18, Color(1, 1, 1, 0.5 if bg == GLASS_DARK else 0.95), not warn))
+	if warn:
+		p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var l := _label(text, size, true, col)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(l)
