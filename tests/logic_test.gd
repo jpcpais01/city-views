@@ -678,6 +678,14 @@ func _island_skyline() -> void:
 	check(mid >= 2, "Downtown grows apartment blocks of eight to ten floors (%d)" % mid)
 	check(tall >= 2 and top > 12 * Town.FH, "Skyline grows towers (%d, the tallest %.1f m)" % [tall, top])
 	check(bad == 0, "every building is drawn")
+	var sky := 0
+	var sky_top := 0.0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "house" and l.host == 0 and l.group.size() >= 2 and l.stage == 6 and l.floors >= 20:
+			sky += 1
+			for v: Vector3 in l.arrays[0]:
+				sky_top = maxf(sky_top, v.y - l.street_y)
+	check(sky >= 1 and sky_top > 20 * Town.FH, "joined Skyline plots rise as skyscrapers (%d, the tallest %.1f m)" % [sky, sky_top])
 	island.queue_free()
 	await get_tree().process_frame
 

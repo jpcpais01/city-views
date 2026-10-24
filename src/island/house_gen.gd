@@ -495,9 +495,14 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	# four to five floors in a city, up to seven in a centre, eight to ten
 	# for apartments and twelve to sixteen for a tower
 	var floors: int = [4 + rng.randi() % 2, 5 + rng.randi() % 3, 8 + rng.randi() % 3, 12 + rng.randi() % 5][clampi(stage - 3, 0, 3)]
+	if stage >= 6 and ls.size() >= 2:
+		# a skyscraper: twenty to forty floors, more over a wider plot
+		floors = 20 + rng.randi() % 12 + mini(ls.size() - 2, 2) * 4
 	# in a centre, and now and then on a city's main street, the big building is offices
 	var office: bool = rng.randf() < [0.2 if main else 0.0, 0.45, 0.3, 0.6][clampi(stage - 3, 0, 3)]
 	var tower := stage >= 6
+	# where tall plots have joined up downtown, the tower is a skyscraper
+	var sky := tower and ls.size() >= 2
 	var pts := block_outline(ls)
 	var box := Rect2(pts[0], Vector2.ZERO)
 	for p in pts:
@@ -542,7 +547,8 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	var glass_col: Color = OFFICE_GLASS if office else Palette.GLASS
 	var win_w := 0.5 if office else 0.24
 	if tower:
-		var scheme: Array = TOWER_SCHEMES[rng.randi() % TOWER_SCHEMES.size()]
+		# skyscrapers are mostly glass or white
+		var scheme: Array = TOWER_SCHEMES[rng.randi() % (3 if sky and rng.randf() < 0.8 else TOWER_SCHEMES.size())]
 		var tones: Array = scheme[0]
 		wall = tones[rng.randi() % tones.size()]
 		glass_col = scheme[1]
@@ -624,9 +630,34 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		_flat_roof(mk, pts, hgt, wall)
 		mk.push_at(Vector3(0, hgt, 0))
 		var rest := all_floors - floors
-		_prism(mk, shaft, rest * FH + 0.06, wall, we, rest, trim, 0, office, win_w, glass_col, 0)
+		# a skyscraper steps in once or twice on the way up
+		var tiers: Array = [[shaft, rest]]
+		if sky and rest > 12:
+			var parts := 1 + rng.randi() % 3
+			var outline := shaft
+			var left := rest
+			tiers = []
+			for t in parts:
+				var fl := left if t == parts - 1 else int(left * rng.randf_range(0.45, 0.65))
+				tiers.append([outline, fl])
+				left -= fl
+				if t < parts - 1:
+					var nxt := Geometry2D.offset_polygon(outline, -rng.randf_range(0.25, 0.45))
+					if nxt.size() != 1 or nxt[0].size() < 3 or not outline_ok(nxt[0]):
+						tiers[tiers.size() - 1][1] += left
+						break
+					outline = nxt[0]
 		mk.pop()
-		hgt += rest * FH + 0.06
+		for t in tiers.size():
+			var outline: PackedVector2Array = tiers[t][0]
+			var fl: int = tiers[t][1]
+			if t > 0:
+				_flat_roof(mk, tiers[t - 1][0], hgt, wall)
+			mk.push_at(Vector3(0, hgt, 0))
+			_prism(mk, outline, fl * FH + 0.06, wall, we, fl, trim, 0, office, win_w, glass_col, 0)
+			mk.pop()
+			hgt += fl * FH + 0.06
+			shaft = outline
 		# a crown: a plain set-back top storey for the plant, and a mast on some
 		var crown := Geometry2D.offset_polygon(shaft, -0.3)
 		if crown.size() == 1 and crown[0].size() >= 3 and outline_ok(crown[0]):
@@ -636,11 +667,16 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			mk.pop()
 			hgt += FH * 0.9
 			shaft = crown[0]
-			if rng.randf() < 0.4:
-				var mc := Vector2.ZERO
-				for p in shaft:
-					mc += p
-				mc /= shaft.size()
+			var mc := Vector2.ZERO
+			for p in shaft:
+				mc += p
+			mc /= shaft.size()
+			if sky and rng.randf() < 0.55:
+				# a spire, with a beacon on top
+				var tall := rng.randf_range(2.2, 4.0)
+				mk.cylinder(Vector3(mc.x, hgt + tall * 0.5, mc.y), 0.07, tall, 4, Color(0.82, 0.84, 0.86), false)
+				mk.box(Vector3(mc.x, hgt + tall + 0.05, mc.y), Vector3(0.09, 0.09, 0.09), Color(1.0, 0.35, 0.3), null, false, 2.0)
+			elif rng.randf() < 0.4:
 				mk.cylinder(Vector3(mc.x, hgt + 0.9, mc.y), 0.03, 1.8, 4, IRON, false)
 		pts = shaft
 		backs = shaft
