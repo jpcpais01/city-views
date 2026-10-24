@@ -52,6 +52,15 @@ func wake(at: Vector2) -> void:
 	_failed.clear()
 
 
+## The player is still painting near `at`: grow towards it, carrying on with
+## the search already under way (a fresh one would never get anywhere while
+## the brush moves every frame).
+func nudge(at: Vector2) -> void:
+	focus = at
+	if not _awake:
+		wake(at)
+
+
 func stop() -> void:
 	_awake = false
 	_cands.clear()

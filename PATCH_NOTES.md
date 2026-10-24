@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-24 02:08 UTC
+- The Grow brush works reliably now. A single tap beside a street is enough, and the town starts growing while you are still painting.
+- The Grow and Green brushes cover a wider area, reaching past the pavements to where new houses and side streets go.
+- The brush ring turns green where the town can grow and amber where no street is near enough to grow from. If you paint away from streets, a tip tells you to draw a street there first.
+
 ## 2026-10-24 01:34 UTC
 - New photo mode: tap the camera button at the top to hide every button and panel and enjoy your island on its own. Tap the faint cross in the corner, or press back, to bring them back.
 - On PC, press H to switch photo mode on and off.

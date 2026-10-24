@@ -17,6 +17,7 @@ func _ready() -> void:
 	await _island_budget()
 	await _island_undo()
 	await _island_coop()
+	await _island_grow()
 	await _island_progress()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -111,6 +112,52 @@ func _island_undo() -> void:
 	var data := island.streets.to_data()
 	island.streets.from_data(data)
 	check(island.streets.streets[0].key == key, "streets keep their keys through a save")
+	island.queue_free()
+	await get_tree().process_frame
+
+
+func _island_grow() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(9)
+	island.progress.from_dict({})
+	var pts := PackedVector2Array()
+	for k in 60:
+		pts.append(Vector2(-30 + k, 3.0))
+	island.streets.add_stroke(pts)
+	island.streets.flush()
+	var far := Vector2(-30, -30)
+	for st: Streets.Street in island.streets.streets:
+		far = far if st.closest(far).x > 20.0 else Vector2(30, -30)
+	check(island.can_grow_at(Vector2(0, 6)) and not island.can_grow_at(far), "the Grow brush knows where there is a street to grow from")
+	# one tap beside the street
+	var at := Vector3(0, island.land.height_at(0, 6.5), 6.5)
+	island.brush = "grow"
+	island._ring_at = at
+	island._stroke = true
+	island._undo.append(island.snapshot())
+	island._stroke_lo = Vector2(at.x, at.z)
+	island._stroke_hi = Vector2(at.x, at.z)
+	island._paint_town(at, 0.55)
+	island._stroke_did = true
+	island._end_stroke()
+	var t := 0.0
+	while t < 8.0 and island.streets.streets.size() < 2:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+	check(island.streets.streets.size() >= 2, "a single Grow tap beside a street grows a new street (%d streets, %.1f s)" % [island.streets.streets.size(), t])
+	# a long drag along the other side grows while the finger is still down
+	var before := island.streets.streets.size()
+	island._stroke = true
+	island._undo.append(island.snapshot())
+	t = 0.0
+	while t < 4.0:
+		var x := -20.0 + t * 10.0
+		island._ring_at = Vector3(x, island.land.height_at(x, -0.5), -0.5)
+		await get_tree().process_frame
+		t += get_process_delta_time()
+	check(island.streets.streets.size() > before, "the town grows while the Grow brush is still painting (%d new)" % (island.streets.streets.size() - before))
+	island._end_stroke()
 	island.queue_free()
 	await get_tree().process_frame
 

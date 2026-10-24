@@ -8,7 +8,7 @@ extends CanvasLayer
 
 const BRUSH_INFO := {
 	"street": ["Street", "Draw a line: the street lays itself over the land"],
-	"grow": ["Grow", "Paint where the town should grow: it lays out its own streets"],
+	"grow": ["Grow", "Paint beside a street: new streets and houses branch off it"],
 	"green": ["Green", "Paint parks and gardens: the town keeps them green instead of building"],
 	"clear": ["Clear", "Drag to take streets away and stop the town growing there"],
 	"raise": ["Raise", "Drag to lift hills out of the land"],
