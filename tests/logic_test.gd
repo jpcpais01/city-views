@@ -1078,7 +1078,7 @@ func _road_kinds() -> void:
 		for e in [s.pts[0], s.pts[s.pts.size() - 1]]:
 			if a.closest(e).x < a.reach() + 1.0:
 				off_avenue += 1
-			if h.closest(e).x < h.reach() + 1.0 and h.closest(s.pts[s.pts.size() / 2]).x > 6.0 and absf(s.pts[s.pts.size() / 2].y - 22.0) < 3.0:
+			if h.closest(e).x < h.reach() + 1.0:
 				off_highway += 1
 	# bus stops along the avenue, clear of its junctions, and none on the highway
 	var near_junction := 0
@@ -1092,12 +1092,31 @@ func _road_kinds() -> void:
 	var on_highway := 0
 	var main := true
 	for l: Town.Lot in island.town.lots.values():
-		if l.street == a.id:
+		if l.street == a.id and not l.inner:
 			on_avenue += 1
 			main = main and l.main
 		if l.street == h.id:
 			on_highway += 1
 	check(off_avenue >= 2, "side streets grow off an avenue (%d)" % off_avenue)
+	check(off_highway == 0, "grown streets never join a highway (%d)" % off_highway)
+	# the Magic brush sends the houses under it straight to their top level
+	var sparks := [0]
+	island.town.magicked.connect(func(_at, _size): sparks[0] += 1)
+	var to_go := island.town.magic(Vector2(0, 5), 14.0, true)
+	island.town.magic(Vector2(0, 5), 14.0)
+	for k in 600:
+		if island.town._magic.is_empty():
+			break
+		island.town._process(0.016)
+	var below := 0
+	var topped := 0
+	for l: Town.Lot in island.town.lots.values():
+		if l.type == "house" and l.origin.distance_to(Vector2(0, 5)) <= 14.0:
+			if l.stage < l.cap:
+				below += 1
+			else:
+				topped += 1
+	check(to_go > 0 and below == 0 and topped >= 4 and sparks[0] > 0, "the Magic brush tops out every house under it (%d stages, %d topped, %d below, %d sparkles)" % [to_go, topped, below, sparks[0]])
 	var joined_dead := 0
 	for s: Streets.Street in island.streets.streets:
 		if s != a and s != h and a.closest(s.pts[0]).x < a.reach() and island.streets._dead_end(s, 0):

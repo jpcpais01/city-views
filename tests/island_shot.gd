@@ -2,7 +2,7 @@ extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one; 3: two 24 m apart), CV_GROW=radius (paints and grows the town),
-## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_HOLD=brush (holds it, e.g. grow shows the painted districts), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_TAP=x,y (taps the screen there, as if asking what stands there), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
+## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_HOLD=brush (holds it, e.g. grow shows the painted districts), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_SPARKLE=1 (Magic sparkles over a few houses mid-view), CV_TAP=x,y (taps the screen there, as if asking what stands there), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
 
 
 func _ready() -> void:
@@ -246,6 +246,14 @@ func _ready() -> void:
 		hud._page = OS.get_environment("CV_MENU")
 		hud._set_menu(true)
 	await get_tree().create_timer(float(OS.get_environment("CV_WAIT")) if OS.get_environment("CV_WAIT") != "" else 3.0).timeout
+	if OS.get_environment("CV_SPARKLE") != "":
+		var mid: Vector3 = island.rig._t_target
+		var n := 0
+		for l: Town.Lot in island.town.lots.values():
+			if l.type == "house" and l.host == 0 and l.origin.distance_to(Vector2(mid.x, mid.z)) < 25.0 and n < 8:
+				island._sparkle(Vector3(l.origin.x, l.street_y, l.origin.y), Vector3(maxf(l.width, 3.0), HouseGen.FH * maxf(l.floors, 1) + 1.0, maxf(l.depth, 3.0)))
+				n += 1
+		await get_tree().create_timer(0.45).timeout
 	if OS.get_environment("CV_TAP") != "":
 		var xy := OS.get_environment("CV_TAP").split(",")
 		island._tap(Vector2(float(xy[0]), float(xy[1])))

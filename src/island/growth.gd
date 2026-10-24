@@ -311,7 +311,7 @@ func _reach_ahead(p: Vector2, heading: Vector2, parent: Streets.Street, start: V
 	var best: Variant = null
 	var bd := 7.0
 	for o: Streets.Street in streets.streets:
-		if o == parent or o.closest(start).x < o.reach() + 0.5 or not o.near_box(p, bd):
+		if o == parent or o.kind == "highway" or o.closest(start).x < o.reach() + 0.5 or not o.near_box(p, bd):
 			continue
 		var c: Vector3 = o.closest(p)
 		if c.x >= bd:
@@ -343,6 +343,9 @@ func _hit(q: Vector2, heading: Vector2, parent: Streets.Street, start: Vector2, 
 		var c: Vector3 = o.closest(q)
 		if c.x > o.reach() + 4.5:
 			continue
+		# a highway is never joined: the street stops short of it
+		if o.kind == "highway":
+			return Vector3(2, 0, 0)
 		var i := clampi(int(c.z), 0, o.pts.size() - 2)
 		var t := (o.pts[i + 1] - o.pts[i]).normalized()
 		var along := absf(t.dot(heading))
