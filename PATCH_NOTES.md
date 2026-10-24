@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-24 11:20 UTC
+- Tap any building with no brush in hand to see what it is, its level, and how many people live or work there.
+- New houses rise out of the ground with a little bounce again, and grown houses stretch up to their new height.
+- A street started right beside another snaps onto it and joins cleanly, and one started near another's end carries straight on.
+- Smaller brushes: Small is half the size it was and Medium is a third smaller. Warning popups are now small and slim.
+- Fixed flickering stripes on flat roofs.
+
 ## 2026-10-24 09:57 UTC
 - A town hall now rises in the heart of a big town: a columned portico, a clock tower on the roof and a flag over the forecourt.
 - Schools go up among the homes, with a playground marked out for games, hoops and railings along the street.

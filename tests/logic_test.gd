@@ -14,6 +14,7 @@ func check(cond: bool, msg: String) -> void:
 
 func _ready() -> void:
 	_streets()
+	_street_snap()
 	await _junction_fuzz()
 	await _island_budget()
 	await _island_undo()
@@ -532,6 +533,20 @@ func _island_budget() -> void:
 			public[l.type] = public.get(l.type, 0) + 1
 	check(public.size() >= 2, "the town grows public buildings: a town hall, schools, market halls (%s)" % str(public))
 	check(public.get("hall", 0) <= 1, "there is only one town hall in the middle of town")
+	# tapping a building tells what it is
+	var picked := 0
+	var told := ""
+	for l: Town.Lot in island.town.lots.values():
+		if l.type != "house" or l.host != 0:
+			continue
+		var c := l.origin + Vector2(sin(l.yaw), cos(l.yaw)) * -1.0
+		var hit: Variant = island.town.lot_on_ray(Vector3(c.x, 60.0, c.y), Vector3.DOWN)
+		if hit == l:
+			picked += 1
+			told = island.town.describe(l).title + ", " + ", ".join(island.town.describe(l).lines)
+		if picked >= 10:
+			break
+	check(picked >= 8, "tapping a building picks it (%d of 10): %s" % [picked, told])
 	# painting green turns the houses there into parks
 	var at: Vector2 = some.origin
 	island.land.paint_green(Vector3(at.x, 0, at.y), 8.0, 1.0)
@@ -600,3 +615,33 @@ func _civic_kinds(island: IslandWorld) -> Array:
 			out.append(l.type)
 	out.sort()
 	return out
+
+
+## A street started just beside another snaps onto it; one started near the
+## other's end carries straight on from it.
+func _street_snap() -> void:
+	var land := Land.new()
+	add_child(land)
+	land.generate(7)
+	var st := Streets.new()
+	st.land = land
+	add_child(st)
+	var raw := PackedVector2Array()
+	for k in 21:
+		raw.append(Vector2(-10.0 + k, 0.0))
+	var a: Streets.Street = st.add_stroke(raw)
+	# starts 2.4 m off the first street's centre, heading away at a slant
+	raw = PackedVector2Array()
+	for k in 12:
+		raw.append(Vector2(-2.0 + k * 0.6, 2.4 + k))
+	var b: Streets.Street = st.add_stroke(raw)
+	var joined := b != null and a.closest(b.pts[0]).x < 0.05
+	check(joined, "a street started just beside another joins it (%.2f m off)" % (a.closest(b.pts[0]).x if b else -1.0))
+	# starts 2 m past the first street's end, going on the same way
+	raw = PackedVector2Array()
+	for k in 12:
+		raw.append(Vector2(a.pts[a.pts.size() - 1].x + 2.0 + k, 0.4))
+	var c: Streets.Street = st.add_stroke(raw)
+	check(c != null and c.pts[0].distance_to(a.pts[a.pts.size() - 1]) < 0.05, "a street started near another's end carries on from it")
+	st.queue_free()
+	land.queue_free()

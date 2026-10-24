@@ -304,28 +304,52 @@ func _reconform_near(s: Street) -> void:
 		land.conform(o.pts, o.ys, o.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
 
 
+## how far short of another street a stroke may start or end and still join it
+const SNAP := 2.5
+
+
 func _snap_ends(pts: PackedVector2Array) -> PackedVector2Array:
-	for end in [0, pts.size() - 1]:
-		var p := pts[end]
+	for end in [0, 1]:
+		if pts.size() < 2:
+			break
+		var p := pts[0] if end == 0 else pts[pts.size() - 1]
 		var best: Street = null
-		var bd := 2.8
-		for o in streets:
-			if not o.near_box(p, bd):
+		var bd := INF
+		for o: Street in streets:
+			# anywhere on the other street's paving, or a few metres short of it
+			var reach := o.reach() + SNAP
+			if not o.near_box(p, reach):
 				continue
 			var c: Vector3 = o.closest(p)
-			if c.x < bd:
-				bd = c.x
+			if c.x < reach and c.x - o.reach() < bd:
+				bd = c.x - o.reach()
 				best = o
-		if best == null or bd < 0.3:
+		if best == null:
 			continue
 		var c2: Vector3 = best.closest(p)
+		if c2.x < 0.3:
+			continue
 		var i := int(c2.z)
-		var a := best.pts[mini(i, best.pts.size() - 1)]
-		var b := best.pts[mini(i + 1, best.pts.size() - 1)]
-		var on := a.lerp(b, c2.z - i)
+		var n := best.pts.size()
+		var on := best.pts[mini(i, n - 1)].lerp(best.pts[mini(i + 1, n - 1)], c2.z - i)
+		# close to the other street's own end: carry straight on from it
+		if on.distance_to(best.pts[0]) < SNAP:
+			on = best.pts[0]
+		elif on.distance_to(best.pts[n - 1]) < SNAP:
+			on = best.pts[n - 1]
+		# the stretch of the stroke still over the other street (or just
+		# short of it) goes, so the new street meets it squarely, with no kink
+		var drop := 0
+		while drop < pts.size() - 2:
+			var q := pts[drop] if end == 0 else pts[pts.size() - 1 - drop]
+			if best.closest(q).x > best.reach() + 0.6:
+				break
+			drop += 1
 		if end == 0:
+			pts = pts.slice(drop)
 			pts.insert(0, on)
 		else:
+			pts = pts.slice(0, pts.size() - drop)
 			pts.append(on)
 	return pts
 

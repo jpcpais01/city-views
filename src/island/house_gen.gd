@@ -379,8 +379,7 @@ static func _roof(mk: MeshKit, rng: RandomNumberGenerator, K: Dictionary, hw: fl
 	var pitch := lerpf(K.pitch.x, K.pitch.y, rng.randf())
 	if kind == 3:
 		# flat roof behind a parapet
-		mk.ledge(Vector3(0, hgt + 0.06, 0), Vector3(hw + 0.04, 0.12, hd + 0.04), 0.02, wall.lightened(0.35))
-		mk.box_faces(Vector3(0, hgt + 0.1, 0), Vector3(hw - 0.1, 0.02, hd - 0.1), Color(0.55, 0.55, 0.57), MeshKit.TOP)
+		_parapet(mk, Vector3(0, hgt, 0), hw + 0.04, hd + 0.04, 0.12, wall.lightened(0.35))
 		return
 	var rh := hd * 0.5 * pitch
 	if kind == 0:
@@ -680,14 +679,30 @@ static func _wing(mk: MeshKit, rng: RandomNumberGenerator, K: Dictionary, x: flo
 	mk.box_faces(Vector3(x, wh * 0.5, wz), Vector3(ww, wh, wing.y), wall, MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, we)
 	mk.window_grid(Vector3(x, 0, z0 - wing.y), Vector3.FORWARD, ww, maxi(1, int(ww / 0.6)), wf, 0.24, Palette.GLASS)
 	if dense:
-		mk.ledge(Vector3(x, wh + 0.03, wz), Vector3(ww + 0.04, 0.06, wing.y + 0.02), 0.015, wall.lightened(0.3))
-		mk.box_faces(Vector3(x, wh + 0.05, wz), Vector3(ww - 0.06, 0.02, wing.y - 0.04), Color(0.55, 0.55, 0.57), MeshKit.TOP)
+		_parapet(mk, Vector3(x, wh, wz), ww + 0.04, wing.y + 0.02, 0.08, wall.lightened(0.3))
 	else:
 		# its ridge runs back from the house
 		var pitch := lerpf(K.pitch.x, K.pitch.y, rng.randf()) * 0.8
 		mk.push_at(Vector3(x, wh, wz), PI * 0.5)
 		mk.gable_roof(Vector3.ZERO, wing.y, ww, ww * 0.5 * pitch, 0.05, roof, wall)
 		mk.pop()
+
+
+## A low parapet round a flat felt roof, its foot centred at `base`: outer
+## walls, a rim along the top, and the felt sunk well below the rim so the two
+## never sit close enough to flicker against each other.
+static func _parapet(mk: MeshKit, base: Vector3, w: float, d: float, h: float, col: Color) -> void:
+	var was := mk.shadow
+	mk.shadow = false
+	mk.box_faces(base + Vector3(0, h * 0.5, 0), Vector3(w, h, d), col, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	var rim := 0.05
+	var y := base.y + h
+	for sz: float in [-1.0, 1.0]:
+		mk.box_faces(Vector3(base.x, y, base.z + sz * (d - rim) * 0.5), Vector3(w, 0.0, rim), col, MeshKit.TOP)
+	for sx: float in [-1.0, 1.0]:
+		mk.box_faces(Vector3(base.x + sx * (w - rim) * 0.5, y, base.z), Vector3(rim, 0.0, d - rim * 2.0), col, MeshKit.TOP)
+	mk.box_faces(base + Vector3(0, h - 0.05, 0), Vector3(w - rim * 2.0, 0.0, d - rim * 2.0), Color(0.55, 0.55, 0.57), MeshKit.TOP)
+	mk.shadow = was
 
 
 ## The outline of a terrace whose plot is too shallow at one end for a full

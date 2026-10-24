@@ -10,6 +10,8 @@ signal history_changed
 signal note(text: String, kind: String)
 ## the island was renamed (here or by a co-op builder)
 signal name_changed
+## a building was tapped with no brush in hand (null: open ground)
+signal inspected(lot: Variant)
 
 const SAVE_PATH := "user://island.json"
 const BRUSHES := ["street", "grow", "green", "clear", "raise", "lower", "smooth", "flatten"]
@@ -521,6 +523,13 @@ func _hover_at(screen: Vector2) -> void:
 
 # ------------------------------------------------------------------ input
 
+## A tap with no brush in hand asks what stands there.
+func _tap(screen: Vector2) -> void:
+	if brush != "":
+		return
+	inspected.emit(town.lot_on_ray(rig.cam.project_ray_origin(screen), rig.cam.project_ray_normal(screen)))
+
+
 func _begin_stroke(screen: Vector2) -> void:
 	_hover_at(screen)
 	if brush == "" or _ring_at == null:
@@ -651,6 +660,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_begin_stroke(event.position)
 			else:
 				# a second finger means the camera, not a street
+				_moved = true
 				_path = PackedVector2Array()
 				_end_stroke()
 				_gesture_prev = {}
@@ -658,6 +668,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_touches.erase(event.index)
 			if _touches.is_empty():
 				_end_stroke()
+				if not _moved:
+					_tap(event.position)
 			_gesture_prev = {}
 	elif event is InputEventScreenDrag:
 		_touches[event.index] = event.position
@@ -683,6 +695,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					_begin_stroke(event.position)
 				else:
 					_end_stroke()
+					if not _moved:
+						_tap(event.position)
 		if event.pressed:
 			_mouse_buttons |= 1 << event.button_index
 		else:
