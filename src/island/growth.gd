@@ -249,10 +249,12 @@ func _contacts(s: Streets.Street) -> PackedVector2Array:
 	for o: Streets.Street in streets.streets:
 		if o == s or not streets._boxes_overlap(s, o):
 			continue
-		for p in o.pts:
+		var span := Streets._near_span(o, s, r + 3.0)
+		for q in range(span.x, span.y + 1):
+			var p := o.pts[q]
 			if not s.near_box(p, r + 3.0):
 				continue
-			var c: Vector3 = s.closest(p)
+			var c: Vector3 = s.closest_near(p, r + 3.001)
 			if c.x < r + 0.3 or c.x > r + 3.0:
 				continue
 			var i := clampi(int(c.z), 0, s.pts.size() - 1)
@@ -263,7 +265,7 @@ func _contacts(s: Streets.Street) -> PackedVector2Array:
 
 func _occupied(p: Vector2, parent: Streets.Street) -> bool:
 	for o: Streets.Street in streets.streets:
-		if o != parent and o.near_box(p, o.reach() + 2.5) and o.closest(p).x < o.reach() + 2.5:
+		if o != parent and o.near_box(p, o.reach() + 2.5) and o.within(p, o.reach() + 2.5):
 			return true
 	return false
 
@@ -320,9 +322,9 @@ func _reach_ahead(p: Vector2, heading: Vector2, parent: Streets.Street, start: V
 	var best: Variant = null
 	var bd := 7.0
 	for o: Streets.Street in streets.streets:
-		if o == parent or Streets.KINDS[o.kind].verge or o.closest(start).x < o.reach() + 0.5 or not o.near_box(p, bd):
+		if o == parent or Streets.KINDS[o.kind].verge or o.within(start, o.reach() + 0.5) or not o.near_box(p, bd):
 			continue
-		var c: Vector3 = o.closest(p)
+		var c: Vector3 = o.closest_near(p, bd)
 		if c.x >= bd:
 			continue
 		var i := clampi(int(c.z), 0, o.pts.size() - 2)
@@ -345,11 +347,11 @@ func _grade(p: Vector2, heading: Vector2) -> float:
 func _hit(q: Vector2, heading: Vector2, parent: Streets.Street, start: Vector2, length: float) -> Vector3:
 	for o: Streets.Street in streets.streets:
 		# near the start, ignore the streets that meet at the junction we leave from
-		if length < 6.0 and (o == parent or o.closest(start).x < o.reach() + 0.5):
+		if length < 6.0 and (o == parent or o.within(start, o.reach() + 0.5)):
 			continue
 		if not o.near_box(q, o.reach() + 4.5):
 			continue
-		var c: Vector3 = o.closest(q)
+		var c: Vector3 = o.closest_near(q, o.reach() + 4.5)
 		if c.x > o.reach() + 4.5:
 			continue
 		# a highway is never joined: the street stops short of it
@@ -375,7 +377,7 @@ func _field(p: Vector2, heading: Vector2) -> Vector2:
 	for o: Streets.Street in streets.streets:
 		if not o.near_box(p, 20.0):
 			continue
-		var c: Vector3 = o.closest(p)
+		var c: Vector3 = o.closest_near(p, 20.0)
 		if c.x > 20.0:
 			continue
 		var i := clampi(int(c.z), 0, o.pts.size() - 2)

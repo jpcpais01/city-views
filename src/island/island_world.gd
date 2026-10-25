@@ -61,6 +61,10 @@ var _ring_mesh: ImmediateMesh
 var _ring_at: Variant = null
 var _shore_dirty := false
 var _coast_dirty := false
+# where the shaping brushes moved the coast since it was last worked out (in
+# samples; empty: anywhere, so all of it)
+var _coast_box := Rect2i()
+var _coast_any := false
 var _shore_wait := 0.0
 var _save_timer := 0.0
 var _sculpt_sound := 0.0
@@ -281,6 +285,7 @@ func plan_highways(seed_value: int) -> int:
 		streets.lay_highway(lines[k], "hw%d_%d" % [seed_value, k])
 	_shore_dirty = true
 	_coast_dirty = true
+	_coast_any = true
 	return lines.size()
 
 
@@ -452,9 +457,15 @@ func _save(background := false) -> void:
 ## hands it to `done` (on that thread). Returns the task.
 func _dict_off_thread(done: Callable) -> int:
 	var data := {"v": SAVE_VERSION, "map": land.kind, "size": int(Land.SIZE), "t": Time.get_unix_time_from_system(), "seed": island_seed,
-		"streets": streets.to_data(), "progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name}
+		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name, "hw": highway_seed}
 	var layers := [land.heights.duplicate(), land._base, land.zone.duplicate(), land.green.duplicate(), land.level.duplicate()]
+	# the streets copied out here, turned into data over there
+	var raw := streets.to_raw()
 	return WorkerThreadPool.add_task(func():
+		var st := []
+		for r: Array in raw:
+			st.append(Streets.data_of(r))
+		data["streets"] = st
 		data["land"] = Land.edits_of(layers[0], layers[1])
 		data["zone"] = Land.painted_of(layers[2], 0.01)
 		data["green"] = Land.painted_of(layers[3], 0.01)
@@ -522,7 +533,9 @@ var _height_img: Image
 var _maps_box := Rect2i()
 var _maps_stage := 0
 var _maps_coast := false
+var _maps_shore := Rect2i(0, 0, -1, -1)
 var _height_tex: ImageTexture
+var _shore_tex: ImageTexture
 
 
 ## Ground maps for the shaders; the shoreline one only when the coast may have
@@ -532,6 +545,11 @@ func _update_maps(coast := true, box := Rect2i(0, 0, -1, -1)) -> void:
 	if full:
 		land.take_map_box()
 		box = Rect2i(0, 0, -1, -1)
+		if coast:
+			# all of the shoreline is worked out here: nothing left owing
+			_coast_dirty = false
+			_coast_any = false
+			_coast_box = Rect2i()
 	_maps_farm(box)
 	_maps_ground(coast, box)
 
@@ -553,7 +571,7 @@ func _maps_farm_step(box: Rect2i) -> bool:
 	return true
 
 
-const FARM_BAND := 24
+const FARM_BAND := 12
 
 
 ## The farm map, where the land or the painted town may have changed it.
@@ -572,9 +590,15 @@ func _upload_farm() -> void:
 
 
 ## The height map the buildings and streets read, and the shoreline.
-func _maps_ground(coast: bool, box: Rect2i) -> void:
+func _maps_ground(coast: bool, box: Rect2i, shore := Rect2i(0, 0, -1, -1)) -> void:
 	if coast:
-		water_mat.set_shader_parameter("shore_tex", ImageTexture.create_from_image(land.shore_image(16.0)))
+		# (only round what changed, when the rest is as it was)
+		var img := land.shore_image(16.0, shore if shore.size.x > 0 and _shore_tex != null else Rect2i(0, 0, -1, -1))
+		if _shore_tex != null and Vector2i(_shore_tex.get_size()) == img.get_size():
+			_shore_tex.update(img)
+		else:
+			_shore_tex = ImageTexture.create_from_image(img)
+			water_mat.set_shader_parameter("shore_tex", _shore_tex)
 		water_mat.set_shader_parameter("grid_size", Land.SIZE)
 	if box.size.x < 0 or _height_tex == null:
 		_height_img = land.height_image()
@@ -626,17 +650,22 @@ func _process(delta: float) -> void:
 		var box := land.take_map_box()
 		if box.size.x > 0:
 			_maps_box = _maps_box.merge(box) if _maps_box.size.x > 0 else box
-		_maps_coast = _maps_coast or _coast_dirty
+		if _coast_dirty:
+			var whole := _coast_any or _coast_box.size.x <= 0 or (_maps_coast and _maps_shore.size.x <= 0)
+			_maps_shore = Rect2i(0, 0, -1, -1) if whole else (_maps_shore.merge(_coast_box) if _maps_coast else _coast_box)
+			_maps_coast = true
 		_maps_stage = 1
 		_farm_y = -1
 		_coast_dirty = false
+		_coast_any = false
+		_coast_box = Rect2i()
 		_save_timer = maxf(_save_timer, 1.0)
 	elif _maps_stage == 1:
 		if _maps_farm_step(_maps_box):
 			_maps_stage = 2
 	elif _maps_stage == 2:
 		_maps_stage = 0
-		_maps_ground(_maps_coast, _maps_box)
+		_maps_ground(_maps_coast, _maps_box, _maps_shore)
 		_maps_box = Rect2i()
 		_maps_coast = false
 	# the ground's shadow stand-in, a tile a frame where it changed
@@ -707,6 +736,9 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 			return
 	_shore_dirty = true
 	_coast_dirty = true
+	var lo := Vector2i(((c - Vector2(r, r) + Vector2.ONE * Land.HALF) / Land.STEP).floor()) - Vector2i.ONE
+	var cb := Rect2i(lo, Vector2i.ONE * (int(ceil(r * 2.0 / Land.STEP)) + 3))
+	_coast_box = _coast_box.merge(cb) if _coast_box.size.x > 0 else cb
 	_sculpt_sound -= delta
 	if _sculpt_sound <= 0.0:
 		_sculpt_sound = 0.16
@@ -750,7 +782,9 @@ func _own_class() -> int:
 ## The dab at c, kept while the brush hovers in the same place.
 func _dab_mask(c: Vector2, over: int) -> BrushMask:
 	var r := _zone_radius()
-	var key := hash([Vector2i((c * 4.0).round()), r, _own_class(), over, streets.streets.size(), streets._next_id, land.revision])
+	# (the paint and the streets, not the ground's shape: land.revision moves
+	# on every frame the town is growing, which would redo it every frame)
+	var key := hash([Vector2i((c * 4.0).round()), r, _own_class(), over, streets.streets.size(), streets._next_id, land.farm_rev])
 	if _mask == null or key != _mask_key:
 		_mask = BrushMask.new()
 		_mask.compute(land, streets, c, r, _own_class(), over)
@@ -858,7 +892,7 @@ static func _sparkle_tex() -> ImageTexture:
 func can_grow_at(c: Vector2) -> bool:
 	var r := _zone_radius() + 2.0
 	for st: Streets.Street in streets.streets:
-		if st.near_box(c, r) and st.closest(c).x < r:
+		if st.near_box(c, r) and st.within(c, r):
 			return true
 	return false
 
@@ -942,16 +976,29 @@ func _draw_dab(at: Vector3, w: float) -> void:
 	var col: Color = Land.PARK_TINT if brush == "green" else Land.USE_TINTS[clampi(grow_use, 0, Land.USE_TINTS.size() - 1)]
 	var edge := col.lightened(0.35) if can_grow_at(c) else Color(1.0, 0.72, 0.35)
 	var segs := 64
-	var reach := PackedFloat32Array()
-	reach.resize(segs)
+	# how far the dab reaches each way, worked out once for each dab
+	if mask.outline.size() != segs:
+		mask.outline.resize(segs)
+		# (mask.covers() written out, as this runs a thousand times or more)
+		var cov := mask.cov
+		var mw := mask.w
+		var mh := mask.h
+		var o := Vector2(Land.HALF - mask.i0 * Land.STEP, Land.HALF - mask.j0 * Land.STEP)
+		for k in segs:
+			var dir := Vector2.from_angle(TAU * k / segs)
+			var t := 0.0
+			while t < radius + 0.5:
+				var q := (c + dir * (t + 0.5) + o) / Land.STEP
+				var ii := int(round(q.x))
+				var jj := int(round(q.y))
+				if ii < 0 or jj < 0 or ii >= mw or jj >= mh or cov[jj * mw + ii] < 0.5:
+					break
+				t += 0.5
+			mask.outline[k] = minf(t + 0.25, radius) if t > 0.0 else 0.0
+	var reach := mask.outline
 	var none := true
 	for k in segs:
-		var dir := Vector2.from_angle(TAU * k / segs)
-		var t := 0.0
-		while t < radius + 0.5 and mask.covers(c + dir * (t + 0.5)):
-			t += 0.5
-		reach[k] = minf(t + 0.25, radius) if t > 0.0 else 0.0
-		none = none and t <= 0.0
+		none = none and reach[k] <= 0.0
 	if none:
 		_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 		_ring_mesh.surface_set_color(Color(0.8, 0.8, 0.8, 0.45))
@@ -1174,6 +1221,7 @@ func restore(snap: Dictionary) -> void:
 		town.zone_changed(c, r)
 	_shore_dirty = true
 	_coast_dirty = true
+	_coast_any = true
 	_save_timer = 0.5
 
 
@@ -1181,6 +1229,7 @@ func restore(snap: Dictionary) -> void:
 func ground_changed() -> void:
 	_shore_dirty = true
 	_coast_dirty = true
+	_coast_any = true
 
 
 func can_undo() -> bool:

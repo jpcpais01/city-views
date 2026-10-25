@@ -79,6 +79,8 @@ var _junctions: Array = []
 var _junctions_dirty := true
 ## [street id, street id] -> [fingerprint, meetings] (see _meetings_of)
 var _meet_cache := {}
+# the junctions last worked out, by what they were made from (see _meets_sig)
+var _shaped := {}
 ## where street meets highway, see _crossing: (id, id) -> [hash, result]
 var _cross_cache := {}
 ## this builder's mark on the streets it makes, so keys never clash in co-op
@@ -130,6 +132,11 @@ class Street:
 	var quay := PackedByteArray()
 	## its bus stops: (sample index, side), set once it is built (see BusStops)
 	var stops := PackedVector2Array()
+	# its segments by cell (see _cells), and the points they were found for
+	const GRID := 6.0
+	var _grid := {}
+	var _grid_sig := 0
+	var _grid_n := -1
 
 	func w() -> float:
 		return Streets.KINDS[kind].w
@@ -168,26 +175,96 @@ class Street:
 				bs = i + t
 		return Vector3(best, by, bs)
 
-	## Whether p lies within `r` of the centre line (a quick pass first skips
-	## stretches of the street that are far away).
+	## Whether p lies within `r` of the centre line (only the stretches of it
+	## near p are looked at, see segments_near).
 	func within(p: Vector2, r: float) -> bool:
-		const RUN := 8
-		var n := pts.size()
-		var i := 0
-		while i < n - 1:
-			var e := mini(i + RUN, n - 1)
-			# no point of this stretch can be nearer than this
-			if p.distance_to(pts[i]) - RUN * Streets.SAMPLE > r:
-				i = e
-				continue
-			for k in range(i, e):
-				var a := pts[k]
-				var ab := pts[k + 1] - a
-				var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-6), 0.0, 1.0)
-				if p.distance_to(a + ab * t) < r:
-					return true
-			i = e
+		var g := _cells()
+		var c0 := Vector2i(((p - Vector2(r, r)) / GRID).floor())
+		var c1 := Vector2i(((p + Vector2(r, r)) / GRID).floor())
+		for cy in range(c0.y, c1.y + 1):
+			for cx in range(c0.x, c1.x + 1):
+				var segs: Variant = g.get(Vector2i(cx, cy))
+				if segs == null:
+					continue
+				for k: int in segs:
+					var a := pts[k]
+					var ab := pts[k + 1] - a
+					var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-6), 0.0, 1.0)
+					if p.distance_to(a + ab * t) < r:
+						return true
 		return false
+
+	## The segments (k: from pts[k] to pts[k + 1]) that may reach into the box
+	## lo..hi, in order along the street, each once.
+	func segments_near(lo_: Vector2, hi_: Vector2) -> PackedInt32Array:
+		var g := _cells()
+		var out := PackedInt32Array()
+		var c0 := Vector2i((lo_ / GRID).floor())
+		var c1 := Vector2i((hi_ / GRID).floor())
+		var many := false
+		for cy in range(c0.y, c1.y + 1):
+			for cx in range(c0.x, c1.x + 1):
+				var segs: Variant = g.get(Vector2i(cx, cy))
+				if segs != null:
+					many = many or not out.is_empty()
+					out.append_array(PackedInt32Array(segs))
+		if many:
+			out.sort()
+			var k := 0
+			for i in out.size():
+				if i == 0 or out[i] != out[k - 1]:
+					out[k] = out[i]
+					k += 1
+			out.resize(k)
+		return out
+
+	## Like closest(), but only looking within `r` of p (much quicker on a
+	## long street): x is INF when no part of it comes that near.
+	func closest_near(p: Vector2, r: float) -> Vector3:
+		var best := INF
+		var by := 0.0
+		var bs := 0.0
+		for i in segments_near(p - Vector2(r, r), p + Vector2(r, r)):
+			var a := pts[i]
+			var b := pts[i + 1]
+			var ab := b - a
+			var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-6), 0.0, 1.0)
+			var d := p.distance_to(a + ab * t)
+			if d < best:
+				best = d
+				by = lerpf(ys[i], ys[i + 1], t)
+				bs = i + t
+		if best > r:
+			best = INF
+		return Vector3(best, by, bs)
+
+	## A fingerprint of its course and width (cached with the cells).
+	func shape_sig() -> int:
+		_cells()
+		return hash([_grid_sig, kind])
+
+	## The street's segments by the GRID-metre cells their boxes cover, worked
+	## out again whenever its points change.
+	func _cells() -> Dictionary:
+		var sig := hash(pts)
+		if sig == _grid_sig and _grid_n == pts.size():
+			return _grid
+		_grid_sig = sig
+		_grid_n = pts.size()
+		_grid = {}
+		for k in pts.size() - 1:
+			var a := pts[k]
+			var b := pts[k + 1]
+			var c0 := Vector2i((a.min(b) / GRID).floor())
+			var c1 := Vector2i((a.max(b) / GRID).floor())
+			for cy in range(c0.y, c1.y + 1):
+				for cx in range(c0.x, c1.x + 1):
+					var key := Vector2i(cx, cy)
+					if _grid.has(key):
+						_grid[key].append(k)
+					else:
+						_grid[key] = [k]
+		return _grid
 
 
 # ------------------------------------------------------------------ building streets
@@ -276,7 +353,9 @@ func _lay(s: Street) -> Street:
 				_conform(o)
 		# and the banks their ramps stand on stop at its shoulders
 		_lower_onto(s)
-	_reconform_near(s)
+	# the streets round it settle onto it over the next few frames (a long
+	# road through a big town touches a hundred or more)
+	_lower_later.append([s, _touching(s)])
 	_conform_junctions(s)
 	_laying[s.id] = 0.0
 	_build(s)
@@ -367,6 +446,7 @@ func regrade_in(lo: Vector2, hi: Vector2) -> void:
 func _remove(s: Street, quiet := false) -> void:
 	_forget(s)
 	streets.erase(s)
+	rev += 1
 	_junctions_dirty = true
 	if quiet:
 		_links_dirty = true
@@ -386,10 +466,20 @@ func _forget(s: Street) -> void:
 			_cross_cache.erase(k)
 
 
+## bumped whenever a street is added, taken up or changed
+var rev := 0
+
+
 func _init() -> void:
-	changed.connect(func(): _links_dirty = true)
-	removed.connect(func(_s): _links_dirty = true)
-	added.connect(func(_s): _links_dirty = true)
+	changed.connect(_touched)
+	removed.connect(func(_s): _touched())
+	added.connect(func(_s): _touched())
+	rekinded.connect(func(_s, _p): _touched())
+
+
+func _touched() -> void:
+	_links_dirty = true
+	rev += 1
 
 
 func clear() -> void:
@@ -447,11 +537,12 @@ func _grade(s: Street) -> void:
 		var best := Vector3(INF, 0, 0)
 		var bi := -1
 		var meet: float = o.w() + 0.2 + (s.w() + 0.1 if _merges(s, o) else 0.0)
-		for i in n:
+		var span := _near_span(s, o, meet)
+		for i in range(span.x, span.y + 1):
 			# (only samples close enough to meet it can, and most are far)
-			if not o.within(s.pts[i], meet):
+			var c: Vector3 = o.closest_near(s.pts[i], meet)
+			if c.x >= meet:
 				continue
-			var c: Vector3 = o.closest(s.pts[i])
 			if c.x < best.x:
 				best = c
 				bi = i
@@ -636,6 +727,45 @@ func _boxes_overlap(a: Street, b: Street) -> bool:
 	return not (a.hi.x + r < b.lo.x or b.hi.x + r < a.lo.x or a.hi.y + r < b.lo.y or b.hi.y + r < a.lo.y)
 
 
+## The samples of s (first, last) that may come within `r` of o: none
+## (an empty range) when no part of s comes near o's box.
+static func _near_span(s: Street, o: Street, r: float) -> Vector2i:
+	var pad := Vector2.ONE * (r + 0.1)
+	var near := s.segments_near(o.lo - pad, o.hi + pad)
+	if near.is_empty():
+		return Vector2i(0, -1)
+	return Vector2i(near[0], mini(near[near.size() - 1] + 1, s.pts.size() - 1))
+
+
+# while every pair of streets is looked over: each one's box grown by its
+# reach (lo x, lo y, hi x, hi y), and its shape_sig() by id
+var _pair_box := PackedFloat32Array()
+var _sigs := {}
+
+
+func _begin_pairs() -> void:
+	_pair_box.resize(streets.size() * 4)
+	for i in streets.size():
+		var st: Street = streets[i]
+		var r := st.reach()
+		_pair_box[i * 4] = st.lo.x - r
+		_pair_box[i * 4 + 1] = st.lo.y - r
+		_pair_box[i * 4 + 2] = st.hi.x + r
+		_pair_box[i * 4 + 3] = st.hi.y + r
+		_sigs[st.id] = st.shape_sig()
+
+
+func _end_pairs() -> void:
+	_sigs.clear()
+
+
+## _boxes_overlap() of streets[i] and streets[k], from _begin_pairs().
+func _pair_near(i: int, k: int) -> bool:
+	var a := i * 4
+	var b := k * 4
+	return not (_pair_box[a + 2] < _pair_box[b] or _pair_box[b + 2] < _pair_box[a] or _pair_box[a + 3] < _pair_box[b + 1] or _pair_box[b + 3] < _pair_box[a + 1])
+
+
 func _touching(s: Street) -> Array:
 	var out: Array = []
 	for o in streets:
@@ -646,24 +776,30 @@ func _touching(s: Street) -> Array:
 
 func _reconform_near(s: Street) -> void:
 	for o in _touching(s):
-		# only the stretch of it near s (a long highway's far end is as it was)
-		# (as far as the banks of s can reach, its ramps' eased out widest)
-		var r: float = s.reach() + o.reach() + 4.5 + Land.STEP + 6.0
-		var a := -1
-		var b := -1
-		for i in o.pts.size():
-			if s.near_box(o.pts[i], r):
-				if a < 0:
-					a = i
-				b = i
-		if a < 0:
-			continue
-		a = maxi(a - 1, 0)
-		b = mini(b + 1, o.pts.size() - 1)
-		if b - a < 1:
-			continue
-		# a grid step past the pavement too, so the ground can't rise over its edge in between
-		_lower_onto(o, a, b)
+		_reconform_one(s, o)
+
+
+## The ground taken down to o where it rises over o's edges near s.
+func _reconform_one(s: Street, o: Street) -> void:
+	# only the stretch of it near s (a long highway's far end is as it was)
+	# (as far as the banks of s can reach, its ramps' eased out widest)
+	var r: float = s.reach() + o.reach() + 4.5 + Land.STEP + 6.0
+	var a := -1
+	var b := -1
+	var span := _near_span(o, s, r)
+	for i in range(span.x, span.y + 1):
+		if s.near_box(o.pts[i], r) and s.within(o.pts[i], r):
+			if a < 0:
+				a = i
+			b = i
+	if a < 0:
+		return
+	a = maxi(a - 1, 0)
+	b = mini(b + 1, o.pts.size() - 1)
+	if b - a < 1:
+		return
+	# a grid step past the pavement too, so the ground can't rise over its edge in between
+	_lower_onto(o, a, b)
 
 
 ## Takes the ground down to a street wherever it rises over its edges (as a
@@ -813,6 +949,9 @@ func _process(delta: float) -> void:
 		# lay it out in a few steps rather than remaking it every frame
 		elif int(before / 0.1) != int(_laying[id] / 0.1):
 			_build(s)
+	# the streets round a new one settling onto it, a few a frame
+	while not _lower_later.is_empty() and Time.get_ticks_usec() - start < FrameBudget.cap(3000):
+		_lower_step()
 	for id in _pending.keys():
 		if Time.get_ticks_usec() - start > FrameBudget.cap(3000):
 			break
@@ -822,8 +961,25 @@ func _process(delta: float) -> void:
 			_build(s)
 
 
+# [street, the streets round it still to settle onto it]
+var _lower_later: Array = []
+
+
+func _lower_step() -> void:
+	var job: Array = _lower_later[0]
+	var round_it: Array = job[1]
+	if round_it.is_empty() or not job[0] in streets:
+		_lower_later.pop_front()
+		return
+	var o: Street = round_it.pop_back()
+	if o in streets:
+		_reconform_one(job[0], o)
+
+
 ## Finishes laying and remaking every street now (tests, loading).
 func flush() -> void:
+	while not _lower_later.is_empty():
+		_lower_step()
 	if not _laying.is_empty():
 		for id in _laying:
 			var s := by_id(id)
@@ -1225,9 +1381,18 @@ func _overlap_cuts(s: Street, cuts: Dictionary) -> void:
 		if o == s or not _boxes_overlap(s, o) or _flies(s, o):
 			continue
 		var r := o.w() + 0.05
+		# only the stretch of s near o can run onto it
+		var pad := Vector2.ONE * (r + out + 0.1)
+		var near := s.segments_near(o.lo - pad, o.hi + pad)
+		if near.is_empty():
+			continue
+		var n := s.pts.size()
+		var from := near[0]
+		var to := mini(near[near.size() - 1] + 2, n - 1)
 		for side: float in [-1.0, 1.0]:
 			var open := -1
-			for i in s.pts.size():
+			var i := from
+			while i < n:
 				var q := s.pts[i] + _side(s, i) * side * out
 				var hit := o.near_box(q, r) and o.within(q, r)
 				if hit and open < 0:
@@ -1235,13 +1400,16 @@ func _overlap_cuts(s: Street, cuts: Dictionary) -> void:
 				elif not hit and open >= 0:
 					cuts[side].append(Vector2(maxf(open - 0.75, 0.0), i - 0.25))
 					open = -1
+				if i >= to and open < 0:
+					break
+				i += 1
 			if open >= 0:
 				cuts[side].append(Vector2(maxf(open - 0.75, 0.0), s.pts.size()))
 
 
-## Whether a point lies on some street's carriageway, well inside its kerbs.
-func _on_carriageway(p: Vector2) -> bool:
-	for o: Street in streets:
+## Whether a point lies on the carriageway of one of the streets `among`, well inside its kerbs.
+func _on_carriageway(p: Vector2, among: Array) -> bool:
+	for o: Street in among:
 		if o.near_box(p, o.w()) and o.within(p, o.w() - 0.08):
 			return true
 	return false
@@ -1276,7 +1444,7 @@ func _flyover_pier(s: Street, fly: Dictionary, sup: MeshBuf) -> void:
 ## (laying one street then only works out its own meetings afresh).
 func _meetings_of(s: Street, o: Street, seen: Dictionary) -> PackedVector2Array:
 	var key := Vector2i(s.id, o.id)
-	var sig := hash([s.pts, s.w(), o.pts, o.w()])
+	var sig := hash([_sigs[s.id] if _sigs.has(s.id) else s.shape_sig(), _sigs[o.id] if _sigs.has(o.id) else o.shape_sig()])
 	var hit: Array = _meet_cache.get(key, [])
 	var out: PackedVector2Array = hit[1] if not hit.is_empty() and hit[0] == sig else _meetings(s, o)
 	seen[key] = [sig, out]
@@ -1294,21 +1462,25 @@ func _meetings(s: Street, o: Street) -> PackedVector2Array:
 	var slip_s := s.w() + 0.1 if _merges(s, o) and s.kind == "ramp" else 0.0
 	var slip_o := o.w() + 0.1 if _merges(s, o) and o.kind == "ramp" else 0.0
 	for e in [0, ns - 1]:
+		if not o.within(s.pts[e], o.w() + 0.3 + slip_s):
+			continue
 		var c: Vector3 = o.closest(s.pts[e])
 		if c.x < o.w() + 0.3 + slip_s:
 			out.append(Vector2(e, c.z))
 			spots.append(s.pts[e])
 	for e in [0, no - 1]:
+		if not s.within(o.pts[e], s.w() + 0.3 + slip_o):
+			continue
 		var c: Vector3 = s.closest(o.pts[e])
 		if c.x < s.w() + 0.3 + slip_o and not _near_any(spots, o.pts[e], 1.5):
 			out.append(Vector2(c.z, e))
 			spots.append(o.pts[e])
-	for i in ns - 1:
+	for i in s.segments_near(o.lo - Vector2(0.6, 0.6), o.hi + Vector2(0.6, 0.6)):
 		var a := s.pts[i]
 		var b := s.pts[i + 1]
 		if not o.near_box(a, 0.6) and not o.near_box(b, 0.6):
 			continue
-		for j in no - 1:
+		for j in o.segments_near(a.min(b), a.max(b)):
 			var hit: Variant = Geometry2D.segment_intersects_segment(a, b, o.pts[j], o.pts[j + 1])
 			if hit == null or _near_any(spots, hit, 1.5):
 				continue
@@ -1360,12 +1532,12 @@ func _find_crossing(s: Street, o: Street) -> Vector2:
 	var clear := (o.reach() + 1.0) / SAMPLE
 	var ns := s.pts.size()
 	var no := o.pts.size()
-	for i in ns - 1:
+	for i in s.segments_near(o.lo - Vector2(0.6, 0.6), o.hi + Vector2(0.6, 0.6)):
 		var a := s.pts[i]
 		var b := s.pts[i + 1]
 		if not o.near_box(a, 0.6) and not o.near_box(b, 0.6):
 			continue
-		for j in no - 1:
+		for j in o.segments_near(a.min(b), a.max(b)):
 			var hit: Variant = Geometry2D.segment_intersects_segment(a, b, o.pts[j], o.pts[j + 1])
 			if hit == null:
 				continue
@@ -1446,28 +1618,62 @@ func junctions() -> Array:
 func _find_junctions() -> Array:
 	var found: Array = []
 	var seen := {}
+	# the junctions found so far, by 3 m cell
+	var near := {}
+	_begin_pairs()
 	for i in streets.size():
 		for k in range(i + 1, streets.size()):
 			var a: Street = streets[i]
 			var b: Street = streets[k]
 			# a ramp joins its highway alongside, with no junction to lay
-			if not _boxes_overlap(a, b) or _merges(a, b):
+			if not _pair_near(i, k) or _merges(a, b):
 				continue
 			for m in _meetings_of(a, b, seen):
 				var at := (_ptf(a, m.x) + _ptf(b, m.y)) * 0.5
+				# the first one found within 3 m, looked for only round here
 				var jn: Dictionary = {}
-				for q in found:
-					if q.at.distance_to(at) < 3.0:
-						jn = q
-						break
-				if jn.is_empty():
+				var first := found.size()
+				var cell := Vector2i((at / 3.0).floor())
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						for qi: int in near.get(cell + Vector2i(dx, dz), []):
+							if qi < first and found[qi].at.distance_to(at) < 3.0:
+								first = qi
+				if first < found.size():
+					jn = found[first]
+				else:
 					jn = {"at": at, "meets": []}
 					found.append(jn)
+					if near.has(cell):
+						near[cell].append(first)
+					else:
+						near[cell] = [first]
 				jn.meets.append([a, m.x, b, m.y])
 	_meet_cache = seen
-	for jn in found:
-		_shape_junction(jn)
+	_end_pairs()
+	# a junction where the same streets meet as before, as they were, stands as it was
+	var shaped := {}
+	for k in found.size():
+		var sig := _meets_sig(found[k].meets)
+		var was: Variant = _shaped.get(sig)
+		if was != null:
+			found[k] = was
+		else:
+			_shape_junction(found[k])
+		shaped[sig] = found[k]
+	_shaped = shaped
 	return found.filter(func(q): return q.arms.size() >= 2)
+
+
+## A fingerprint of what a junction is made from: the streets meeting there
+## (their courses, kinds and heights) and where along them they meet.
+static func _meets_sig(meets: Array) -> int:
+	var parts: Array = []
+	for m in meets:
+		for e in [[m[0], m[1]], [m[2], m[3]]]:
+			var st: Street = e[0]
+			parts.append_array([st.id, st.shape_sig(), hash(st.ys), e[1]])
+	return hash(parts)
 
 
 ## Arms, corners and the outline of one junction.
@@ -1660,6 +1866,16 @@ func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 		buf.tri(c3, edge[k], edge[(k + 1) % edge.size()], asphalt, MeshKit.ASPHALT, true)
 	var pave := Palette.SIDEWALK
 	var kerb := Palette.SIDEWALK.darkened(0.12)
+	# the streets whose carriageways the corners might reach onto
+	var far := 0.0
+	for c: Array in jn.corners:
+		for p3: Vector3 in c:
+			far = maxf(far, Vector2(p3.x, p3.z).distance_to(jn.at))
+	far += PAVE + 0.5
+	var near: Array = []
+	for o: Street in streets:
+		if o.near_box(jn.at, o.w() + far):
+			near.append(o)
 	for c: Array in jn.corners:
 		var prev_p := Vector3.ZERO
 		var prev_o := Vector3.ZERO
@@ -1671,7 +1887,7 @@ func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 			if n3.dot(p3 - c3) < 0.0:
 				n3 = -n3
 			var o3 := p3 + n3 * PAVE
-			if k > 0 and not _on_carriageway(Vector2((p3.x + prev_p.x + o3.x + prev_o.x) * 0.25, (p3.z + prev_p.z + o3.z + prev_o.z) * 0.25)):
+			if k > 0 and not _on_carriageway(Vector2((p3.x + prev_p.x + o3.x + prev_o.x) * 0.25, (p3.z + prev_p.z + o3.z + prev_o.z) * 0.25), near):
 				buf.quad(prev_p, p3, p3 + Vector3.UP * CURB, prev_p + Vector3.UP * CURB, kerb, 0.0, -(n3 + prev_n))
 				buf.quad(prev_p + Vector3.UP * CURB, p3 + Vector3.UP * CURB, o3 + Vector3.UP * CURB, prev_o + Vector3.UP * CURB, pave, MeshKit.SLABS, Vector3.UP)
 				buf.quad(prev_o + Vector3.UP * CURB, o3 + Vector3.UP * CURB, o3 + Vector3.DOWN * SKIRT, prev_o + Vector3.DOWN * SKIRT, kerb, 0.0, n3 + prev_n)
@@ -1869,15 +2085,17 @@ func links() -> Dictionary:
 		_links.clear()
 		for s in streets:
 			_links[s.id] = []
+		_begin_pairs()
 		for i in streets.size():
 			for j in range(i + 1, streets.size()):
+				if not _pair_near(i, j):
+					continue
 				var a: Street = streets[i]
 				var b: Street = streets[j]
-				if not _boxes_overlap(a, b):
-					continue
 				for m in _meetings_of(a, b, _meet_cache):
 					_links[a.id].append([m.x, b, m.y])
 					_links[b.id].append([m.y, a, m.x])
+		_end_pairs()
 		_links_dirty = false
 	return _links
 
@@ -1896,7 +2114,7 @@ func _dead_end(s: Street, i: int) -> bool:
 	if p.distance_to(s.pts[n - 1 - i]) < s.reach() + 0.5:
 		return false
 	for o: Street in streets:
-		if o != s and o.near_box(p, o.reach() + 0.5) and o.closest(p).x < o.reach() + 0.5:
+		if o != s and o.near_box(p, o.reach() + 0.5) and o.within(p, o.reach() + 0.5):
 			return false
 	return true
 
@@ -1989,16 +2207,35 @@ func to_data() -> Array:
 
 
 func street_data(s: Street) -> Dictionary:
+	return data_of(raw_of(s))
+
+
+## What street_data() is made from, copied out so another thread can turn
+## it into data (see to_raw, data_of).
+static func raw_of(s: Street) -> Array:
+	return [s.key, s.kind, s.pts.duplicate(), s.ys.duplicate(), s.tunnels.duplicate()]
+
+
+## to_data(), but only copied out: data_of() each, on any thread, gives it.
+func to_raw() -> Array:
+	var out := []
+	for s in streets:
+		if not s.auto:
+			out.append(raw_of(s))
+	return out
+
+
+static func data_of(raw: Array) -> Dictionary:
 	var p := []
-	for v in s.pts:
+	for v: Vector2 in raw[2]:
 		p.append_array([snappedf(v.x, 0.01), snappedf(v.y, 0.01)])
 	var y := []
-	for v in s.ys:
+	for v: float in raw[3]:
 		y.append(snappedf(v, 0.01))
-	var d := {"id": s.key, "k": s.kind, "p": p, "y": y}
-	if not s.tunnels.is_empty():
+	var d := {"id": raw[0], "k": raw[1], "p": p, "y": y}
+	if not (raw[4] as PackedVector2Array).is_empty():
 		var t := []
-		for v in s.tunnels:
+		for v: Vector2 in raw[4]:
 			t.append_array([v.x, v.y])
 		d["t"] = t
 	return d
@@ -2194,7 +2431,7 @@ func _clear_off(h: Street) -> void:
 		keep.resize(o.pts.size())
 		var cut := false
 		for i in o.pts.size():
-			var near := h.near_box(o.pts[i], r) and h.closest(o.pts[i]).x < r
+			var near := h.near_box(o.pts[i], r) and h.within(o.pts[i], r)
 			keep[i] = 0 if near else 1
 			cut = cut or near
 		if not cut:
@@ -2372,10 +2609,19 @@ func _diamond(s: Street, fly: Dictionary) -> Array:
 
 
 func by_id(id: int) -> Street:
-	for s: Street in streets:
-		if s.id == id:
-			return s
-	return null
+	# (looked up by id, the list read again whenever the streets change)
+	if _ids_rev != rev or _ids_n != streets.size():
+		_ids.clear()
+		for s: Street in streets:
+			_ids[s.id] = s
+		_ids_rev = rev
+		_ids_n = streets.size()
+	return _ids.get(id)
+
+
+var _ids := {}
+var _ids_rev := -1
+var _ids_n := -1
 
 
 func by_key(k: String) -> Street:
