@@ -81,6 +81,7 @@ var show_zone := false:
 ## the painted town's tint as the Grow brush shows it, one pixel per ground
 ## sample: RGB the colour, A how strongly it covers the ground
 var tint_img: Image
+var _tint_bytes := PackedByteArray()
 var _tint_lo := Vector2i(0, 0)
 var _tint_hi := Vector2i(CELLS, CELLS)
 var _chunks := {}
@@ -1000,9 +1001,11 @@ func tile_sig(t: Vector2i) -> int:
 	return tile_rev[clampi(t.y, 0, TILES - 1) * TILES + clampi(t.x, 0, TILES - 1)]
 
 
-func _mark(i0: int, j0: int, i1: int, j1: int) -> void:
-	_tint_lo = _tint_lo.min(Vector2i(maxi(i0, 0), maxi(j0, 0)))
-	_tint_hi = _tint_hi.max(Vector2i(mini(i1, CELLS), mini(j1, CELLS)))
+func _mark(i0: int, j0: int, i1: int, j1: int, tint := true) -> void:
+	# (the town and its streets levelling ground leave the paint as it was)
+	if tint:
+		_tint_lo = _tint_lo.min(Vector2i(maxi(i0, 0), maxi(j0, 0)))
+		_tint_hi = _tint_hi.max(Vector2i(mini(i1, CELLS), mini(j1, CELLS)))
 	if tile_rev.size() != TILES * TILES:
 		tile_rev.resize(TILES * TILES)
 	for tz in range(maxi(0, (j0 - 2) / TILE), mini(TILES - 1, (j1 + 2) / TILE) + 1):
@@ -1075,7 +1078,7 @@ func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend
 			var g := j * SIDE + i
 			var target := lerpf(heights[g], by[k] - 0.03, wt)
 			heights[g] = minf(heights[g], target) if lower_only else target
-	_mark(i0, j0, i1, j1)
+	_mark(i0, j0, i1, j1, false)
 
 
 ## Eases the ground within `r` of a line back to the natural lie of the land
@@ -1116,7 +1119,7 @@ func renature(pts: PackedVector2Array, r: float) -> void:
 				continue
 			var g := j * SIDE + i
 			heights[g] = lerpf(heights[g], _base[g], 1.0 - smoothstep(r - 3.0, r, d))
-	_mark(i0, j0, i1, j1)
+	_mark(i0, j0, i1, j1, false)
 
 
 ## Level a building plot: flat at height `y` inside the outline, easing back to
@@ -1145,7 +1148,7 @@ func pad(outline: PackedVector2Array, y: float, blend: float, keep_off := Callab
 				continue
 			var g := j * SIDE + i
 			heights[g] = lerpf(heights[g], y, 1.0 - smoothstep(0.0, 1.0, d / blend))
-	_mark(i0, j0, i1, j1)
+	_mark(i0, j0, i1, j1, false)
 
 
 ## Remake changed chunks, spending at most `budget_us` microseconds.
@@ -1445,17 +1448,24 @@ const PARK_TINT := Color("2fd35a")
 func update_tint() -> bool:
 	if tint_img == null or tint_img.get_width() != SIDE:
 		tint_img = Image.create(SIDE, SIDE, false, Image.FORMAT_RGBA8)
+		_tint_bytes = PackedByteArray()
+		_tint_bytes.resize(SIDE * SIDE * 4)
 		_tint_lo = Vector2i(0, 0)
 		_tint_hi = Vector2i(CELLS, CELLS)
 	if _tint_hi.x < _tint_lo.x:
 		return false
+	# written as bytes and handed over in one go (much quicker than pixel by pixel)
+	var bytes := _tint_bytes
 	for j in range(_tint_lo.y, _tint_hi.y + 1):
 		for i in range(_tint_lo.x, _tint_hi.x + 1):
 			var k := j * SIDE + i
 			var zn := zone[k]
 			var gn := green[k]
 			if (zn <= 0.0 and gn <= 0.0) or heights[k] <= 0.0:
-				tint_img.set_pixel(i, j, Color(0, 0, 0, 0))
+				bytes[k * 4] = 0
+				bytes[k * 4 + 1] = 0
+				bytes[k * 4 + 2] = 0
+				bytes[k * 4 + 3] = 0
 				continue
 			var col := Color(0, 0, 0, 0)
 			if zn > 0.0:
@@ -1469,7 +1479,12 @@ func update_tint() -> bool:
 			if gn > 0.0:
 				col = Color(PARK_TINT, maxf(col.a, gn)) if gn >= 0.5 or col.a <= 0.0 else col
 			# premultiplied, so the shader can take the blend at an edge apart
-			tint_img.set_pixel(i, j, Color(col.r * col.a, col.g * col.a, col.b * col.a, col.a))
+			var a := clampf(col.a, 0.0, 1.0)
+			bytes[k * 4] = int(clampf(col.r * a, 0.0, 1.0) * 255.0)
+			bytes[k * 4 + 1] = int(clampf(col.g * a, 0.0, 1.0) * 255.0)
+			bytes[k * 4 + 2] = int(clampf(col.b * a, 0.0, 1.0) * 255.0)
+			bytes[k * 4 + 3] = int(a * 255.0)
+	tint_img.set_data(SIDE, SIDE, false, Image.FORMAT_RGBA8, bytes)
 	_tint_lo = Vector2i(1 << 20, 1 << 20)
 	_tint_hi = Vector2i(-1, -1)
 	return true
@@ -1621,44 +1636,63 @@ func _fresh(p: Vector2) -> float:
 
 ## Distance from every sea point to the nearest land, in world units (capped),
 ## for the water shader's foam and calm shallows.
-func shore_image(cap: float) -> Image:
+func shore_image(cap: float, box := Rect2i(0, 0, -1, -1)) -> Image:
+	var whole := box.size.x <= 0 or _shore_bytes.size() != SIDE * SIDE * 2 or _shore_cap != cap
+	_shore_cap = cap
+	# what can change: the box and as far round it as the distances go; worked
+	# out from the ground that far round that again
+	var reach := int(ceil(cap / STEP)) + 1
+	var out := Rect2i(0, 0, SIDE, SIDE)
+	var win := out
+	if whole:
+		_shore_bytes.resize(SIDE * SIDE * 2)
+	else:
+		out = box.grow(reach).intersection(out)
+		win = out.grow(reach).intersection(Rect2i(0, 0, SIDE, SIDE))
+	var w := win.size.x
+	var h := win.size.y
 	var big := 1e6
 	var d := PackedFloat32Array()
-	d.resize(SIDE * SIDE)
-	for k in SIDE * SIDE:
-		d[k] = 0.0 if heights[k] > 0.0 else big
+	d.resize(w * h)
+	for y in h:
+		var row := (win.position.y + y) * SIDE + win.position.x
+		for x in w:
+			d[y * w + x] = 0.0 if heights[row + x] > 0.0 else big
 	# two-pass chamfer distance (3-4 weights), good to a few percent
 	var a := STEP
 	var b := STEP * 1.4142
-	for j in SIDE:
-		for i in SIDE:
-			var k := j * SIDE + i
+	for y in h:
+		for x in w:
+			var k := y * w + x
 			var v := d[k]
-			if i > 0: v = minf(v, d[k - 1] + a)
-			if j > 0:
-				v = minf(v, d[k - SIDE] + a)
-				if i > 0: v = minf(v, d[k - SIDE - 1] + b)
-				if i < CELLS: v = minf(v, d[k - SIDE + 1] + b)
+			if x > 0: v = minf(v, d[k - 1] + a)
+			if y > 0:
+				v = minf(v, d[k - w] + a)
+				if x > 0: v = minf(v, d[k - w - 1] + b)
+				if x < w - 1: v = minf(v, d[k - w + 1] + b)
 			d[k] = v
-	for j in range(CELLS, -1, -1):
-		for i in range(CELLS, -1, -1):
-			var k := j * SIDE + i
+	for y in range(h - 1, -1, -1):
+		for x in range(w - 1, -1, -1):
+			var k := y * w + x
 			var v := d[k]
-			if i < CELLS: v = minf(v, d[k + 1] + a)
-			if j < CELLS:
-				v = minf(v, d[k + SIDE] + a)
-				if i < CELLS: v = minf(v, d[k + SIDE + 1] + b)
-				if i > 0: v = minf(v, d[k + SIDE - 1] + b)
+			if x < w - 1: v = minf(v, d[k + 1] + a)
+			if y < h - 1:
+				v = minf(v, d[k + w] + a)
+				if x < w - 1: v = minf(v, d[k + w + 1] + b)
+				if x > 0: v = minf(v, d[k + w - 1] + b)
 			d[k] = v
 	# alpha: fresh water (rivers, lakes: calm, little foam) rather than sea
-	var bytes := PackedByteArray()
-	bytes.resize(SIDE * SIDE * 2)
-	for j in SIDE:
-		for i in SIDE:
+	var bytes := _shore_bytes
+	for j in range(out.position.y, out.end.y):
+		for i in range(out.position.x, out.end.x):
 			var k := j * SIDE + i
-			bytes[k * 2] = int(clampf(d[k] / cap, 0.0, 1.0) * 255.0)
+			bytes[k * 2] = int(clampf(d[(j - win.position.y) * w + i - win.position.x] / cap, 0.0, 1.0) * 255.0)
 			bytes[k * 2 + 1] = int(_fresh(_pos(i, j)) * 255.0)
 	return Image.create_from_data(SIDE, SIDE, false, Image.FORMAT_LA8, bytes)
+
+
+var _shore_bytes := PackedByteArray()
+var _shore_cap := 0.0
 
 
 ## Ground height map for the city shader's contact shading.

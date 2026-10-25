@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-25 11:00 UTC
+- Building is much smoother in big cities. Painting districts no longer stutters: the brush outline, the paint and the buildings it changes now cost a fraction of what they did, and buildings changed by a repaint are remade over the next few frames instead of all at once.
+- Drawing a road through a big town no longer freezes the game for a second when you lift your finger: junctions, the buildings in the road's way and the ground around it are worked out far faster, and the streets around a new road settle onto it over the next few frames.
+- Towns growing on their own (new streets, houses going up, cars on the roads) take less time each frame, and on a slower phone the background work steps back so your brush and camera stay smooth.
+- Reshaping the coast with the land brushes now only redraws the shore near where you changed it, instead of the whole map.
+
 ## 2026-10-25 10:00 UTC
 - An airport: once your city reaches 4,000 residents, it opens on level ground out in the country. It has a long runway with markings and edge lights, a taxiway, a terminal with jet bridges and an airliner at its gate, a control tower and a hangar.
 - Planes now use it. About half the airliners you see take off from the runway, rolling, lifting off and climbing away over the city, or come in on a long approach, touch down and brake to a stop. The rest still fly high overhead.

@@ -207,7 +207,7 @@ func _fits(kind: String, p: Vector2, standing := false) -> bool:
 	if not standing and world.town.is_built(p):
 		return false
 	for s: Streets.Street in world.streets.streets:
-		if s.near_box(p, r + 2.0) and s.closest(p).x < r + s.reach() + 0.4:
+		if s.near_box(p, r + 2.0) and s.within(p, r + s.reach() + 0.4):
 			return false
 	return true
 
@@ -303,7 +303,7 @@ func _pier_fits(p: Vector2, standing: bool) -> bool:
 			continue
 		var t := 0.0
 		while t <= PIER_LEN:
-			if s.closest(p + d * t).x < s.reach() + 0.8:
+			if s.within(p + d * t, s.reach() + 0.8):
 				return false
 			t += 1.5
 	return true

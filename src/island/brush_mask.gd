@@ -32,6 +32,8 @@ var centre := Vector2.ZERO
 var radius := 0.0
 ## how many samples it covers more than half of
 var count := 0
+## how far it reaches round its centre (the brush ring's outline, see IslandWorld)
+var outline := PackedFloat32Array()
 
 
 ## What the ground at sample k is painted as: PARK, a district, or EMPTY.
@@ -70,39 +72,76 @@ func _k(q: int) -> int:
 	return (j0 + q / w) * Land.SIDE + i0 + q % w
 
 
-## Marks the samples in the window that lie under a street.
+## Marks the samples in the window that lie under a street (copied from
+## the road tiles, see _road_tile).
 func _rasterise(streets: Streets) -> void:
 	road = PackedByteArray()
 	road.resize(w * h)
-	var lo := Vector2(i0, j0) * Land.STEP - Vector2.ONE * Land.HALF
-	var hi := lo + Vector2(w - 1, h - 1) * Land.STEP
+	var sig := hash([streets.rev, streets.streets.size(), streets._next_id, Land.CELLS])
+	if sig != _tiles_sig:
+		_tiles.clear()
+		_tiles_sig = sig
+	for tj in range(j0 / RT, (j0 + h - 1) / RT + 1):
+		for ti in range(i0 / RT, (i0 + w - 1) / RT + 1):
+			var tile := _road_tile(streets, Vector2i(ti, tj))
+			# the part of the tile inside the window
+			var a0 := maxi(ti * RT, i0)
+			var a1 := mini(ti * RT + RT, i0 + w)
+			for gj in range(maxi(tj * RT, j0), mini(tj * RT + RT, j0 + h)):
+				var src := (gj - tj * RT) * RT - ti * RT
+				var dst := (gj - j0) * w - i0
+				for gi in range(a0, a1):
+					road[dst + gi] = tile[src + gi]
+
+
+## samples across a road tile
+const RT := 16
+## the road tiles worked out so far, while the streets stay as they are
+static var _tiles := {}
+static var _tiles_sig := 0
+
+
+## Which samples of a RT x RT tile of the map lie under a street and its
+## pavements, worked out the first time a brush comes near.
+static func _road_tile(streets: Streets, t: Vector2i) -> PackedByteArray:
+	var got: Variant = _tiles.get(t)
+	if got != null:
+		return got
+	var tile := PackedByteArray()
+	tile.resize(RT * RT)
+	var ti0 := t.x * RT
+	var tj0 := t.y * RT
+	var lo := Vector2(ti0, tj0) * Land.STEP - Vector2.ONE * Land.HALF
+	var hi := lo + Vector2(RT - 1, RT - 1) * Land.STEP
 	for st: Streets.Street in streets.streets:
 		# at least a sample wide, so no gap in it lets the paint slip across
 		var r := maxf(st.reach(), 1.0)
 		if st.hi.x < lo.x - r or st.lo.x > hi.x + r or st.hi.y < lo.y - r or st.lo.y > hi.y + r:
 			continue
 		var r2 := r * r
-		for s in st.pts.size() - 1:
+		for s in st.segments_near(lo - Vector2(r, r), hi + Vector2(r, r)):
 			var a := st.pts[s]
 			var b := st.pts[s + 1]
 			if maxf(a.x, b.x) < lo.x - r or minf(a.x, b.x) > hi.x + r or maxf(a.y, b.y) < lo.y - r or minf(a.y, b.y) > hi.y + r:
 				continue
 			var ab := b - a
 			var l2 := maxf(ab.length_squared(), 1e-6)
-			var ci0 := clampi(int(ceil((minf(a.x, b.x) - r + Land.HALF) / Land.STEP)) - i0, 0, w - 1)
-			var ci1 := clampi(int(floor((maxf(a.x, b.x) + r + Land.HALF) / Land.STEP)) - i0, 0, w - 1)
-			var cj0 := clampi(int(ceil((minf(a.y, b.y) - r + Land.HALF) / Land.STEP)) - j0, 0, h - 1)
-			var cj1 := clampi(int(floor((maxf(a.y, b.y) + r + Land.HALF) / Land.STEP)) - j0, 0, h - 1)
+			var ci0 := clampi(int(ceil((minf(a.x, b.x) - r + Land.HALF) / Land.STEP)) - ti0, 0, RT - 1)
+			var ci1 := clampi(int(floor((maxf(a.x, b.x) + r + Land.HALF) / Land.STEP)) - ti0, 0, RT - 1)
+			var cj0 := clampi(int(ceil((minf(a.y, b.y) - r + Land.HALF) / Land.STEP)) - tj0, 0, RT - 1)
+			var cj1 := clampi(int(floor((maxf(a.y, b.y) + r + Land.HALF) / Land.STEP)) - tj0, 0, RT - 1)
 			for jj in range(cj0, cj1 + 1):
-				var row := jj * w
-				var pz := (j0 + jj) * Land.STEP - Land.HALF
+				var row := jj * RT
+				var pz := (tj0 + jj) * Land.STEP - Land.HALF
 				for ii in range(ci0, ci1 + 1):
-					if road[row + ii] == 1:
+					if tile[row + ii] == 1:
 						continue
-					var p := Vector2((i0 + ii) * Land.STEP - Land.HALF, pz)
-					var t := clampf((p - a).dot(ab) / l2, 0.0, 1.0)
-					if p.distance_squared_to(a + ab * t) < r2:
-						road[row + ii] = 1
+					var p := Vector2((ti0 + ii) * Land.STEP - Land.HALF, pz)
+					var u := clampf((p - a).dot(ab) / l2, 0.0, 1.0)
+					if p.distance_squared_to(a + ab * u) < r2:
+						tile[row + ii] = 1
+	_tiles[t] = tile
+	return tile
 
 
 static func _claims(c: int, own: int, over: int) -> bool:
@@ -122,6 +161,29 @@ func compute(land: Land, streets: Streets, c: Vector2, r: float, own: int, over:
 	var start := sj * w + si
 	if road[start] == 0 and not _claims(class_of(land, _k(start)), own, over):
 		return
+	# how far each sample is from the centre, and what it is painted as
+	# (worked out once, row by row: this is the brush's every frame)
+	var dist := PackedFloat32Array()
+	dist.resize(w * h)
+	var cls := PackedInt32Array()
+	cls.resize(w * h)
+	var zone := land.zone
+	var green := land.green
+	var level := land.level
+	for jj in h:
+		var pz := (j0 + jj) * Land.STEP - Land.HALF
+		var row := (j0 + jj) * Land.SIDE + i0
+		for ii in w:
+			var q := jj * w + ii
+			dist[q] = Vector2((i0 + ii) * Land.STEP - Land.HALF, pz).distance_to(c)
+			var k := row + ii
+			if green[k] >= 0.5:
+				cls[q] = PARK
+			elif zone[k] < 0.5:
+				cls[q] = EMPTY
+			else:
+				var lv := level[k]
+				cls[q] = Land._use_of(lv) if lv >= 0.5 else 0
 	var seen := PackedByteArray()
 	seen.resize(w * h)
 	seen[start] = 1
@@ -130,8 +192,7 @@ func compute(land: Land, streets: Streets, c: Vector2, r: float, own: int, over:
 	while head < queue.size():
 		var q := queue[head]
 		head += 1
-		var d := _pos(q).distance_to(c)
-		cov[q] = clampf(reach - d, 0.0, 1.0) if q != start else 1.0
+		cov[q] = clampf(reach - dist[q], 0.0, 1.0) if q != start else 1.0
 		var on_road := road[q] == 1
 		var ii := q % w
 		var jj := q / w
@@ -141,15 +202,17 @@ func compute(land: Land, streets: Streets, c: Vector2, r: float, own: int, over:
 			if ni < 0 or nj < 0 or ni >= w or nj >= h:
 				continue
 			var nq := nj * w + ni
-			if seen[nq] == 1 or _pos(nq).distance_to(c) >= reach:
+			if seen[nq] == 1 or dist[nq] >= reach:
 				continue
 			if road[nq] == 1:
 				# off the street, the paint stops at its kerb (and only
 				# steps onto it below, from the side it is on)
 				if not on_road:
 					continue
-			elif not _claims(class_of(land, _k(nq)), own, over):
-				continue
+			else:
+				var cn := cls[nq]
+				if cn != EMPTY and cn != own and cn != over:
+					continue
 			seen[nq] = 1
 			queue.append(nq)
 	_onto_kerbs(c, reach)
@@ -248,6 +311,7 @@ static func fill_blocks(land: Land, streets: Streets, lo: Vector2, hi: Vector2, 
 	if b.w * b.h > FILL_LOOK * 2 or painted <= 0:
 		return b
 	b._rasterise(streets)
+	b._classify(land, own, over)
 	var label := PackedByteArray()
 	label.resize(b.w * b.h)
 	var most := mini(BLOCK_MAX, maxi(12, int(painted * 0.8)))
@@ -260,7 +324,7 @@ static func fill_blocks(land: Land, streets: Streets, lo: Vector2, hi: Vector2, 
 	for jj in range(sj0, sj1 + 1):
 		for ii in range(si0, si1 + 1):
 			var q := jj * b.w + ii
-			if b.road[q] == 1 or class_of(land, b._k(q)) != own:
+			if b._kind[q] != MINE:
 				continue
 			for n in 4:
 				var ni := ii + (1 if n == 0 else -1 if n == 1 else 0)
@@ -268,9 +332,9 @@ static func fill_blocks(land: Land, streets: Streets, lo: Vector2, hi: Vector2, 
 				if ni < 0 or nj < 0 or ni >= b.w or nj >= b.h:
 					continue
 				var nq := nj * b.w + ni
-				if label[nq] != 0 or not b._fillable(land, nq, own, over):
+				if label[nq] != 0 or b._kind[nq] != FILL:
 					continue
-				var part := b._flood(land, nq, own, over, label, most)
+				var part := b._flood(nq, label, most)
 				budget -= part.size()
 				if part.is_empty():
 					continue
@@ -289,19 +353,44 @@ static func fill_blocks(land: Land, streets: Streets, lo: Vector2, hi: Vector2, 
 	return b
 
 
-func _fillable(land: Land, q: int, own: int, over: int) -> bool:
-	if road[q] == 1:
-		return false
-	var k := _k(q)
-	if land.heights[k] <= 0.0:
-		return false
-	var c := class_of(land, k)
-	return c != own and (c == EMPTY or c == over)
+# what each sample of the window is to a block fill (see _classify)
+var _kind := PackedByteArray()
+const FILL := 1
+const MINE := 2
+
+
+## Marks each sample of the window: FILL where a block fill may paint it
+## (dry ground off the streets, empty or the colour the stroke paints over),
+## MINE where the stroke's own colour already is (off the streets).
+func _classify(land: Land, own: int, over: int) -> void:
+	_kind = PackedByteArray()
+	_kind.resize(w * h)
+	var zone := land.zone
+	var green := land.green
+	var level := land.level
+	var heights := land.heights
+	for jj in h:
+		var row := (j0 + jj) * Land.SIDE + i0
+		for ii in w:
+			var q := jj * w + ii
+			if road[q] == 1:
+				continue
+			var k := row + ii
+			var c := EMPTY
+			if green[k] >= 0.5:
+				c = PARK
+			elif zone[k] >= 0.5:
+				var lv := level[k]
+				c = Land._use_of(lv) if lv >= 0.5 else 0
+			if c == own:
+				_kind[q] = MINE
+			elif heights[k] > 0.0 and (c == EMPTY or c == over):
+				_kind[q] = FILL
 
 
 ## One walled-in piece of ground from q: its samples, or none when it runs
 ## out of the window or is bigger than `most` (open country, not a block).
-func _flood(land: Land, q: int, own: int, over: int, label: PackedByteArray, most: int) -> PackedInt32Array:
+func _flood(q: int, label: PackedByteArray, most: int) -> PackedInt32Array:
 	var part := PackedInt32Array([q])
 	label[q] = 1
 	var open := false
@@ -316,7 +405,7 @@ func _flood(land: Land, q: int, own: int, over: int, label: PackedByteArray, mos
 			break
 		for n in 4:
 			var nq := p + (1 if n == 0 else -1 if n == 1 else w if n == 2 else -w)
-			if label[nq] != 0 or not _fillable(land, nq, own, over):
+			if label[nq] != 0 or _kind[nq] != FILL:
 				continue
 			label[nq] = 1
 			part.append(nq)

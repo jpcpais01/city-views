@@ -41,6 +41,8 @@ const TOP_STAGE := 7
 # seconds between a house's stages, before its own variation
 const EVOLVE_TIME := 14.0
 const NEIGHBOURS := 10.0
+# far enough to find the plot next door from the corner they share
+const NEXT_REACH := 8.0
 
 ## The ground was levelled for new houses.
 signal reshaped
@@ -77,6 +79,14 @@ var _dirty_patches := {}
 # what each lot's building was when last drawn, and the buildings rising on
 # their own nodes before they join their patch (built while playing, not on load)
 var _shown := {}
+# the lots standing in each PATCH, by id (see _lots_near)
+var _by_patch := {}
+# buildings to remake on the frames to come, a few at a time (_rebuild while
+# _defer is set puts them here: a brush repainting a whole district at once)
+var _later := {}
+var _defer := false
+# the public buildings standing, by kind: {kind: {id: true}}
+var _civic := {}
 var _rising := {}
 var _live := false
 ## goes up whenever any building is drawn anew (for what is built round them)
@@ -211,6 +221,7 @@ func clear() -> void:
 		_mark_reserved_entry(_reserved[key], true)
 	_todo.clear()
 	_job = {}
+	_later.clear()
 	_new_streets.clear()
 	_placing = null
 
@@ -267,16 +278,17 @@ func _mark_reserved(p: Vector2, r: float, on: bool, half := Vector2.ZERO, yaw :=
 
 ## The player painted or wiped the growing area around `c`.
 func zone_changed(c: Vector2, r: float) -> void:
-	for id in lots.keys():
-		var l: Lot = lots[id]
+	# (the buildings it changes are remade over the next frames, not all on this one)
+	_defer = true
+	for l: Lot in _lots_near(c, r + 4.0):
 		if l.origin.distance_to(c) < r + 4.0 and (_zone(l) < 0.25 or (_green(l) > 0.5) != (l.type == "park")):
 			_drop(l)
 	for s: Streets.Street in streets.streets:
 		if s.near_box(c, r + 4.0):
 			_todo[s.id] = s
 	# a repainted level moves the caps of the houses under the brush
-	for l: Lot in lots.values():
-		if l.type == "house" and l.origin.distance_to(c) < r + 2.0:
+	for l: Lot in _lots_near(c, r + 2.0):
+		if lots.has(l.id) and l.type == "house" and l.origin.distance_to(c) < r + 2.0:
 			var s: Streets.Street = streets.by_id(l.street)
 			if s:
 				var cap := _cap_at(s, l.capq, l.side)
@@ -291,6 +303,7 @@ func zone_changed(c: Vector2, r: float) -> void:
 					l.cap = cap
 					if l.stage > cap:
 						_set_stage(l, cap)
+	_defer = false
 
 
 ## The ground under the box lo..hi was reshaped (an undo): the houses on it
@@ -484,11 +497,14 @@ func _place_street(s: Streets.Street, mark := true) -> void:
 		return
 	if mark:
 		_mark_street(s)
-	# lots the new street runs through make way for it
+	# lots the new street runs through make way for it (the joined buildings
+	# that leaves standing remade over the next frames)
+	_defer = true
 	for id in lots.keys():
 		var l: Lot = lots[id]
 		if s.near_box(l.origin, MAX_DEPTH + 3.0) and _hits(s, l):
 			_drop(l)
+	_defer = false
 	_todo[s.id] = s
 	for o in streets._touching(s):
 		_todo[o.id] = o
@@ -552,12 +568,42 @@ func _on_rekinded(old: Streets.Street, pieces: Array) -> void:
 
 func _hits(s: Streets.Street, l: Lot) -> bool:
 	for p in l.quad:
-		if s.closest(p).x < s.reach() + FRONT_GAP:
+		if s.within(p, s.reach() + FRONT_GAP):
 			return true
-	for p in s.pts:
-		if Geometry2D.is_point_in_polygon(p, l.quad):
-			return true
+	var lo := l.quad[0]
+	var hi := l.quad[0]
+	for p in l.quad:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	for k in s.segments_near(lo, hi):
+		for p in [s.pts[k], s.pts[k + 1]]:
+			if Geometry2D.is_point_in_polygon(p, l.quad):
+				return true
 	return false
+
+
+func _index(l: Lot) -> void:
+	if not _by_patch.has(l.patch):
+		_by_patch[l.patch] = {}
+	_by_patch[l.patch][l.id] = true
+
+
+## The lots that may stand within `r` of c (all whose patch reaches there):
+## a look round one place, not the whole town.
+func _lots_near(c: Vector2, r: float) -> Array:
+	var out: Array = []
+	var p0 := Vector2i(int(floor((c.x - r + Land.HALF) / PATCH)), int(floor((c.y - r + Land.HALF) / PATCH)))
+	var p1 := Vector2i(int(floor((c.x + r + Land.HALF) / PATCH)), int(floor((c.y + r + Land.HALF) / PATCH)))
+	if (p1.x - p0.x + 1) * (p1.y - p0.y + 1) > _by_patch.size():
+		# a look round most of the town: all of it is as quick
+		return lots.values()
+	for pz in range(p0.y, p1.y + 1):
+		for px in range(p0.x, p1.x + 1):
+			var here: Variant = _by_patch.get(Vector2i(px, pz))
+			if here != null:
+				for id: int in here:
+					out.append(lots[id])
+	return out
 
 
 func _drop(l: Lot) -> void:
@@ -565,6 +611,12 @@ func _drop(l: Lot) -> void:
 		if _occ[k] == l.id:
 			_occ[k] = 0
 	lots.erase(l.id)
+	if _civic.has(l.type):
+		_civic[l.type].erase(l.id)
+	var here: Dictionary = _by_patch.get(l.patch, {})
+	here.erase(l.id)
+	if here.is_empty():
+		_by_patch.erase(l.patch)
 	_shown.erase(l.id)
 	_stop_rising(l.id)
 	_dirty_patches[l.patch] = true
@@ -685,6 +737,10 @@ func _process(delta: float) -> void:
 		var b: Lot = lots.get(l.host, l)
 		var hi := HouseGen.FH * maxf(b.floors, 1) + 1.0
 		magicked.emit(Vector3(b.origin.x, b.street_y, b.origin.y), Vector3(maxf(b.width, 3.0), hi, maxf(b.depth, 3.0)))
+	while not _later.is_empty() and Time.get_ticks_usec() - start < budget:
+		var id: int = _later.keys()[0]
+		_later.erase(id)
+		_rebuild(id)
 	_live = true
 	for c in _dirty_patches.keys():
 		if Time.get_ticks_usec() - start > budget + 500:
@@ -694,7 +750,7 @@ func _process(delta: float) -> void:
 	_live = false
 	_animate_rising(delta)
 	_evolve_wait -= delta
-	if _evolve_wait <= 0.0 and _job.is_empty() and _new_streets.is_empty() and _dirty_patches.is_empty():
+	if _evolve_wait <= 0.0 and _job.is_empty() and _new_streets.is_empty() and _dirty_patches.is_empty() and _later.is_empty():
 		_evolve_wait = 0.2
 		_evolve_one()
 
@@ -723,7 +779,7 @@ func _evolve_one() -> void:
 ## adds, for what it costs; with `dry` only counts them.
 func magic(c: Vector2, r: float, dry := false) -> int:
 	var stages := 0
-	for l: Lot in lots.values():
+	for l: Lot in _lots_near(c, r):
 		if l.type != "house" or l.stage >= l.cap or _magic_ids.has(l.id):
 			continue
 		if l.origin.distance_squared_to(c) > r * r:
@@ -739,7 +795,7 @@ func magic(c: Vector2, r: float, dry := false) -> int:
 func _neighbours(l: Lot) -> Vector2:
 	var sum := 0.0
 	var n := 0
-	for o: Lot in lots.values():
+	for o: Lot in _lots_near(l.origin, NEIGHBOURS):
 		if o != l and o.type == "house" and o.origin.distance_squared_to(l.origin) < NEIGHBOURS * NEIGHBOURS:
 			sum += o.stage
 			n += 1
@@ -786,6 +842,9 @@ const MERGE_TURN := 0.35
 
 ## Remakes a plot's building: a house, or the joined building it hosts.
 func _rebuild(id: int) -> void:
+	if _defer:
+		_later[id] = true
+		return
 	var l: Lot = lots.get(id)
 	if l == null:
 		return
@@ -818,7 +877,8 @@ func _rebuild(id: int) -> void:
 ## (+1) this one, if they share a side line.
 func _next_to(l: Lot, dirn: int) -> Lot:
 	var mine := l.quad[0] if dirn < 0 else l.quad[1]
-	for o: Lot in lots.values():
+	# (a neighbour's frontage starts where this one's ends: its middle is near)
+	for o: Lot in _lots_near(mine, NEXT_REACH):
 		if o != l and o.street == l.street and o.side == l.side and o.type == "house":
 			var theirs := o.quad[1] if dirn < 0 else o.quad[0]
 			if theirs.distance_to(mine) < 0.35:
@@ -890,6 +950,7 @@ func _split(l: Lot) -> void:
 
 ## Every house straight to its cap (tests, and a town shown fully grown).
 func evolve_all() -> void:
+	_rebuild_later()
 	for l: Lot in lots.values():
 		if l.type == "house" and l.stage != l.cap:
 			_set_stage(l, l.cap)
@@ -970,7 +1031,7 @@ func _next_job() -> Dictionary:
 
 ## Still laying out lots or building houses.
 func is_busy() -> bool:
-	return not _new_streets.is_empty() or not _job.is_empty() or not _todo.is_empty() or not _dirty_patches.is_empty()
+	return not _new_streets.is_empty() or not _job.is_empty() or not _todo.is_empty() or not _dirty_patches.is_empty() or not _later.is_empty()
 
 
 ## Lays lots down both sides of a street wherever there is room.
@@ -983,9 +1044,17 @@ func fill_all() -> void:
 		_fill(s)
 	_todo.clear()
 	_job = {}
+	_rebuild_later()
 	for c in _dirty_patches.keys():
 		_commit_patch(c)
 	_dirty_patches.clear()
+
+
+## Remakes now every building waiting to be (tests, loading).
+func _rebuild_later() -> void:
+	for id: int in _later.keys():
+		_rebuild(id)
+	_later.clear()
 
 
 func _fill(s: Streets.Street) -> void:
@@ -1091,7 +1160,7 @@ func _inner(s: Streets.Street, job: Dictionary, until: int) -> bool:
 				# it belongs to whichever street is nearest
 				var nearest := true
 				for o: Streets.Street in streets._touching(s):
-					if o.near_box(c, d) and o.closest(c).x < d - 0.5:
+					if o.near_box(c, d) and o.within(c, d - 0.5):
 						nearest = false
 						break
 				if nearest and _inner_lot(s, f, c, park):
@@ -1135,6 +1204,7 @@ func _inner_lot(s: Streets.Street, f: float, c: Vector2, park: bool) -> bool:
 		_occ[k] = l.id
 	l.patch = Vector2i(int(floor((origin.x + Land.HALF) / PATCH)), int(floor((origin.y + Land.HALF) / PATCH)))
 	lots[l.id] = l
+	_index(l)
 	var ground := land.height_at(c.x, c.y)
 	l.type = "park" if park else "house"
 	if not park:
@@ -1240,8 +1310,9 @@ static func _key_point(k: String) -> Vector2:
 
 
 func _civic_near(p: Vector2, type: String, r: float) -> Variant:
-	for l: Lot in lots.values():
-		if l.type == type and l.origin.distance_to(p) < r:
+	for id: int in _civic.get(type, {}):
+		var l: Lot = lots[id]
+		if l.origin.distance_to(p) < r:
 			return l
 	return null
 
@@ -1359,6 +1430,7 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 		_occ[k] = l.id
 	l.patch = Vector2i(int(floor((l.origin.x + Land.HALF) / PATCH)), int(floor((l.origin.y + Land.HALF) / PATCH)))
 	lots[l.id] = l
+	_index(l)
 	var street_y := streets._yf(s, fm) + 0.03 + Streets.CURB
 	# terrace the front of the plot, where the house stands, near the street's level
 	var mid := (a + b) * 0.5 + inward * minf(depth * 0.35, 2.0)
@@ -1371,6 +1443,10 @@ func _make_lot(s: Streets.Street, a: Vector2, b: Vector2, na: Vector2, nb: Vecto
 	elif kind == "park" and _green(l) <= 0.5:
 		kind = "house"
 	l.type = kind
+	if CIVIC_WIDTH.has(kind):
+		if not _civic.has(kind):
+			_civic[kind] = {}
+		_civic[kind][l.id] = true
 	# squares and public buildings stand on a level plot all the way back; parks keep their slopes
 	# the whole plot is levelled, banks easing out well past it, so houses on a
 	# slope stand on their own terrace and need little or no stone base
@@ -1459,7 +1535,9 @@ func _commit_patch(c: Vector2i) -> void:
 	var sets: Array = []
 	for i in 18:
 		sets.append(null)
-	for id in lots:
+	var here: Array = (_by_patch.get(c, {}) as Dictionary).keys()
+	here.sort()
+	for id: int in here:
 		var l: Lot = lots[id]
 		if l.patch != c or l.arrays.is_empty():
 			continue

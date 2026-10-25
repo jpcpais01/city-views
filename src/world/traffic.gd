@@ -154,6 +154,10 @@ static func lane_offset(s: Streets.Street, lane: int) -> float:
 	return med + (s.w() - med) * (0.27 + 0.46 * lane)
 
 
+var _total := 0.0
+var _total_sig := 0
+
+
 func _process(delta: float) -> void:
 	var graph := streets.links()
 	_works_timer -= delta
@@ -163,9 +167,15 @@ func _process(delta: float) -> void:
 		for l: Town.Lot in town.lots.values():
 			if l.use == "industry":
 				_works_streets[l.street] = true
-	var total := 0.0
-	for s: Streets.Street in streets.streets:
-		total += s.pts.size() * Streets.SAMPLE * BUSY.get(s.kind, 1.0)
+	# how much road there is to drive on, weighed by how busy each kind is
+	# (added up again only when the streets change)
+	var sig := hash([streets.streets.size(), streets._next_id])
+	if sig != _total_sig:
+		_total_sig = sig
+		_total = 0.0
+		for s: Streets.Street in streets.streets:
+			_total += s.pts.size() * Streets.SAMPLE * BUSY.get(s.kind, 1.0)
+	var total := _total
 	var wanted := mini(int(total / 14.0) + town.lots.size() / 9, MAX_CARS - 10)
 	_spawn_timer -= delta
 	if _cars.size() < wanted and _spawn_timer <= 0.0:
@@ -238,7 +248,7 @@ func _queue() -> void:
 	var runs := {}
 	for c in _cars:
 		var s: Streets.Street = c.s
-		var key := "%d:%d:%d" % [s.id, int(c.dir), c.lane]
+		var key: int = s.id * 16 + (8 if c.dir > 0.0 else 0) + int(c.lane)
 		if not runs.has(key):
 			runs[key] = []
 		runs[key].append(c)
