@@ -1,6 +1,7 @@
 # City Views patch notes
 
 ## 2026-10-25 14:00 UTC
+- The Magic brush now covers the same ground as the other brushes for each size (S, M, L) instead of about twice as much, and its golden ring shows exactly the houses it will top out.
 - Real clouds: the drifting clouds over the land are no longer round cartoon puffs. Each one is now a true volume of vapour with a flat grey base, cauliflower billows and wispy, fraying edges, lit by sunlight passing through it: bright white tops, soft grey sides, a silver lining when the sun is behind it, gold and pink at sunset and dim, cool and moonlit at night. They slowly change shape as they drift, towers poke softly into them, and their shadows on the town are soft and ragged at the edges, darkest under the thickest part.
 
 ## 2026-10-25 13:00 UTC
