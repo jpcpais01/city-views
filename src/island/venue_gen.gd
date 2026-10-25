@@ -141,9 +141,6 @@ static func build(ls: Array, land: Land, street_y: float, seed_value: int) -> Ar
 			_arena(mk, box, body, neon)
 		"casino":
 			HouseGen._flat_roof(mk, pts, hgt, wall)
-			# a lit gold dome, and a beacon
-			mk.cylinder(Vector3(c.x, hgt, c.y), 0.7, 0.35, 10, GOLD, true, GOLD.lightened(0.2), 0.3, 1.0)
-			mk.box(Vector3(c.x, hgt + 0.6, c.y), Vector3(0.12, 0.5, 0.12), GOLD, null, false, 2.7)
 		"bowling":
 			HouseGen._flat_roof(mk, pts, hgt, wall)
 			# a giant pin on the roof
