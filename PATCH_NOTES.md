@@ -2,6 +2,7 @@
 
 ## 2026-10-25 00:00 UTC
 - Graphs of your city's story: tap the population to open the stats, and the new Trends section draws how your residents and jobs (People) or your coins and income a minute (Money) have grown, over the whole life of your city.
+- New Drive mode: tap the car button and take a little car out on your own streets. Follow it with a close chase camera or switch to the driver's seat, roll over hills, kerbs and bridges, and bump into the buildings you grew. Touch pedals and a thumb wheel on phones, WASD or arrows on PC, with an engine that revs, headlights that light the road at night and a speedometer. The X button (or Back / Esc) takes you back to building.
 
 ## 2026-10-24 23:30 UTC
 - Fixed the last update not starting up: the game opens normally again.
