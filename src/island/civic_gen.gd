@@ -3,7 +3,8 @@ extends RefCounted
 ## The lots of the new island that are not houses: parks where the player
 ## painted green, paved squares with a fountain on busy main streets, a
 ## church for each part of town, a town hall in the heart of it, schools among
-## the homes and market halls where it is busy, built in the style of its quarter. Built in
+## the homes, market halls where it is busy and the city's services (fire
+## stations, police stations and hospitals), built in the style of its quarter. Built in
 ## the lot's frame like HouseGen (local +Z faces the street, the lot runs back
 ## to -depth) and returned as the same raw arrays.
 
@@ -35,6 +36,12 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int) -> 
 			_school(mk, l)
 		"market":
 			_market(mk, l)
+		"fire":
+			_fire_station(mk, l)
+		"police":
+			_police_station(mk, l)
+		"hospital":
+			_hospital(mk, l)
 	mk.pop()
 	return [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,
 		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]
@@ -410,3 +417,176 @@ static func _market(mk: MeshKit, l: Town.Lot) -> void:
 			mk.push(Transform3D(Basis(Vector3.RIGHT, 0.3), Vector3(x, 0.5, -0.45)))
 			mk.box_faces(Vector3((k - 0.5) * 0.43, 0, 0), Vector3(0.43, 0.02, 0.5), awn if k == 0 else Color(0.98, 0.97, 0.94), MeshKit.TOP | MeshKit.FRONT)
 			mk.pop()
+
+
+## A vehicle parked at `at` facing `yaw` (0: nose to the street): a body, a
+## stripe down its sides, and a cabin with a light bar (a car) or a
+## windscreen with lamps over it (a van or an engine).
+static func _vehicle(mk: MeshKit, at: Vector3, yaw: float, body: Color, stripe: Color, lamp: Color, length: float, tall: float) -> void:
+	mk.push_at(at, yaw)
+	var car := length < 0.8
+	var w := 0.34 if car else 0.42
+	var all := MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT
+	mk.box_faces(Vector3(0, 0.03 + tall * 0.5, 0), Vector3(w, tall, length), body, all)
+	mk.box_faces(Vector3(0, 0.03 + tall * 0.42, 0), Vector3(w + 0.01, 0.05, length + 0.01), stripe, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	if car:
+		mk.box_faces(Vector3(0, 0.03 + tall + 0.07, -0.02), Vector3(w - 0.04, 0.14, length * 0.5), Color(0.25, 0.32, 0.38), all, 1.0)
+		mk.box(Vector3(0, 0.03 + tall + 0.17, -0.02), Vector3(0.22, 0.07, 0.08), lamp, null, false, 2.0)
+	else:
+		mk.box_faces(Vector3(0, 0.03 + tall * 0.75, length * 0.5 + 0.005), Vector3(w - 0.06, tall * 0.3, 0.01), Color(0.25, 0.32, 0.38), MeshKit.FRONT, 1.0)
+		for sx: float in [-1.0, 1.0]:
+			mk.box(Vector3(sx * (w * 0.5 - 0.07), 0.03 + tall + 0.035, length * 0.5 - 0.1), Vector3(0.08, 0.07, 0.08), lamp, null, false, 2.0)
+	mk.pop()
+
+
+## A fire station: a two-storey brick hall with three tall red engine doors
+## on the street, one of them open with its engine out on the apron, and the
+## tall tower at the side where the hoses hang to dry.
+static func _fire_station(mk: MeshKit, l: Town.Lot) -> void:
+	var rng := mk.rng
+	var wall := Color("a9503b")
+	var trim := Color(0.95, 0.93, 0.88)
+	var red := Color("d33a2c")
+	var all := MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT
+	var tw := 0.9
+	var bw := minf(l.width - 0.5, 4.0) - tw
+	var bd := minf(l.depth - 1.0, 2.4)
+	var bh := HouseGen.FH * 2.0 + 0.12
+	var bx := -tw * 0.5
+	var bz := -1.0 - bd * 0.5
+	var zf := bz + bd * 0.5
+	# the apron the engines roll out onto, a yellow line before each door
+	mk.shadow = false
+	mk.box_faces(Vector3(0, 0.0, -0.5), Vector3(l.width, 0.05, 1.0), Color(0.7, 0.7, 0.68), MeshKit.TOP)
+	for k in 3:
+		mk.box_faces(Vector3(bx + (k - 1) * bw / 3.0, 0.03, -0.5), Vector3(0.05, 0.01, 0.9), Color(0.95, 0.82, 0.3), MeshKit.TOP)
+	mk.shadow = true
+	# the hall, its flat roof behind a white parapet, a white sign band
+	mk.box_faces(Vector3(bx, bh * 0.5, bz), Vector3(bw, bh, bd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, MeshKit.BRICKS)
+	mk.box_faces(Vector3(bx, bh + 0.05, bz), Vector3(bw + 0.06, 0.1, bd + 0.06), trim, all)
+	mk.box_faces(Vector3(bx, 0.86, zf + 0.02), Vector3(bw - 0.2, 0.14, 0.04), trim, MeshKit.FRONT | MeshKit.TOP)
+	mk.window_row(Vector3(bx, HouseGen.FH * 1.55, zf), Vector3.BACK, bw - 0.4, int(bw / 0.5), 0.24, 0.3, Palette.GLASS_LIGHT, true)
+	# the engine doors, red in white frames, one open with its engine out
+	var open := rng.randi() % 3
+	for k in 3:
+		var dx := bx + (k - 1) * bw / 3.0
+		var dw := bw / 3.0 - 0.18
+		mk.box_faces(Vector3(dx, 0.39, zf + 0.012), Vector3(dw + 0.08, 0.78, 0.02), trim, MeshKit.FRONT)
+		mk.box_faces(Vector3(dx, 0.37, zf + 0.022), Vector3(dw, 0.72, 0.02), Color(0.12, 0.11, 0.11) if k == open else red, MeshKit.FRONT)
+		if k == open:
+			_vehicle(mk, Vector3(dx, 0.0, zf + 0.62), 0.0, red, trim, Color(0.35, 0.55, 1.0), 1.15, 0.42)
+			mk.box_faces(Vector3(dx, 0.5, zf + 0.5), Vector3(0.16, 0.05, 0.95), Color(0.85, 0.86, 0.88), MeshKit.TOP | MeshKit.LEFT | MeshKit.RIGHT)
+	# the hose tower at the side, slit windows up it and a lamp on top
+	var tx := bx + bw * 0.5 + tw * 0.5
+	var th := HouseGen.FH * 4.0
+	var tz := bz - 0.2
+	mk.box_faces(Vector3(tx, th * 0.5, tz), Vector3(tw - 0.1, th, tw - 0.1), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, MeshKit.BRICKS)
+	mk.box_faces(Vector3(tx, th + 0.05, tz), Vector3(tw, 0.1, tw), trim, all)
+	for fl in 3:
+		mk.window(Vector3(tx, 0.7 + fl * 0.62, tz + (tw - 0.1) * 0.5), Vector3.BACK, 0.14, 0.34, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), fl == 0)
+	mk.box(Vector3(tx, th + 0.16, tz), Vector3(0.12, 0.12, 0.12), Color(0.95, 0.85, 0.6), null, false, 2.75)
+
+
+## A police station: a three-storey block in pale stone with a dark blue
+## band under the roof, glass doors under a canopy with the blue lamp beside
+## them, and patrol cars parked out front.
+static func _police_station(mk: MeshKit, l: Town.Lot) -> void:
+	var rng := mk.rng
+	var c := _civic_colours(l, rng)
+	var wall: Color = (c[0] as Color).lerp(Color(0.86, 0.87, 0.88), 0.6)
+	var blue := Color("24467f")
+	var all := MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT
+	var bw := minf(l.width - 0.6, 3.4)
+	var bd := minf(l.depth - 1.2, 2.0)
+	var floors := 3
+	var bh := HouseGen.FH * floors + 0.1
+	var bz := -1.15 - bd * 0.5
+	var zf := bz + bd * 0.5
+	mk.shadow = false
+	mk.box_faces(Vector3(0, 0.0, -0.58), Vector3(l.width, 0.05, 1.15), Color(0.66, 0.66, 0.65), MeshKit.TOP)
+	mk.shadow = true
+	mk.box_faces(Vector3(0, bh * 0.5, bz), Vector3(bw, bh, bd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.box_faces(Vector3(0, bh - 0.12, bz), Vector3(bw + 0.02, 0.24, bd + 0.02), blue, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.box_faces(Vector3(0, bh + 0.04, bz), Vector3(bw + 0.08, 0.08, bd + 0.08), Color(0.32, 0.34, 0.38), all)
+	mk.window_grid(Vector3(0, HouseGen.FH, zf), Vector3.BACK, bw - 0.3, int(bw / 0.42), floors - 1, 0.24, Palette.GLASS, 1)
+	for sx: float in [-1.0, 1.0]:
+		mk.window_grid(Vector3(sx * bw * 0.5, HouseGen.FH, bz), Vector3.RIGHT * sx, bd - 0.3, int(bd / 0.42), floors - 1, 0.24, Palette.GLASS, 1)
+	mk.window_row(Vector3(-bw * 0.3, 0.38, zf), Vector3.BACK, bw * 0.3, 2, 0.26, 0.3, Palette.GLASS_LIGHT, true)
+	# the way in: glass doors under a canopy, the blue lamp on its post
+	mk.box_faces(Vector3(0.3, 0.3, zf + 0.012), Vector3(0.6, 0.56, 0.02), Color(0.3, 0.42, 0.5), MeshKit.FRONT, 1.0)
+	mk.box_faces(Vector3(0.3, 0.66, zf + 0.25), Vector3(1.1, 0.05, 0.5), blue, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.pole(Vector3(0.95, 0.0, zf + 0.35), 0.02, 0.62, 4, Color(0.2, 0.2, 0.22))
+	mk.box(Vector3(0.95, 0.7, zf + 0.35), Vector3(0.12, 0.14, 0.12), Color(0.35, 0.55, 1.0), null, false, 2.0)
+	# patrol cars, white with a blue stripe, nose to the street
+	var white := Color(0.96, 0.96, 0.95)
+	for sx: float in [-1.0, 1.0]:
+		if sx < 0.0 or rng.randf() < 0.6:
+			_vehicle(mk, Vector3(sx * (l.width * 0.5 - 0.55), 0.0, -0.62), 0.0, white, blue, Color(0.35, 0.55, 1.0), 0.66, 0.16)
+
+
+## A hospital: a tall white block with rows of windows, the red cross lit on
+## its front, a helipad on the roof, and a low wing out to the street with
+## the emergency entrance under a wide canopy and an ambulance waiting.
+static func _hospital(mk: MeshKit, l: Town.Lot) -> void:
+	var rng := mk.rng
+	var white := Color(0.95, 0.95, 0.93)
+	var green := Color("4f9a8a")
+	var red := Color("d9363e")
+	var all := MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT
+	var bw := minf(l.width - 0.6, 5.2)
+	var bd := minf(l.depth - 1.8, 2.2)
+	var floors := 5
+	var bh := HouseGen.FH * floors + 0.1
+	var bz := -l.depth + 0.25 + bd * 0.5
+	var zf := bz + bd * 0.5
+	mk.shadow = false
+	mk.box_faces(Vector3(0, 0.0, zf * 0.5), Vector3(l.width, 0.05, -zf), Color(0.68, 0.68, 0.67), MeshKit.TOP)
+	mk.shadow = true
+	# the ward block, green bands at its ends
+	mk.box_faces(Vector3(0, bh * 0.5, bz), Vector3(bw, bh, bd), white, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.box_faces(Vector3(0, bh + 0.04, bz), Vector3(bw + 0.06, 0.08, bd + 0.06), Color(0.78, 0.8, 0.8), all)
+	mk.window_grid(Vector3(0, HouseGen.FH, zf), Vector3.BACK, bw - 0.7, int(bw / 0.46), floors - 1, 0.22, Palette.GLASS, 1)
+	mk.window_grid(Vector3(0, HouseGen.FH, bz - bd * 0.5), Vector3.FORWARD, bw - 0.7, int(bw / 0.46), floors - 1, 0.22, Palette.GLASS, 1)
+	for sx: float in [-1.0, 1.0]:
+		mk.window_grid(Vector3(sx * bw * 0.5, HouseGen.FH, bz), Vector3.RIGHT * sx, bd - 0.3, int(bd / 0.46), floors - 1, 0.22, Palette.GLASS, 1)
+		mk.box_faces(Vector3(sx * (bw * 0.5 - 0.15), bh * 0.5, zf + 0.012), Vector3(0.3, bh - 0.05, 0.02), green, MeshKit.FRONT)
+	# the red cross, lit, high on the front
+	var cy := bh - 0.42
+	mk.box_faces(Vector3(0, cy, zf + 0.02), Vector3(0.62, 0.62, 0.03), white, MeshKit.FRONT)
+	mk.box_faces(Vector3(0, cy, zf + 0.04), Vector3(0.48, 0.15, 0.02), red, MeshKit.FRONT, 2.75)
+	mk.box_faces(Vector3(0, cy, zf + 0.04), Vector3(0.15, 0.48, 0.02), red, MeshKit.FRONT, 2.75)
+	# the helipad on the roof: a dark pad, a yellow ring and the white H
+	var ry := bh + 0.08
+	var px := minf(0.5, bw * 0.5 - 1.0)
+	mk.shadow = false
+	mk.box_faces(Vector3(px, ry + 0.01, bz), Vector3(1.6, 0.02, minf(1.6, bd)), Color(0.3, 0.32, 0.34), MeshKit.TOP)
+	var ring := 0.62
+	for k in 8:
+		var a0 := k * TAU / 8.0
+		var a1 := (k + 1) * TAU / 8.0
+		var o := Vector3(px, ry + 0.022, bz)
+		mk.quad(o + Vector3(cos(a0), 0, sin(a0)) * ring, o + Vector3(cos(a1), 0, sin(a1)) * ring, o + Vector3(cos(a1), 0, sin(a1)) * (ring - 0.07), o + Vector3(cos(a0), 0, sin(a0)) * (ring - 0.07), Vector3.UP, Color(0.95, 0.8, 0.25))
+	for sx: float in [-1.0, 1.0]:
+		mk.box_faces(Vector3(px + sx * 0.17, ry + 0.024, bz), Vector3(0.08, 0.004, 0.5), white, MeshKit.TOP)
+	mk.box_faces(Vector3(px, ry + 0.026, bz), Vector3(0.34, 0.004, 0.08), white, MeshKit.TOP)
+	mk.shadow = true
+	mk.box_faces(Vector3(-bw * 0.5 + 0.6, ry + 0.18, bz), Vector3(0.8, 0.36, bd * 0.6), Color(0.72, 0.74, 0.74), all)
+	# the low emergency wing out towards the street
+	var ww := bw * 0.5
+	var wd := minf(-zf - 0.85, 1.3)
+	var wx := -bw * 0.5 + ww * 0.5 + 0.1
+	var wz := zf + wd * 0.5
+	var wh := HouseGen.FH + 0.05
+	mk.box_faces(Vector3(wx, wh * 0.5, wz), Vector3(ww, wh, wd), white, MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+	mk.box_faces(Vector3(wx, wh + 0.03, wz), Vector3(ww + 0.04, 0.06, wd + 0.04), Color(0.82, 0.84, 0.84), all)
+	mk.box_faces(Vector3(wx, wh - 0.06, wz + wd * 0.5 + 0.02), Vector3(ww, 0.12, 0.02), green, MeshKit.FRONT)
+	mk.box_faces(Vector3(wx, 0.3, wz + wd * 0.5 + 0.012), Vector3(ww - 0.4, 0.46, 0.02), Palette.GLASS_LIGHT, MeshKit.FRONT, 1.0)
+	# the canopy over the ambulance bay beside it, on two posts
+	var cx := wx + ww * 0.5 + 0.6
+	mk.box_faces(Vector3(cx, 0.6, wz), Vector3(1.1, 0.05, wd), green, all)
+	for sz: float in [-1.0, 1.0]:
+		mk.pole(Vector3(cx + 0.5, 0.0, wz + sz * (wd * 0.5 - 0.05)), 0.025, 0.58, 4, Color(0.85, 0.86, 0.86))
+	_vehicle(mk, Vector3(cx, 0.0, wz + 0.1), 0.0, Color(0.97, 0.88, 0.3), green, Color(0.35, 0.55, 1.0), 0.95, 0.36)
+	for sx: float in [-1.0, 1.0]:
+		if rng.randf() < 0.7:
+			_tree(mk, rng, Vector3(sx * (l.width * 0.5 - 0.35), 0.0, -0.4))

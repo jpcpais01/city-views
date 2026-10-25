@@ -30,8 +30,8 @@ const MAX_DEPTH := 6.0
 ## how deep a plot must be across the middle of its frontage; its ends may taper
 const MIN_DEPTH := 1.8
 ## the frontage and least depth each square and public building needs
-const CIVIC_WIDTH := {"square": 6.0, "church": 4.4, "hall": 4.6, "school": 5.2, "market": 4.0}
-const CIVIC_DEPTH := {"square": 3.0, "church": 3.5, "hall": 3.2, "school": 3.8, "market": 2.8}
+const CIVIC_WIDTH := {"square": 6.0, "church": 4.4, "hall": 4.6, "school": 5.2, "market": 4.0, "fire": 4.4, "police": 3.8, "hospital": 5.8}
+const CIVIC_DEPTH := {"square": 3.0, "church": 3.5, "hall": 3.2, "school": 3.8, "market": 2.8, "fire": 3.4, "police": 3.2, "hospital": 4.2}
 const FH := 0.62
 ## how built-up each stage is (terraced from stage 2 up)
 const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0, 1.0, 1.0, 1.0]
@@ -433,7 +433,8 @@ func _ray_hit(l: Lot, from: Vector3, dir: Vector3) -> float:
 
 
 const TRADE_NAMES := {"shop": "Shop", "cafe": "Café", "bakery": "Bakery", "grocer": "Grocer", "pharmacy": "Pharmacy"}
-const CIVIC_NAMES := {"park": "Park", "square": "Square", "church": "Church", "hall": "Town hall", "school": "School", "market": "Market hall"}
+const CIVIC_NAMES := {"park": "Park", "square": "Square", "church": "Church", "hall": "Town hall", "school": "School", "market": "Market hall",
+	"fire": "Fire station", "police": "Police station", "hospital": "Hospital"}
 const QUARTER_NAMES := ["Harbour", "Pastel", "Brick", "Stone", "Southern", "Nordic"]
 
 
@@ -1365,8 +1366,9 @@ func _inner_lot(s: Streets.Street, f: float, c: Vector2, park: bool) -> bool:
 
 
 ## What a new lot here should hold: green where the player painted parks, now
-## and then a square on a busy main street, a church, a town hall, a school or
-## a market hall, each spaced well apart from the next of its kind.
+## and then a square on a busy main street, a church, a town hall, a school, a
+## market hall, a fire station, a police station or a hospital, each spaced
+## well apart from the next of its kind.
 func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float) -> String:
 	var q := p + streets._sidef(s, f) * side * (s.reach() + 2.5)
 	if land.green_at(q.x, q.y) > 0.5:
@@ -1390,6 +1392,14 @@ func _kind_at(s: Streets.Street, f: float, p: Vector2, side: float, dense: float
 		return "school"
 	if dense > 0.6 and h > 0.48 and h < 0.6 and _public_free(q, "market", 70.0) and _civic_near(q, "square", 12.0) == null and not _grown_on(s, f, side, "market"):
 		return "market"
+	# the city's services: fire stations and police stations spread through
+	# the town, a hospital on a main street where it is busy
+	if dense > 0.35 and h > 0.6 and h < 0.67 and _public_free(q, "fire", 55.0) and not _grown_on(s, f, side, "fire"):
+		return "fire"
+	if dense > 0.45 and h > 0.67 and h < 0.74 and _public_free(q, "police", 65.0) and not _grown_on(s, f, side, "police"):
+		return "police"
+	if s.major() and dense > 0.6 and h > 0.74 and h < 0.84 and _public_free(q, "hospital", 100.0) and not _grown_on(s, f, side, "hospital"):
+		return "hospital"
 	return "house"
 
 

@@ -412,6 +412,10 @@ func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> 
 			_green(mk, rng, p, y)
 		else:
 			_garden(mk, rng, p, y)
+	elif l.type == "fire" or l.type == "police" or l.type == "hospital":
+		# staff parking behind the city's services
+		parks = true
+		_car_park(mk, rng, p, 1 + int(l.type == "hospital"))
 	elif l.use == "office" or l.use == "industry" or l.use == "retail" or l.use == "fun":
 		# staff and customers come by car: a car park, bigger ones beside
 		# the big stores, venues and works
