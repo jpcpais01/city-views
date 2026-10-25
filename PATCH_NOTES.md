@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-25 00:00 UTC
+- Graphs of your city's story: tap the population to open the stats, and the new Trends section draws how your residents and jobs (People) or your coins and income a minute (Money) have grown, over the whole life of your city.
+
 ## 2026-10-24 23:30 UTC
 - Fixed the last update not starting up: the game opens normally again.
 - Sun direction in Settings: slide it round the compass to choose which way the sun crosses your sky, so the morning light, long sunset shadows and night moon come from the side you like. It works with every time of day.

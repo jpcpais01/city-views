@@ -210,6 +210,19 @@ func _ready() -> void:
 			frames += 1
 			last = now
 		print("live: %d streets, %d houses, slowest frame %d ms, %d of %d frames over 16 ms" % [island.streets.streets.size(), island.town.house_count(), worst / 1000, slow, frames])
+	if OS.get_environment("CV_CHARTS") != "":
+		# the graphs under the stats panel, with a made-up hour of growth
+		var charts := CityCharts.attach(hud, island)
+		await get_tree().process_frame
+		var pr := island.progress
+		for i in 120:
+			pr.residents = int(40 + i * i * 0.08 + sin(i * 0.3) * 6.0)
+			pr.jobs = int(pr.residents * (0.3 + 0.002 * i))
+			pr.coins = 300.0 + i * 14.0 + sin(i * 0.2) * 120.0
+			charts.history.sample()
+		if OS.get_environment("CV_CHARTS") == "money":
+			charts._pick(1)
+		hud._toggle_stats()
 	if OS.get_environment("CV_STATS") != "":
 		# the city stats panel open
 		island.progress.recount(true)
