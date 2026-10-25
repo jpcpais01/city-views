@@ -59,6 +59,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "flyovers":
+		await _flyovers()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "walks":
 		await _green_walks()
 		print("FAILURES: %d" % failures)
@@ -98,6 +103,7 @@ func _ready() -> void:
 	await _map_kinds()
 	await _big_coast()
 	await _green_walks()
+	await _flyovers()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -1433,6 +1439,69 @@ func _big_coast() -> void:
 
 ## Streets the town grows through painted green are paved walks: people use
 ## them, cars never do, and where three meet there is a little square with a fountain.
+## A street drawn across a highway flies over it on a bridge of its own,
+## whichever is drawn first; one that only ends on it still meets it.
+func _flyovers() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(4, "island")
+	var st := island.streets
+	var hw_pts := PackedVector2Array()
+	for k in 121:
+		hw_pts.append(Vector2(-60 + k, 0.0))
+	var hw := st.add_stroke(hw_pts, "highway")
+	var cross_pts := PackedVector2Array()
+	for k in 61:
+		cross_pts.append(Vector2(-20.0, -30.0 + k))
+	var cross := st.add_stroke(cross_pts, "main")
+	var tee_pts := PackedVector2Array()
+	for k in 25:
+		tee_pts.append(Vector2(25.0, -26.0 + k))
+	var tee := st.add_stroke(tee_pts, "side")
+	st.flush()
+	var jn_cross := 0
+	var jn_tee := 0
+	for jn in st.junctions():
+		var on: Array = jn.arms.map(func(a): return a.st)
+		if on.has(hw) and on.has(cross):
+			jn_cross += 1
+		if on.has(hw) and on.has(tee):
+			jn_tee += 1
+	var over: Vector3 = cross.closest(Vector2(-20, 0))
+	var under: Vector3 = hw.closest(Vector2(-20, 0))
+	check(jn_cross == 0 and jn_tee == 1, "a street crossing a highway gets no junction, one ending on it does (%d, %d)" % [jn_cross, jn_tee])
+	check(not cross.overs.is_empty() and over.y - under.y > Streets.CLEARANCE - 0.1, "and goes over it on a deck (%.2f m clear)" % (over.y - under.y))
+	var g := island.land.height_at(-20.0, 0.0)
+	check(absf(g - under.y) < 0.3, "the ground under the deck stays at the highway (%.2f vs %.2f)" % [g, under.y])
+	var steep := 0.0
+	for i in cross.ys.size() - 1:
+		steep = maxf(steep, absf(cross.ys[i + 1] - cross.ys[i]) / cross.pts[i].distance_to(cross.pts[i + 1]))
+	check(steep <= Streets.MAX_GRADE + 0.01, "its ramps are no steeper than any street (%.2f)" % steep)
+	# a highway drawn across a street already there lifts it; erased, it comes back down
+	var old_pts := PackedVector2Array()
+	for k in 61:
+		old_pts.append(Vector2(40.0, -30.0 + k))
+	var old := st.add_stroke(old_pts, "avenue")
+	st.flush()
+	var hw2_pts := PackedVector2Array()
+	for k in 61:
+		hw2_pts.append(Vector2(10.0 + k, 20.0))
+	var hw2 := st.add_stroke(hw2_pts, "highway")
+	st.flush()
+	var lifted: float = old.closest(Vector2(40, 20)).y - hw2.closest(Vector2(40, 20)).y
+	check(lifted > Streets.CLEARANCE - 0.1, "a highway drawn across a street lifts it over (%.2f m)" % lifted)
+	# rubbed out either side, all but a stub too short to pass under anything
+	st.erase_at(Vector2(20, 20), 17.0)
+	st.erase_at(Vector2(60, 20), 17.0)
+	st.flush()
+	var left := old.closest(Vector2(40, 20)).y - island.land.height_at(40, 20)
+	# (it still flies over the first highway, further back)
+	var at20: float = old.closest(Vector2(40, 20)).z
+	check(old in st.streets and not Streets._in_cuts(old.overs, at20) and absf(left) < 0.4, "and when it goes, the street comes back down (%.2f m up)" % left)
+	island.queue_free()
+	await get_tree().process_frame
+
+
 func _green_walks() -> void:
 	var island := IslandWorld.new()
 	add_child(island)

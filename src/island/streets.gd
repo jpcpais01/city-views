@@ -70,6 +70,8 @@ const DECK_DEPTH := 0.32
 const CONCRETE := Color(0.8, 0.78, 0.74)
 # a quay: how far out past the pavement the water must be, and how deep the
 # water is dredged along its wall
+## how high a street's deck stands over a highway it flies over
+const CLEARANCE := 2.5
 const QUAY_PROBE := 2.9
 const QUAY_DEPTH := -0.9
 const QUAY_STONE := Color(0.74, 0.69, 0.6)
@@ -90,6 +92,9 @@ class Street:
 	var cuts := {}
 	## where it crosses water on a bridge: (from, to) sample ranges
 	var spans := PackedVector2Array()
+	## where it flies over a highway it crosses without joining it: (from, to)
+	## sample ranges, the deck from abutment to abutment (see _flyovers)
+	var overs := PackedVector2Array()
 	## per sample, which sides run along the water on a stone quay (1 left, 2 right)
 	var quay := PackedByteArray()
 	## its bus stops: (sample index, side), set once it is built (see BusStops)
@@ -179,6 +184,14 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	streets.append(s)
 	_junctions_dirty = true
 	_conform(s)
+	if s.kind == "highway":
+		# streets it crosses go up and over it
+		for o in _touching(s):
+			if _flies(o, s):
+				_grade(o)
+				_conform(o)
+		# and the banks their ramps stand on stop at its shoulders
+		land.conform(s.pts, s.ys, s.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
 	_reconform_near(s)
 	_conform_junctions(s)
 	_laying[s.id] = 0.0
@@ -216,6 +229,7 @@ func erase_at(p: Vector2, radius: float) -> bool:
 		if cur.size() >= 3:
 			pieces.append([cur, cy])
 		var touching := _touching(s)
+		var flew := touching.filter(func(o): return _flies(o, s))
 		_remove(s)
 		for pc in pieces:
 			var ns := _new_street()
@@ -229,6 +243,10 @@ func erase_at(p: Vector2, radius: float) -> bool:
 			_junctions_dirty = true
 			_build(ns)
 			added.emit(ns)
+		for o in flew:
+			if o in streets:
+				_grade(o)
+				_conform(o)
 		for o in touching:
 			if o in streets:
 				_build_later(o)
@@ -305,11 +323,21 @@ func _grade(s: Street) -> void:
 		for i in range(a, b + 1):
 			ys[i] = deck + arch * sin(PI * float(i - a) / maxf(b - a, 1))
 			pins[i] = ys[i]
+	# over a highway it crosses, a deck at a lorry's height over the
+	# carriageway, the ramps up to it graded like any street
+	s.overs = PackedVector2Array()
+	for fly in _flyovers(s):
+		var o: Street = fly.hw
+		var deck := _yf(o, fly.fo) + CLEARANCE
+		s.overs.append(Vector2(fly.a, fly.b))
+		for i in range(int(ceil(fly.a)), int(floor(fly.b)) + 1):
+			ys[i] = deck
+			pins[i] = deck
 	if not pins.is_empty():
 		_limit(s.pts, ys, pins)
 	# meet other streets at their height, easing the change in over a few metres
 	for o in streets:
-		if o == s or not _boxes_overlap(s, o):
+		if o == s or not _boxes_overlap(s, o) or _flies(s, o):
 			continue
 		var best := Vector3(INF, 0, 0)
 		var bi := -1
@@ -361,12 +389,16 @@ func _conform(s: Street) -> void:
 	var start := 0
 	var n := s.pts.size()
 	var ends := s.spans.duplicate()
+	ends.append_array(s.overs)
+	var by_start := Array(ends)
+	by_start.sort_custom(func(a: Vector2, b: Vector2): return a.x < b.x)
+	ends = PackedVector2Array(by_start)
 	ends.append(Vector2(n, n))
 	for sp in ends:
 		var stop := mini(int(sp.x), n - 1)
 		if stop - start >= 1:
 			land.conform(s.pts.slice(start, stop + 1), s.ys.slice(start, stop + 1), s.w() + PAVE + 0.15, 2.6)
-		start = int(sp.y)
+		start = maxi(start, int(sp.y))
 	for bit in [1, 2]:
 		var side := -1.0 if bit == 1 else 1.0
 		var run := PackedVector2Array()
@@ -714,6 +746,10 @@ func _build(s: Street) -> void:
 	var walk := s.kind == "walk"
 	var median: float = KINDS[s.kind].median
 	var verge: bool = KINDS[s.kind].verge
+	var flyovers := _flyovers(s)
+	s.overs = PackedVector2Array()
+	for fly in flyovers:
+		s.overs.append(Vector2(fly.a, fly.b))
 	# where junction corners take over this street's pavements, per side,
 	# and where a junction's own asphalt takes over from this street's
 	var cuts := {-1.0: PackedVector2Array(), 1.0: PackedVector2Array()}
@@ -754,7 +790,7 @@ func _build(s: Street) -> void:
 	for i in range(1, mini(s.quay.size(), last_i + 1)):
 		if s.quay[i] != s.quay[i - 1]:
 			rows[float(i)] = true
-	for list in [cuts[-1.0], cuts[1.0], skip, s.spans]:
+	for list in [cuts[-1.0], cuts[1.0], skip, s.spans, s.overs]:
 		for c in list:
 			for f in [c.x, c.y]:
 				if f > 0.0 and f < upto:
@@ -791,8 +827,9 @@ func _build(s: Street) -> void:
 		var n1 := rn[r + 1]
 		var y0 := ry[r]
 		var y1 := ry[r + 1]
-		var bridge := _in_cuts(s.spans, fm)
-		var stone := bridge and styles[BridgeGen.span_at(s.spans, fm)] == "stone"
+		var over := _in_cuts(s.overs, fm)
+		var bridge := over or _in_cuts(s.spans, fm)
+		var stone := bridge and not over and styles[BridgeGen.span_at(s.spans, fm)] == "stone"
 		if bridge:
 			# the deck's underside, seen from the water and the banks
 			var edge := w + (0.3 if verge else PAVE)
@@ -856,10 +893,17 @@ func _build(s: Street) -> void:
 					g0 = -DECK_DEPTH - (0.0 if stone else 0.1)
 				if land.height_at(e1.x, e1.y) < 0.0:
 					g1 = -DECK_DEPTH - (0.0 if stone else 0.1)
+				if over:
+					# over the highway only the deck's own depth; down to the
+					# bank where the ramps' embankments come up to meet it
+					if g0 < -1.2:
+						g0 = -DECK_DEPTH - 0.1
+					if g1 < -1.2:
+						g1 = -DECK_DEPTH - 0.1
 				var wall := BridgeGen.STONE if stone else CONCRETE
 				var base := 0.0 if verge else CURB
-				if stone:
-					# a solid stone parapet
+				if stone or over:
+					# a solid parapet, of stone or (over a highway) concrete
 					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), base, side * (edge - lip), top, wall.darkened(0.04), 0.0, -out3)
 					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), top, side * edge, top, wall.lightened(0.1), 0.0, Vector3.UP)
 					buf.quad(Vector3(e0.x, y0 + top, e0.y), Vector3(e1.x, y1 + top, e1.y), Vector3(e1.x, y1 + maxf(g1, -DECK_DEPTH - 3.0), e1.y), Vector3(e0.x, y0 + maxf(g0, -DECK_DEPTH - 3.0), e0.y), wall, 0.0, out3)
@@ -905,15 +949,18 @@ func _build(s: Street) -> void:
 	# a dead end rounds off in a half circle, like a turning head
 	if not _laying.has(s.id):
 		for f: float in [0.0, upto]:
-			if _dead_end(s, int(f)) and not _in_cuts(s.spans, f) and not _in_cuts(skip, f):
+			if _dead_end(s, int(f)) and not _in_cuts(s.spans, f) and not _in_cuts(s.overs, f) and not _in_cuts(skip, f):
 				_build_cap(s, buf, f, asphalt, pave, kerb)
 	# bus stops, once the street is laid out and knows its junctions
 	if not _laying.has(s.id):
-		s.stops = BusStops.place(s, skip, cuts)
+		s.stops = BusStops.place(s, skip + s.overs, cuts)
 		BusStops.build(self, s, buf, s.stops)
 	# what carries the bridges: arches, piers, pylons and cables
 	var sup := MeshBuf.new()
 	BridgeGen.build(self, s, buf, sup, upto, styles)
+	for fly in flyovers:
+		if fly.b <= upto:
+			_flyover_pier(s, fly, sup)
 	var mi: MeshInstance3D = _meshes.get(s.id)
 	if mi == null:
 		mi = MeshInstance3D.new()
@@ -968,7 +1015,7 @@ func _put_bridges(mi: MeshInstance3D, sup: MeshBuf) -> void:
 func _overlap_cuts(s: Street, cuts: Dictionary) -> void:
 	var out := s.w() + PAVE * 0.5
 	for o: Street in streets:
-		if o == s or not _boxes_overlap(s, o):
+		if o == s or not _boxes_overlap(s, o) or _flies(s, o):
 			continue
 		var r := o.w() + 0.05
 		for side: float in [-1.0, 1.0]:
@@ -1002,6 +1049,20 @@ static func _in_cuts(list: PackedVector2Array, f: float) -> bool:
 
 # ------------------------------------------------------------------ junctions
 
+## A flyover's pier: a slim concrete wall standing on the highway's median
+## under the deck, lined up with the traffic either side of it.
+func _flyover_pier(s: Street, fly: Dictionary, sup: MeshBuf) -> void:
+	var o: Street = fly.hw
+	var c := _ptf(o, fly.fo)
+	var do := (_ptf(o, minf(fly.fo + 1.0, o.pts.size() - 1)) - _ptf(o, maxf(fly.fo - 1.0, 0.0))).normalized()
+	var ds := (_ptf(s, minf(fly.f + 1.0, s.pts.size() - 1)) - _ptf(s, maxf(fly.f - 1.0, 0.0))).normalized()
+	var sin_a := maxf(absf(ds.cross(do)), 0.35)
+	var lo := _yf(o, fly.fo) + CURB
+	var hi := _yf(s, fly.f) + 0.03 - DECK_DEPTH
+	var length := minf((s.w() + PAVE) * 2.0 * 0.8 / sin_a, 6.0)
+	sup.box(Vector3(c.x, (lo + hi) * 0.5, c.y), Vector3(length, hi - lo, 0.16), Vector3(do.x, 0.0, do.y), Vector3(-do.y, 0.0, do.x), CONCRETE.darkened(0.08))
+
+
 ## Where two streets meet, as (index on s, index on o) pairs (fractional
 ## sample indices): ends that stop on the other street, and crossings.
 ## Where two streets meet, remembered between rebuilds while neither changes
@@ -1017,6 +1078,8 @@ func _meetings_of(s: Street, o: Street, seen: Dictionary) -> PackedVector2Array:
 
 func _meetings(s: Street, o: Street) -> PackedVector2Array:
 	var out := PackedVector2Array()
+	if _flies(s, o):
+		return out
 	var spots := PackedVector2Array()
 	var ns := s.pts.size()
 	var no := o.pts.size()
@@ -1044,6 +1107,75 @@ func _meetings(s: Street, o: Street) -> PackedVector2Array:
 			out.append(Vector2(fs, fo))
 			spots.append(hit)
 	return out
+
+
+## Whether one of the two is a highway the other crosses on a bridge of its
+## own instead of meeting it at a junction.
+func _flies(a: Street, b: Street) -> bool:
+	if (a.kind == "highway") == (b.kind == "highway"):
+		return false
+	var low := a if a.kind == "highway" else b
+	var high := b if low == a else a
+	return _crossing(high, low).x >= 0.0
+
+
+## Where street s crosses highway o, carrying on well past it either way,
+## as (index on s, index on o); (-1, -1) where it doesn't, or only ends on it.
+func _crossing(s: Street, o: Street) -> Vector2:
+	if not _boxes_overlap(s, o):
+		return Vector2(-1, -1)
+	var clear := (o.reach() + 1.0) / SAMPLE
+	var ns := s.pts.size()
+	var no := o.pts.size()
+	for i in ns - 1:
+		var a := s.pts[i]
+		var b := s.pts[i + 1]
+		if not o.near_box(a, 0.6) and not o.near_box(b, 0.6):
+			continue
+		for j in no - 1:
+			var hit: Variant = Geometry2D.segment_intersects_segment(a, b, o.pts[j], o.pts[j + 1])
+			if hit == null:
+				continue
+			var fs := i + a.distance_to(hit) / maxf(a.distance_to(b), 1e-6)
+			var fo := j + o.pts[j].distance_to(hit) / maxf(o.pts[j].distance_to(o.pts[j + 1]), 1e-6)
+			if fs > clear and fs < ns - 1 - clear and fo > clear and fo < no - 1 - clear:
+				return Vector2(fs, fo)
+	return Vector2(-1, -1)
+
+
+## The highways street s flies over: [{hw, fo, f, a, b}], the deck running
+## from a to b on s, far enough out each side to clear the highway's shoulders
+## at whatever angle the two cross.
+func _flyovers(s: Street) -> Array:
+	var out: Array = []
+	if s.kind == "highway":
+		return out
+	for o: Street in streets:
+		if o.kind != "highway" or o == s:
+			continue
+		var x := _crossing(s, o)
+		if x.x < 0.0:
+			continue
+		var ds := (_ptf(s, minf(x.x + 1.0, s.pts.size() - 1)) - _ptf(s, maxf(x.x - 1.0, 0.0))).normalized()
+		var do := (_ptf(o, minf(x.y + 1.0, o.pts.size() - 1)) - _ptf(o, maxf(x.y - 1.0, 0.0))).normalized()
+		var sin_a := maxf(absf(ds.cross(do)), 0.35)
+		var cos_a := absf(ds.dot(do))
+		var half := (o.w() + 0.3 + 1.2 + (s.w() + PAVE) * cos_a) / sin_a
+		var k := half / SAMPLE
+		out.append({"hw": o, "fo": x.y, "f": x.x, "a": maxf(x.x - k, 0.0), "b": minf(x.x + k, s.pts.size() - 1.0)})
+	return out
+
+
+## Whether p lies within r of some street's deck where it flies over a highway.
+func under_deck(p: Vector2, r: float) -> bool:
+	for o: Street in streets:
+		if o.overs.is_empty() or not o.near_box(p, o.reach() + r):
+			continue
+		for sp in o.overs:
+			for i in range(int(sp.x), int(ceil(sp.y)) + 1):
+				if o.pts[mini(i, o.pts.size() - 1)].distance_to(p) < o.reach() + r:
+					return true
+	return false
 
 
 static func _near_any(list: PackedVector2Array, p: Vector2, r: float) -> bool:
