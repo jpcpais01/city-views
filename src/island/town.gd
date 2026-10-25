@@ -102,6 +102,17 @@ var _magic_ids := {}
 # stages that houses already had (from a save, or before an undo rebuilt the
 # town), by plot position: they come back at that stage
 var _kept_stages := {}
+# a saved city coming back: its lots are laid out out of sight (_hold), then
+# shown district by district, lowest level first (_reveal, ids in order)
+var _hold := false
+var _hidden := {}
+var _reveal: Array = []
+var _reveal_t := 0.0
+var _reveal_n := 0
+# the order districts come back in: homes, shops, offices, entertainment, industry
+const REVEAL_RANK := {HouseGen.HOMES: 0, HouseGen.SHOPS: 1, HouseGen.OFFICES: 2, HouseGen.FUN: 3, HouseGen.INDUSTRY: 4}
+# how long showing a whole city takes, at the most
+const REVEAL_TIME := 5.0
 
 
 class Lot:
@@ -224,6 +235,17 @@ func clear() -> void:
 	_later.clear()
 	_new_streets.clear()
 	_placing = null
+	_hold = false
+	_hidden.clear()
+	_reveal.clear()
+
+
+## A saved city is about to be laid out: its buildings stay out of sight until
+## all are laid, then come up in order (see _order_reveal).
+func begin_load() -> void:
+	_hold = true
+	_hidden.clear()
+	_reveal.clear()
 
 
 ## Keeps the ground within `r` of `p` free of houses, for a landmark.
@@ -586,6 +608,8 @@ func _index(l: Lot) -> void:
 	if not _by_patch.has(l.patch):
 		_by_patch[l.patch] = {}
 	_by_patch[l.patch][l.id] = true
+	if _hold:
+		_hidden[l.id] = true
 
 
 ## The lots that may stand within `r` of c (all whose patch reaches there):
@@ -611,6 +635,7 @@ func _drop(l: Lot) -> void:
 		if _occ[k] == l.id:
 			_occ[k] = 0
 	lots.erase(l.id)
+	_hidden.erase(l.id)
 	if _civic.has(l.type):
 		_civic[l.type].erase(l.id)
 	var here: Dictionary = _by_patch.get(l.patch, {})
@@ -741,6 +766,11 @@ func _process(delta: float) -> void:
 		var id: int = _later.keys()[0]
 		_later.erase(id)
 		_rebuild(id)
+	if _hold and _new_streets.is_empty() and _job.is_empty() and _todo.is_empty():
+		_hold = false
+		_order_reveal()
+	if not _reveal.is_empty():
+		_reveal_step(delta)
 	_live = true
 	for c in _dirty_patches.keys():
 		if Time.get_ticks_usec() - start > budget + 500:
@@ -1034,7 +1064,7 @@ func _next_job() -> Dictionary:
 
 ## Still laying out lots or building houses.
 func is_busy() -> bool:
-	return not _new_streets.is_empty() or not _job.is_empty() or not _todo.is_empty() or not _dirty_patches.is_empty() or not _later.is_empty()
+	return not _new_streets.is_empty() or not _job.is_empty() or not _todo.is_empty() or not _dirty_patches.is_empty() or not _later.is_empty() or _hold or not _reveal.is_empty()
 
 
 ## Lays lots down both sides of a street wherever there is room.
@@ -1048,9 +1078,55 @@ func fill_all() -> void:
 	_todo.clear()
 	_job = {}
 	_rebuild_later()
+	_hold = false
+	_hidden.clear()
+	_reveal.clear()
 	for c in _dirty_patches.keys():
 		_commit_patch(c)
 	_dirty_patches.clear()
+
+
+## Puts the lots laid out of sight in the order they come back: homes, then
+## shops, offices, entertainment and industry, each from its lowest painted
+## level to its highest, smaller buildings first, spreading out from the
+## middle of the town.
+func _order_reveal() -> void:
+	var mid := Vector2.ZERO
+	var keyed: Array = []
+	for id: int in _hidden:
+		var l: Lot = lots.get(id)
+		if l == null:
+			continue
+		mid += l.origin
+		keyed.append([REVEAL_RANK.get(l.district, 0), roundi(land.level_at(l.origin.x, l.origin.y)),
+			l.stage if l.type == "house" else 0, 0.0, id])
+	if keyed.is_empty():
+		_hidden.clear()
+		return
+	mid /= keyed.size()
+	for k: Array in keyed:
+		k[3] = (lots[k[4]] as Lot).origin.distance_squared_to(mid)
+	keyed.sort_custom(func(a: Array, b: Array) -> bool:
+		for i in 4:
+			if a[i] != b[i]:
+				return a[i] < b[i]
+		return a[4] < b[4])
+	_reveal = keyed.map(func(k: Array) -> int: return k[4])
+	_reveal_n = _reveal.size()
+	_reveal_t = 0.0
+
+
+## Shows the next few hidden buildings, so the whole city is up within
+## REVEAL_TIME (sooner for a small one).
+func _reveal_step(delta: float) -> void:
+	_reveal_t += delta
+	var span := clampf(_reveal_n * 0.006, 1.2, REVEAL_TIME)
+	var due := ceili(_reveal_n * minf(_reveal_t / span, 1.0)) - (_reveal_n - _reveal.size())
+	while due > 0 and not _reveal.is_empty():
+		var id: int = _reveal.pop_front()
+		if _hidden.erase(id) and lots.has(id):
+			_dirty_patches[(lots[id] as Lot).patch] = true
+		due -= 1
 
 
 ## Remakes now every building waiting to be (tests, loading).
@@ -1542,7 +1618,7 @@ func _commit_patch(c: Vector2i) -> void:
 	here.sort()
 	for id: int in here:
 		var l: Lot = lots[id]
-		if l.patch != c or l.arrays.is_empty():
+		if l.patch != c or l.arrays.is_empty() or _hidden.has(id):
 			continue
 		if _rising.has(id) and not is_same(_rising[id].arrays, l.arrays):
 			# rebuilt again while still going up: start over from where it is
