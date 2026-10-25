@@ -88,8 +88,10 @@ func _ready() -> void:
 	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pill.position = Vector2(18, 18)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(1, 1, 1, 0.78)
+	sb.bg_color = Color(0.075, 0.09, 0.125, 0.82)
 	sb.set_corner_radius_all(26)
+	sb.border_color = Color(1, 1, 1, 0.16)
+	sb.set_border_width_all(1)
 	sb.content_margin_left = 22
 	sb.content_margin_right = 22
 	sb.content_margin_top = 8
@@ -97,7 +99,7 @@ func _ready() -> void:
 	pill.add_theme_stylebox_override("panel", sb)
 	_speed = Label.new()
 	_speed.add_theme_font_size_override("font_size", 30)
-	_speed.add_theme_color_override("font_color", Color(0.2, 0.24, 0.3))
+	_speed.add_theme_color_override("font_color", Color("f5f7fb"))
 	if hud and hud.font_bold:
 		_speed.add_theme_font_override("font", hud.font_bold)
 	_speed.text = "0 km/h"

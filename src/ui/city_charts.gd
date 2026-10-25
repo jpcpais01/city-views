@@ -5,8 +5,8 @@ extends VBoxContainer
 ## income a minute), drawn from CityHistory as soft lines over a shaded area,
 ## with the latest value at the end of each line.
 
-const INK := Color("2b3440")
-const SOFT := Color("6b7785")
+const INK := Color("f5f7fb")
+const SOFT := Color(0.92, 0.94, 0.98, 0.66)
 const VIEWS := [
 	["People", [[0, "Residents", Color("3fae8c")], [1, "Jobs", Color("22a5c7")]]],
 	["Money", [[2, "Coins", Color("e8a21a")], [3, "Income /min", Color("ff7a6b")]]],
@@ -53,15 +53,15 @@ func _ready() -> void:
 		if _bold:
 			b.add_theme_font_override("font", _bold)
 		b.add_theme_font_size_override("font_size", 13)
-		b.add_theme_stylebox_override("normal", _box(Color(1, 1, 1, 0.55)))
-		b.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.8)))
-		b.add_theme_stylebox_override("pressed", _box(INK))
-		b.add_theme_stylebox_override("hover_pressed", _box(INK))
+		b.add_theme_stylebox_override("normal", _box(Color(1, 1, 1, 0.06)))
+		b.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.14)))
+		b.add_theme_stylebox_override("pressed", _box(Color.WHITE))
+		b.add_theme_stylebox_override("hover_pressed", _box(Color.WHITE))
 		b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 		b.add_theme_color_override("font_color", INK)
 		b.add_theme_color_override("font_hover_color", INK)
-		b.add_theme_color_override("font_pressed_color", Color.WHITE)
-		b.add_theme_color_override("font_hover_pressed_color", Color.WHITE)
+		b.add_theme_color_override("font_pressed_color", Color("161b24"))
+		b.add_theme_color_override("font_hover_pressed_color", Color("161b24"))
 		b.pressed.connect(func(): _pick(i))
 		head.add_child(b)
 		_tabs.append(b)
@@ -203,15 +203,15 @@ class LineChart:
 			for v in vals:
 				top = maxf(top, v)
 		top = nice_top(top * 1.05)
-		var grid := Color(0.3, 0.38, 0.48, 0.14)
+		var grid := Color(1, 1, 1, 0.1)
 		for k in 3:
 			var y := r.position.y + r.size.y * k / 2.0
 			draw_line(Vector2(r.position.x, y), Vector2(r.end.x, y), grid, 1.0)
 			if font:
-				draw_string(font, Vector2(0, y + 4), short(top * (1.0 - k / 2.0)), HORIZONTAL_ALIGNMENT_RIGHT, 26, 10, Color(0.42, 0.47, 0.52))
+				draw_string(font, Vector2(0, y + 4), short(top * (1.0 - k / 2.0)), HORIZONTAL_ALIGNMENT_RIGHT, 26, 10, Color(1, 1, 1, 0.5))
 		if n < 2:
 			if font:
-				draw_string(font, Vector2(r.position.x, r.get_center().y + 4), "The graph fills in as your city grows", HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 12, Color(0.42, 0.47, 0.52))
+				draw_string(font, Vector2(r.position.x, r.get_center().y + 4), "The graph fills in as your city grows", HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 12, Color(1, 1, 1, 0.5))
 			return
 		var upto := 1.0 + (n - 1) * _grow
 		for li in lines.size():

@@ -34,7 +34,7 @@ window/energy_saving/keep_screen_on=true
 
 [gui]
 
-theme/custom_font="res://assets/fonts/Nunito.ttf"
+theme/custom_font="res://assets/fonts/Manrope.ttf"
 common/snap_controls_to_pixels=true
 
 [input_devices]

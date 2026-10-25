@@ -7,9 +7,9 @@ extends Control
 ## the district and level already chosen. Now and then Pip has a quiet look
 ## by itself and waves (a little badge) when something needs the mayor.
 
-const INK := Color("2b3440")
-const SOFT := Color("6b7785")
-const GLASS := Color(0.9, 0.93, 0.98)
+const INK := Color("f5f7fb")
+const SOFT := Color(0.92, 0.94, 0.98, 0.66)
+const GLASS := Color(0.075, 0.09, 0.125)
 const ACCENT := Color("ff7a6b")
 const FACE := 84.0
 const WIDTH := 430.0
@@ -69,7 +69,7 @@ func _ready() -> void:
 	_reg = hud.font_reg if hud and hud.font_reg else ThemeDB.fallback_font
 	_glass = ShaderMaterial.new()
 	_glass.shader = preload("res://src/ui/glass.gdshader")
-	_glass.set_shader_parameter("tint", 0.55)
+	_glass.set_shader_parameter("tint", 0.66)
 	marks = AdvisorMarks.new(island.land, _bold)
 	island.add_child(marks)
 	_build_face()
@@ -376,7 +376,7 @@ func _show_report(r: Dictionary) -> void:
 		bar.value = 0.0
 		bar.custom_minimum_size = Vector2(62, 7)
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bar.add_theme_stylebox_override("background", _box(Color(0.82, 0.86, 0.9, 0.9), 4, 0, false))
+		bar.add_theme_stylebox_override("background", _box(Color(1, 1, 1, 0.12), 4, 0, false))
 		bar.add_theme_stylebox_override("fill", _box(m[2], 4, 0, false))
 		_meters.add_child(bar)
 		create_tween().tween_property(bar, "value", float(m[1]), 0.7).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT).set_delay(0.15)
@@ -404,7 +404,7 @@ func _clear_tips() -> void:
 
 func _tip_row(i: int, t: Dictionary) -> Control:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", _box(Color(1, 1, 1, 0.6), 16, 10, false))
+	p.add_theme_stylebox_override("panel", _box(Color(1, 1, 1, 0.08), 16, 10, false))
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var h := HBoxContainer.new()
@@ -544,7 +544,7 @@ static func _box(bg: Color, radius := 22, pad := 14, shadow := false) -> StyleBo
 ## The same frosted glass as the rest of the interface.
 static func _glass_box(tint: Color, radius := 24, pad := 14) -> StyleBoxFlat:
 	var sb := _box(tint, radius, pad)
-	sb.border_color = Color(1, 1, 1, 0.95)
+	sb.border_color = Color(1, 1, 1, 0.16)
 	sb.border_width_top = 2
 	sb.border_width_left = 1
 	sb.border_width_right = 1
@@ -564,7 +564,7 @@ class BubbleTail:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _draw() -> void:
-		draw_colored_polygon(PackedVector2Array([Vector2(0, 0), Vector2(size.x, 0), Vector2(size.x * 0.5, size.y)]), Color(0.95, 0.96, 0.99, 0.92))
+		draw_colored_polygon(PackedVector2Array([Vector2(0, 0), Vector2(size.x, 0), Vector2(size.x * 0.5, size.y)]), Color(0.1, 0.12, 0.16, 0.94))
 
 
 ## Pip: a round glass robot with a little screen for a face. Pip bobs,

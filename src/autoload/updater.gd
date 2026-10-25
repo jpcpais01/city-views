@@ -12,10 +12,10 @@ const NOTES := "https://raw.githubusercontent.com/%s/%s/PATCH_NOTES.md"
 const NOTES_MAX := 40
 const RECHECK := 900.0  # the Windows zip lands a few minutes after the APK
 
-const INK := Color("2b3440")
-const SOFT := Color("6b7785")
+const INK := Color("f5f7fb")
+const SOFT := Color(0.92, 0.94, 0.98, 0.66)
 const ACCENT := Color("ff7a6b")
-const GLASS := Color(0.9, 0.93, 0.98)
+const GLASS := Color(0.075, 0.09, 0.125)
 
 enum State { IDLE, OFFER, DOWNLOADING, READY, FAILED }
 
@@ -202,7 +202,7 @@ func _build_card() -> void:
 	_card = PanelContainer.new()
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://src/ui/glass.gdshader")
-	mat.set_shader_parameter("tint", 0.5)
+	mat.set_shader_parameter("tint", 0.7)
 	_card.material = mat
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = GLASS
@@ -212,8 +212,8 @@ func _build_card() -> void:
 	sb.content_margin_right = 10
 	sb.content_margin_top = 10
 	sb.content_margin_bottom = 10
-	sb.border_color = Color(1, 1, 1, 0.95)
-	sb.border_width_top = 2
+	sb.border_color = Color(1, 1, 1, 0.16)
+	sb.border_width_top = 1
 	sb.border_width_left = 1
 	sb.border_width_right = 1
 	sb.border_width_bottom = 1
@@ -242,8 +242,8 @@ func _build_card() -> void:
 	col.add_theme_constant_override("separation", 2)
 	row.add_child(col)
 	var bold := FontVariation.new()
-	bold.base_font = load("res://assets/fonts/Nunito.ttf")
-	bold.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 850}
+	bold.base_font = load("res://assets/fonts/Manrope.ttf")
+	bold.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 800}
 	_title = Label.new()
 	_title.add_theme_font_override("font", bold)
 	_title.add_theme_font_size_override("font_size", 19)
@@ -262,7 +262,7 @@ func _build_card() -> void:
 	_notes_btn.add_theme_font_override("font", bold)
 	_notes_btn.add_theme_font_size_override("font_size", 15)
 	for s in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-		_notes_btn.add_theme_color_override(s, ACCENT.darkened(0.12))
+		_notes_btn.add_theme_color_override(s, ACCENT)
 	for s in ["normal", "hover", "pressed", "focus"]:
 		_notes_btn.add_theme_stylebox_override(s, StyleBoxEmpty.new())
 	_notes_btn.pressed.connect(func(): _set_notes_open(not _notes_open))
@@ -273,7 +273,7 @@ func _build_card() -> void:
 	_bar.custom_minimum_size = Vector2(0, 6)
 	_bar.max_value = 1.0
 	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0.17, 0.2, 0.25, 0.12)
+	bg.bg_color = Color(1, 1, 1, 0.12)
 	bg.set_corner_radius_all(3)
 	var fg := StyleBoxFlat.new()
 	fg.bg_color = ACCENT
@@ -318,7 +318,7 @@ func _build_card() -> void:
 	_notes_label.scroll_active = false
 	_notes_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	_notes_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_notes_label.add_theme_font_override("normal_font", load("res://assets/fonts/Nunito.ttf"))
+	_notes_label.add_theme_font_override("normal_font", load("res://assets/fonts/Manrope.ttf"))
 	_notes_label.add_theme_font_override("bold_font", bold)
 	_notes_label.add_theme_font_size_override("normal_font_size", 15)
 	_notes_label.add_theme_font_size_override("bold_font_size", 15)
