@@ -281,6 +281,26 @@ func _ready() -> void:
 	if OS.get_environment("CV_HOLD") != "":
 		# hold a brush (no stroke), as when it is picked from the bar
 		island.set_brush(OS.get_environment("CV_HOLD"))
+	if OS.get_environment("CV_PAINT") != "":
+		# Grow strokes in three districts and a park, painted as by a finger,
+		# with the brush left hovering beside them (with CV_STREETS)
+		island.set_brush("grow")
+		island.brush_radius = 3.33
+		var strokes := [[0, Vector2(-14, -7), Vector2(14, -7)], [1, Vector2(-14, 6), Vector2(-2, 6)], [2, Vector2(2, 6), Vector2(14, 6)], [-1, Vector2(-6, -2), Vector2(-6, -2)]]
+		for sk: Array in strokes:
+			island.brush = "green" if sk[0] < 0 else "grow"
+			island.grow_use = maxi(sk[0], 0)
+			var a := Vector2(f.x, f.z) + (sk[1] as Vector2)
+			var b := Vector2(f.x, f.z) + (sk[2] as Vector2)
+			island._begin_stroke(island.rig.cam.unproject_position(Vector3(a.x, island.land.height_at(a.x, a.y), a.y)))
+			for k in 11:
+				var p := a.lerp(b, k / 10.0)
+				island._ring_at = Vector3(p.x, island.land.height_at(p.x, p.y), p.y)
+				await get_tree().process_frame
+			island._end_stroke()
+		island.brush = "grow"
+		island.grow_use = 3
+		island._ring_at = Vector3(f.x + 2, island.land.height_at(f.x + 2, f.z + 18), f.z + 18)
 	if OS.get_environment("CV_PHOTO") != "":
 		Game.settings["hyper"] = OS.get_environment("CV_NOHYPER") == ""
 		hud.set_photo(true)

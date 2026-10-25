@@ -78,6 +78,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "brushes":
+		await _brushes()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "change":
 		await _road_change()
 		print("FAILURES: %d" % failures)
@@ -97,6 +102,7 @@ func _ready() -> void:
 	await _island_undo()
 	await _island_coop()
 	await _island_grow()
+	await _brushes()
 	await _island_levels()
 	await _island_skyline()
 	await _districts()
@@ -1803,5 +1809,103 @@ func _green_walks() -> void:
 			if (c.s as Streets.Street).kind == "walk":
 				on_walk += 1
 	check(tr._cars.size() > 0 and on_walk == 0, "cars never drive on a walk (%d cars, %d on walks)" % [tr._cars.size(), on_walk])
+	island.queue_free()
+	await get_tree().process_frame
+
+
+## The Grow and Green brushes paint crisp, at once, keep to their side of a
+## street, stop at other colours (unless the stroke began on one), fill the
+## rest of a block they mostly covered, and the Clear brush wipes cleanly.
+func _brushes() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(9)
+	island.progress.from_dict({})
+	var land := island.land
+	var line := func(a: Vector2, b: Vector2) -> void:
+		var pts := PackedVector2Array()
+		for k in 41:
+			pts.append(a.lerp(b, k / 40.0))
+		island.streets.add_stroke(pts)
+	line.call(Vector2(-40, 3), Vector2(40, 3))
+	island.streets.flush()
+	var stroke := func(pts: Array, use: int, kind := "grow") -> void:
+		island.brush = kind
+		island.grow_use = use
+		island._ring_at = Vector3(pts[0].x, 0, pts[0].y)
+		island._stroke = true
+		island._undo.append(island.snapshot())
+		var c0: Vector2 = pts[0]
+		var zr := island._zone_radius()
+		island._stroke_lo = c0 - Vector2(zr, zr)
+		island._stroke_hi = c0 + Vector2(zr, zr)
+		island._stroke_over = BrushMask.class_at(land, c0)
+		island._last_dab = null
+		island._stroke_claimed = 0
+		for p: Vector2 in pts:
+			island._ring_at = Vector3(p.x, land.height_at(p.x, p.y), p.y)
+			island._paint_town(island._ring_at, 0.55)
+			island._stroke_lo = island._stroke_lo.min(p - Vector2(zr, zr))
+			island._stroke_hi = island._stroke_hi.max(p + Vector2(zr, zr))
+		island._stroke_did = true
+		island._end_stroke()
+	island.brush_radius = 3.33
+	var zr := island._zone_radius()
+	# a dab beside the street, a little more than its radius away
+	stroke.call([Vector2(0, 3.0 + zr * 0.6)], 0)
+	check(land.zone_at(0, 3.0 + zr * 0.6) >= 0.99, "a single dab paints at full strength at once")
+	check(land.zone_at(0, 3.0 - zr * 0.3) < 0.01, "the dab stops at the street, not across it")
+	check(land.zone_at(0, 3.0) >= 0.3, "the street the dab meets is painted on its side, so houses front it")
+	var edge := 0
+	for k in 40:
+		var a := TAU * k / 40.0
+		var p := Vector2(0, 3.0 + zr * 0.6) + Vector2.from_angle(a) * (zr + 1.5)
+		if land.zone_at(p.x, p.y) > 0.05:
+			edge += 1
+	check(edge == 0, "nothing is painted past the brush's edge (%d leaks)" % edge)
+	# offices right next to the homes: they meet in a border, homes stay homes
+	var h := Vector2(0, 3.0 + zr * 0.6)
+	stroke.call([h + Vector2(zr * 1.2, 0)], 2)
+	check(land.use_at(h.x, h.y) == 0 and land.use_at(h.x + zr * 1.2, h.y) == 2, "a stroke started on bare ground stops at another district")
+	# started on the homes, the offices brush repaints them
+	stroke.call([h], 2)
+	check(land.use_at(h.x, h.y) == 2, "a stroke started on a district repaints it")
+	# a closed block, 24 m square, mostly painted, fills in whole
+	line.call(Vector2(-40, -27), Vector2(40, -27))
+	line.call(Vector2(-20, 4), Vector2(-20, -28))
+	line.call(Vector2(4, 4), Vector2(4, -28))
+	island.streets.flush()
+	var pts := []
+	for x in range(-15, 0, 2):
+		pts.append(Vector2(x, -8))
+	island.brush_radius = 8.5
+	stroke.call(pts, 1)
+	var bare := 0
+	var shops := 0
+	for x in range(-17, 2, 3):
+		for z in range(-24, 1, 3):
+			if land.use_at(x, z) == 1 and land.zone_at(x, z) > 0.5:
+				shops += 1
+			else:
+				bare += 1
+	check(bare == 0, "the rest of a block the stroke mostly covered fills in (%d of %d left bare)" % [bare, bare + shops])
+	check(land.zone_at(-10, -32) < 0.01 and land.zone_at(10, -12) < 0.01, "the fill stays inside its block")
+	# green parks inside the shops block, then clear wipes crisply
+	island.brush_radius = 1.5
+	stroke.call([Vector2(-8, -14)], 0, "green")
+	check(land.green_at(-8, -14) >= 0.99 and land.green_at(-8, -14 - island._zone_radius() - 1.5) < 0.01, "Green paints a crisp park where its stroke began")
+	island.brush = "clear"
+	island._apply_brush(Vector3(-8, 0, -14), 0.016)
+	check(land.green_at(-8, -14) < 0.01 and land.zone_at(-8, -14) < 0.01, "Clear wipes the painting under it")
+	# the preview: the ring follows exactly what a dab would paint
+	island.brush = "grow"
+	island.grow_use = 3
+	island.brush_radius = 3.33
+	island._stroke = false
+	var m := island._dab_mask(h + Vector2(0, -0.5), BrushMask.class_at(land, h))
+	check(m.count == 0 and m.covers(h) and not m.covers(Vector2(0, 2.0 - zr * 0.5)), "the preview covers the ground it will paint, not past the street")
+	island._ring_at = Vector3(h.x, 0, h.y)
+	island._draw_ring()
+	check(island._ring_mesh.get_surface_count() == 2, "the preview draws a wash and an outline")
 	island.queue_free()
 	await get_tree().process_frame

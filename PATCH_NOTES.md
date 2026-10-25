@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-25 04:15 UTC
+- Sharper district painting: Grow and Green now paint crisp, solid areas at full strength the moment you touch, with clean edges and a fine outline instead of a soft, fading spray.
+- Smart edges: a stroke keeps to its own side of a street and stops right at the border of other districts and parks, so neighbouring colours meet in neat lines. Start a stroke on a district to repaint it.
+- Block fill: when a stroke covers most of a street block, the rest of that block fills in by itself.
+- The brush preview now shows exactly what will be painted: the area is washed in the district's colour inside an outline that hugs the streets and colours it stops at.
+- Clear rubs out painting in a crisp circle too.
+
 ## 2026-10-25 04:00 UTC
 - A 7th Grow level, Mega: supertall towers of thirty to eighty floors (the offices tallest, with spires up to the clouds), mega malls with a lit pylon, and industrial complexes with a steaming cooling tower and a gantry crane. It opens at 20,000 residents.
 - A new district, Entertainment (pink): pubs and bars with neon first, then nightclubs, arcades and bowling alleys, theatres with columned porticos, multiplexes, concert halls under a copper vault, gold casinos and, across joined plots at the Mega level, an arena ringed by floodlights. It opens at 1,200 residents, brings jobs, and Pip tells you where people have nowhere to go out.
