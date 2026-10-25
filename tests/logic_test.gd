@@ -1197,6 +1197,15 @@ func _districts() -> void:
 	check(shops >= 2 and shops_all, "a shops district puts a shop under every house (%d)" % shops)
 	check(offices >= 2, "an office district grows offices (%d)" % offices)
 	check(tall >= 1 and homes_office == 0, "homes grow into residential towers, never offices (%d tall, %d not homes)" % [tall, homes_office])
+	# a big enough city opens its metro: entrances on the main street by the towers
+	island.metro.rebuild()
+	check(island.metro.spots.is_empty(), "no metro before the city is big enough")
+	island.progress.residents = Metro.NEED
+	island.metro.rebuild()
+	var by_towers := true
+	for p: Vector3 in island.metro.spots:
+		by_towers = by_towers and absf(p.z - 3.0) < 2.0 and p.x > 15.0
+	check(not island.metro.spots.is_empty() and by_towers, "a city of %d opens metro stations on the main street by its towers (%d)" % [Metro.NEED, island.metro.spots.size()])
 	# offices, shops and works get car parks among their yards
 	island.yards.rebuild_all()
 	check(island.yards.car_parks() > 0 and island.yards.car_parks() < island.yards.yard_count(), "busy districts get car parks among the yards (%d of %d)" % [island.yards.car_parks(), island.yards.yard_count()])

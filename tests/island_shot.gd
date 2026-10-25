@@ -272,6 +272,16 @@ func _ready() -> void:
 		add_child(cam)
 		cam.look_at_from_position(at + Vector3(0, island.land.height_at(at.x, at.z) + 12.0, 0.01), at, Vector3.FORWARD)
 		cam.make_current()
+	if OS.get_environment("CV_METRO") != "":
+		# the metro laid out now, and a look at its first entrance from close by
+		island.progress.recount(true)
+		island.progress.residents = maxi(island.progress.residents, Metro.NEED)
+		island.metro.rebuild()
+		print("metro: ", island.metro.spots)
+		if not island.metro.spots.is_empty():
+			var m: Vector3 = island.metro.spots[int(OS.get_environment("CV_METRO")) % island.metro.spots.size()]
+			island.rig.focus(m)
+			await get_tree().create_timer(1.5).timeout
 	if OS.get_environment("CV_PLANE") != "":
 		# an airliner held in view, part way between the camera and its focus
 		await get_tree().create_timer(1.0).timeout
@@ -341,6 +351,16 @@ func _ready() -> void:
 	if OS.get_environment("CV_MARK") != "":
 		island.progress.recount(true)
 		island.landmarks.settle()
+	if OS.get_environment("CV_METRO") != "":
+		# the metro laid out now, and a look at its first entrance from close by
+		island.progress.recount(true)
+		island.progress.residents = maxi(island.progress.residents, Metro.NEED)
+		island.metro.rebuild()
+		print("metro: ", island.metro.spots)
+		if not island.metro.spots.is_empty():
+			var m: Vector3 = island.metro.spots[int(OS.get_environment("CV_METRO")) % island.metro.spots.size()]
+			island.rig.focus(m)
+			await get_tree().create_timer(1.5).timeout
 	if OS.get_environment("CV_PLANE") != "":
 		# an airliner this far (metres) along its take-off run from the airport
 		island.planes.spawn(false, "up")
