@@ -4,6 +4,7 @@
 - An airport: once your city reaches 4,000 residents, it opens on level ground out in the country. It has a long runway with markings and edge lights, a taxiway, a terminal with jet bridges and an airliner at its gate, a control tower and a hangar.
 - Planes now use it. About half the airliners you see take off from the runway, rolling, lifting off and climbing away over the city, or come in on a long approach, touch down and brake to a stop. The rest still fly high overhead.
 - The town keeps off the airport's ground, and the airport is saved with your city, its runway pointing the same way.
+- Casinos look cleaner: the gold dome and beacon on their roofs are gone.
 
 ## 2026-10-25 08:00 UTC
 - Industry comes in five kinds now, not one. Workshops still start as factories, then grow into warehouses with a row of loading docks and lorries backed up to them, grain mills and food works with rows of tall silos under a headhouse, chemical works with spherical tanks, a pipe rack and a burning flare stack, and, at the higher levels, clean white tech plants with glass fronts and solar panels across the roof.
