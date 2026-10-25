@@ -341,6 +341,7 @@ func _apply_save(data: Dictionary) -> void:
 				data[layer] = Land.recentre_cells(data[layer], was, size)
 	_use_size(size)
 	town.clear()
+	town.begin_load()
 	var sg: Variant = data.get("stages", {})
 	town.keep_stages(sg if sg is Dictionary else {})
 	island_seed = int(data.seed)
