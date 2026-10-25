@@ -1,5 +1,10 @@
 # City Views patch notes
 
+## 2026-10-25 02:00 UTC
+- Interchanges: draw a main street or an avenue across a highway and a diamond interchange builds itself, with a slip road in each corner leaving the highway alongside its outer lane and climbing to a crossroads on the street either side of the bridge. Cars use them to get on and off the highway.
+- Where two highways cross, one now flies over the other, and a full cloverleaf appears: a loop in each corner and a sweeping ramp round the outside of it, linking every direction.
+- Interchange ramps come and go with the roads they serve: rub out the street or highway and its ramps go too, and they are rebuilt the same when you load your city or play co-op.
+
 ## 2026-10-25 01:00 UTC
 - The Coast map is much bigger, 672 m across instead of 384: all the land you can see is yours to build on, and it ends in a natural shore of beaches and coves on three sides, with the open sea on the fourth.
 - Streets the town grows through parks and green areas are now paved walks for people only, with no cars, and where three or more walks meet there is a little square with a fountain.

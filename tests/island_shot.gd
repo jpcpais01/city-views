@@ -57,6 +57,13 @@ func _ready() -> void:
 				lines[0].append(Vector2(f.x - 120.0 + 240.0 * t, f.z + sin(t * PI) * 12.0))
 				lines[1].append(Vector2(f.x - 30.0, f.z - 40.0 + 80.0 * t))
 				lines[2].append(Vector2(f.x + 10.0 + 60.0 * t, f.z - 30.0 + 80.0 * t))
+		if OS.get_environment("CV_STREETS") == "clover":
+			# two long highways crossing
+			lines = [[], []]
+			for k in 61:
+				var t := k / 60.0
+				lines[0].append(Vector2(f.x - 120.0 + 240.0 * t, f.z + sin(t * PI) * 8.0))
+				lines[1].append(Vector2(f.x + sin(t * PI) * 6.0, f.z - 110.0 + 220.0 * t))
 		if OS.get_environment("CV_STREETS") == "fuzz":
 			# the hand-drawn tangle the logic test checks junctions on
 			lines = []
@@ -329,6 +336,37 @@ func _ready() -> void:
 			print("  %s: %d" % [part.get_class() if part.get_script() == null else part.get_script().get_global_name(), total - Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)])
 			part.visible = true
 			await get_tree().process_frame
+	if OS.get_environment("CV_STREETS") != "":
+		# (a slow software render can leave a street or two still to remake)
+		island.streets.flush()
+		if OS.get_environment("CV_REMESH") != "":
+			for cz in Land.CELLS / Land.CHUNK:
+				for cx in Land.CELLS / Land.CHUNK:
+					island.land._dirty_chunk(Vector2i(cx, cz), true)
+		for k in 4:
+			island.land.rebuild_dirty(60000000)
+		island.land.rebuild_shadow()
+		await get_tree().process_frame
+		await get_tree().process_frame
+	# CV_HIDE=Land,Wilds: hides those parts (by class), to see what is what
+	var hide := OS.get_environment("CV_HIDE").split(",", false)
+	for part in island.get_children():
+		if part is Node3D and part.get_script() != null and part.get_script().get_global_name() in hide:
+			part.visible = false
+	if not hide.is_empty():
+		await get_tree().process_frame
+		await get_tree().process_frame
+	if OS.get_environment("CV_HGRID") != "":
+		var g := OS.get_environment("CV_HGRID").split(",")
+		for dz in range(-4, 5):
+			var row := ""
+			for dx in range(-6, 7):
+				row += "%6.2f " % island.land.height_at(float(g[0]) + dx, float(g[1]) + dz)
+			print("H ", row)
+	if OS.get_environment("CV_JN") != "":
+		for jn in island.streets.junctions():
+			print("JN ", jn.at, " y ", jn.y, " ground ", island.land.height_at(jn.at.x, jn.at.y), " arms ", jn.arms.map(func(a): return "%s:%d" % [a.st.kind, a.st.id]), " owner ", jn.owner, " edge ", jn.edge.size())
+		print("pending ", island.streets._pending.size(), " laying ", island.streets._laying.size())
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(OS.get_environment("CV_OUT") if OS.get_environment("CV_OUT") != "" else "/tmp/island.png")
 	get_tree().quit()

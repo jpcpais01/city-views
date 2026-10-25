@@ -915,7 +915,7 @@ func _fill(s: Streets.Street) -> void:
 func _step(job: Dictionary, until: int) -> bool:
 	var s: Streets.Street = job.s
 	# nobody lives along a highway
-	if not s in streets.streets or s.kind == "highway":
+	if not s in streets.streets or Streets.KINDS[s.kind].verge:
 		return true
 	var n := s.pts.size()
 	var off := s.reach() + FRONT_GAP

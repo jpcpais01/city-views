@@ -184,7 +184,7 @@ func _gather() -> void:
 				_streets[k] = []
 			_streets[k].append([p, s.kind])
 			_add("street", k, 1.0)
-			if s.kind == "highway":
+			if Streets.KINDS[s.kind].verge:
 				_add("highway", k, 1.0)
 			elif s.kind == "avenue" or s.kind == "main":
 				_add("major", k, 1.0)

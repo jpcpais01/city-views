@@ -12,9 +12,9 @@ const TRUCK_COLORS := [Color("f2f0ea"), Color("e0a43a"), Color("4b6fa8")]
 ## vehicle styles, in mesh order: [kind, colour]
 var STYLES: Array = []
 ## how fast each kind of street is driven (m/s at toy scale)
-const SPEEDS := {"walk": 0.0, "side": 1.15, "main": 1.6, "avenue": 2.1, "highway": 3.1}
+const SPEEDS := {"walk": 0.0, "side": 1.15, "main": 1.6, "avenue": 2.1, "highway": 3.1, "ramp": 2.0}
 ## how often a street of each kind is picked for a new vehicle, per metre
-const BUSY := {"walk": 0.0, "side": 0.6, "main": 1.0, "avenue": 2.0, "highway": 2.6}
+const BUSY := {"walk": 0.0, "side": 0.6, "main": 1.0, "avenue": 2.0, "highway": 2.6, "ramp": 0.8}
 const LENGTHS := {"car": 0.62, "van": 0.7, "bus": 1.5, "truck": 1.15}
 const MAX_CARS := 150
 const MAX_BUSES := 8

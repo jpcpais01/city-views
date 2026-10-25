@@ -1477,6 +1477,62 @@ func _flyovers() -> void:
 	for i in cross.ys.size() - 1:
 		steep = maxf(steep, absf(cross.ys[i + 1] - cross.ys[i]) / cross.pts[i].distance_to(cross.pts[i + 1]))
 	check(steep <= Streets.MAX_GRADE + 0.01, "its ramps are no steeper than any street (%.2f)" % steep)
+	# a diamond interchange: a ramp in each corner, joined to both roads
+	var ramps: Array = st.streets.filter(func(r): return r.kind == "ramp")
+	var graph := st.links()
+	var joined := 0
+	for r: Streets.Street in ramps:
+		var to: Array = graph[r.id].map(func(l): return l[1])
+		if to.has(hw) and to.has(cross):
+			joined += 1
+	check(ramps.size() == 4 and joined == 4, "the street flying over gets a diamond of ramps, each joining both roads (%d of %d)" % [joined, ramps.size()])
+	var steep_r := 0.0
+	for r: Streets.Street in ramps:
+		for i in r.ys.size() - 1:
+			steep_r = maxf(steep_r, absf(r.ys[i + 1] - r.ys[i]) / r.pts[i].distance_to(r.pts[i + 1]))
+	var saved := st.to_data()
+	check(saved.size() == 3, "ramps aren't saved, only the streets drawn (%d)" % saved.size())
+	var keys := ramps.map(func(r): return r.key)
+	keys.sort()
+	st.from_data(saved)
+	st.flush()
+	var again: Array = st.streets.filter(func(r): return r.kind == "ramp").map(func(r): return r.key)
+	again.sort()
+	check(again == keys and steep_r <= Streets.MAX_GRADE + 0.01, "and come back the same with the city (%d ramps, %.2f steep)" % [again.size(), steep_r])
+	hw = st.streets.filter(func(r): return r.kind == "highway")[0]
+	cross = st.streets.filter(func(r): return r.kind == "main")[0]
+	# a side street flies over with no ramps; rubbing out the main street takes them up
+	var lane_pts := PackedVector2Array()
+	for k in 61:
+		lane_pts.append(Vector2(-45.0, -30.0 + k))
+	st.add_stroke(lane_pts, "side")
+	st.remove_street(cross)
+	st.flush()
+	var left_ramps: int = st.streets.filter(func(r): return r.kind == "ramp").size()
+	check(left_ramps == 0, "a side street gets none, and they go with the street they served (%d left)" % left_ramps)
+	# two highways crossing: one over the other, and a cloverleaf of ramps
+	var ns_pts := PackedVector2Array()
+	for k in 141:
+		ns_pts.append(Vector2(0.0, -70.0 + k))
+	var hw_ns := st.add_stroke(ns_pts, "highway")
+	st.flush()
+	var clover: Array = st.streets.filter(func(r): return r.kind == "ramp")
+	var graph2 := st.links()
+	var both := 0
+	for r: Streets.Street in clover:
+		var to: Array = graph2[r.id].map(func(l): return l[1])
+		if to.has(hw) and to.has(hw_ns):
+			both += 1
+	var hw_jn := 0
+	for jn in st.junctions():
+		var on: Array = jn.arms.map(func(a): return a.st)
+		if on.has(hw) and on.has(hw_ns):
+			hw_jn += 1
+	var gap: float = absf(hw_ns.closest(Vector2(0, 0)).y - hw.closest(Vector2(0, 0)).y)
+	check(hw_jn == 0 and gap > Streets.CLEARANCE - 0.1, "two highways cross one over the other (%.2f m apart)" % gap)
+	check(clover.size() == 8 and both == 8, "with a cloverleaf of loops and ramps joining them (%d of %d)" % [both, clover.size()])
+	st.remove_street(hw_ns)
+	st.flush()
 	# a highway drawn across a street already there lifts it; erased, it comes back down
 	var old_pts := PackedVector2Array()
 	for k in 61:
