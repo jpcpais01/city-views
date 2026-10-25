@@ -61,9 +61,9 @@ void fragment() {
 	float n3 = texture(noise_tex, q * 6.3 + vec2(TIME * 0.006, -TIME * 0.004) + 0.71).r;
 	// a solid core with billowy, eroded edges
 	float body = 1.0 - sqrt(l2);
-	float shape = body * 1.25 - (nz - 0.5) * 1.1 - 0.05;
+	float shape = body * 1.2 - (nz - 0.5) * 1.45 - (n3 - 0.5) * 0.25 - 0.05;
 	// never let the quad's round edge show
-	float a = smoothstep(0.0, 0.5, shape) * (1.0 - smoothstep(0.72, 1.0, l2));
+	float a = smoothstep(0.0, 0.62, shape) * (1.0 - smoothstep(0.7, 1.0, l2));
 	// cumulus bases are flat
 	a *= smoothstep(v_base - 0.6, v_base + 1.8, wp.y);
 	// fade in and out where the wind wraps the clouds round the world
@@ -83,10 +83,11 @@ void fragment() {
 	NORMAL = normalize(n + (VIEW_MATRIX * vec4(bump, 0.0)).xyz);
 	// darker underneath and in the folds, brightest on the sunlit crowns
 	float h = clamp((wp.y - v_base) / (v_r * 2.4), 0.0, 1.0);
-	float shade = mix(0.74, 1.0, smoothstep(0.0, 1.0, h * 0.7 + v_up * 0.3));
+	// (real cumulus are a soft grey underneath, bright white on top)
+	float shade = mix(0.62, 1.0, smoothstep(0.0, 1.0, h * 0.7 + v_up * 0.3));
 	shade *= mix(0.84, 1.04, smoothstep(0.25, 0.75, nz * 0.6 + n3 * 0.4));
 	// the shaded side and the belly take a cool tint from the sky
-	ALBEDO = mix(vec3(0.82, 0.87, 0.96), vec3(1.0), shade) * shade;
+	ALBEDO = mix(vec3(0.76, 0.82, 0.93), vec3(1.0), shade) * shade;
 	ROUGHNESS = 1.0;
 	// thin edges let the light through (silver lining when the sun is behind)
 	BACKLIGHT = vec3(1.0 - smoothstep(0.1, 0.6, shape));

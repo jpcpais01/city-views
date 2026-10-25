@@ -3,8 +3,14 @@ extends Node3D
 ## The island's stage: materials, sky and day/night, sun, sea and clouds.
 
 const DAY_LENGTH := 420.0
-## the haze over the country at the closest zoom
-const FOG := 0.0011
+## the haze: how much of the far country it takes at most, and how far out
+## it has taken all it will (the first stretch in front of the view stays
+## clear, so the town never washes out at any zoom)
+const HAZE := 0.95
+const HAZE_END := 5500.0
+const HAZE_CURVE := 0.45
+## how far the sea runs (it meets the haze long before)
+const SEA_REACH := 16000.0
 ## shadow softness and lift, in shadow-map texels at the closest zoom
 const SHADOW_BLUR := 2.4
 const SHADOW_NORMAL_BIAS := 1.2
@@ -69,6 +75,7 @@ func _make_environment() -> void:
 	env = Environment.new()
 	sky_mat = ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/sky.gdshader")
+	sky_mat.set_shader_parameter("cloud_tex", Clouds.noise())
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
@@ -77,7 +84,9 @@ func _make_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.6
-	env.ambient_light_sky_contribution = 0.7
+	# the shade is lit by the sky itself: cool blue under a clear noon, warm
+	# when a low sun fires up its side of the sky
+	env.ambient_light_sky_contribution = 1.0
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	# AgX rolls bright skies and lamps off softly, like film, instead of clipping them
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
@@ -92,10 +101,23 @@ func _make_environment() -> void:
 	env.glow_hdr_threshold = 1.1
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	env.fog_enabled = OS.get_environment("CV_NOFOG") == ""
-	# a haze that blues the far country, as from a plane over a big city; how
-	# thick it is follows the zoom (frame_view), so the town itself stays clear
-	env.fog_density = FOG
-	env.fog_aerial_perspective = 0.5
+	# aerial perspective: the air between the eye and the far country blues and
+	# pales it into the sky behind, so hills a few kilometres off read as a
+	# soft blue range and the land and sea melt into the horizon with no edge.
+	# It deepens with distance from the eye, starting a little in front of
+	# what the view looks at (frame_view), so the town itself stays clear
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_density = HAZE
+	env.fog_depth_curve = HAZE_CURVE
+	env.fog_depth_begin = 30.0
+	env.fog_depth_end = HAZE_END
+	env.fog_aerial_perspective = 0.3
+	if OS.get_environment("CV_HAZE") != "":
+		var hz := OS.get_environment("CV_HAZE").split(",")
+		env.fog_density = float(hz[0])
+		env.fog_depth_curve = float(hz[1])
+		env.fog_depth_end = float(hz[2])
+		env.fog_aerial_perspective = float(hz[3])
 	env.fog_sun_scatter = 0.12
 	env.fog_sky_affect = 0.0
 	env.adjustment_enabled = true
@@ -133,6 +155,41 @@ func _make_sea() -> void:
 	floor_mi.material_override = fmat
 	floor_mi.position.y = SEA_FLOOR - 0.01
 	add_child(floor_mi)
+	# the open sea beyond, flat (the swell has died away long before) out to
+	# where the haze takes it
+	var outer := MeshInstance3D.new()
+	outer.mesh = _sea_ring(900.0, SEA_REACH)
+	outer.material_override = water_mat
+	outer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(outer)
+	var deep := MeshInstance3D.new()
+	deep.mesh = _sea_ring(1000.0, SEA_REACH, SEA_FLOOR - 0.01)
+	deep.material_override = fmat
+	deep.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(deep)
+
+
+## A flat square ring between `a` and `b` out from the middle, at height y.
+func _sea_ring(a: float, b: float, y := 0.0) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	for p: Vector2 in [Vector2(-a, -a), Vector2(a, -a), Vector2(a, a), Vector2(-a, a), Vector2(-b, -b), Vector2(b, -b), Vector2(b, b), Vector2(-b, b)]:
+		verts.append(Vector3(p.x, y, p.y))
+	var idx := PackedInt32Array()
+	for k in 4:
+		var i0 := k
+		var i1 := (k + 1) % 4
+		idx.append_array([i0 + 4, i1 + 4, i1, i0 + 4, i1, i0])
+	var normals := PackedVector3Array()
+	normals.resize(verts.size())
+	normals.fill(Vector3.UP)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return m
 
 
 ## A grid that is dense around the island (where waves are seen up close) and
@@ -182,13 +239,13 @@ func frame_view(d: float, pitch: float) -> void:
 	var h := d * sin(pitch)
 	var top := pitch - deg_to_rad(rig.cam.fov * 0.5 if rig else 20.0)
 	var reach := h / sin(top) if top > deg_to_rad(4.0) else 1e9
-	var far := clampf(maxf(reach, d) * 1.3, 32.0, 900.0)
+	var far := clampf(maxf(reach, d) * 1.3, 32.0, 1100.0)
 	sun.directional_shadow_max_distance = far
 	# the map's texels grow with its reach: keep the blur and lift the same in metres
 	var k := clampf(SHADOW_NEAR_REACH / far, 0.3, 1.0)
 	sun.shadow_blur = SHADOW_BLUR * k
 	sun.shadow_normal_bias = SHADOW_NORMAL_BIAS * maxf(k, 0.5)
-	env.fog_density = FOG * 42.0 / maxf(d, 42.0)
+	env.fog_depth_begin = d * 0.55
 	if hyper:
 		# four nested maps: the nearest a few metres across, every caster still
 		# reaching the horizon, so close-ups get pin-sharp contact shadows
@@ -320,7 +377,9 @@ func _update_sky() -> void:
 	var hor: Color = (a[2] as Color).lerp(b[2], k)
 	var scol: Color = (a[3] as Color).lerp(b[3], k)
 	var energy: float = lerpf(a[4], b[4], k)
-	var amb: float = lerpf(a[5], b[5], k)
+	# (a little less than before the sky lit the shade by itself, so the sun
+	# reads stronger against it)
+	var amb: float = lerpf(a[5], b[5], k) * 0.9
 	# sun path; at night the same light becomes the moon
 	# the sun barely moves around noon (and the moon around midnight) so shadows
 	# stay still while you build; it only sweeps visibly at dawn and dusk
@@ -338,7 +397,7 @@ func _update_sky() -> void:
 	var turn := 0.6 + deg_to_rad(float(Game.settings.get("sun_angle", 0.0)))
 	sun.look_at_from_position(Vector3.ZERO, -light_dir.rotated(Vector3.UP, turn), Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.BACK)
 	env.ambient_light_energy = amb * float(OS.get_environment("CV_AMB")) if OS.get_environment("CV_AMB") != "" else amb
-	env.fog_light_color = hor.lerp(top, 0.25)
+	env.fog_light_color = hor.lerp(top, 0.1)
 	# the haze glows towards the sun when it is low
 	env.fog_sun_scatter = lerpf(0.1, 0.45, 1.0 - smoothstep(0.05, 0.5, absf(sun_dir.y))) * (1.0 - night)
 	# colours drain away in the dark, as they do to the eye

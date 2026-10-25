@@ -27,24 +27,28 @@ const MIN_D := 9.0
 ## the horizon (negative) and down towards straight below
 const MIN_TILT := deg_to_rad(-58.0)
 const MAX_TILT := deg_to_rad(15.0)
-const MAX_D := 184.0
+const MAX_D := 368.0
 ## past this the camera only pulls back, looking down a little more steeply
 const FAR_D := 92.0
+## how far out the camera went before it could pull back twice as far (João,
+## 2026-10-25): the views budgeted at TriBudget.FAR_BUDGET
+const OLD_MAX_D := 184.0
 
 
 func _ready() -> void:
 	cam = Camera3D.new()
 	cam.fov = 40.0
 	cam.near = 0.3
-	cam.far = 1100.0
+	cam.far = 12000.0
 	add_child(cam)
 	cam.make_current()
 
 
 func pitch_for(d: float) -> float:
 	var t := clampf((d - MIN_D) / (FAR_D - MIN_D), 0.0, 1.0)
-	var far := clampf((d - FAR_D) / (MAX_D - FAR_D), 0.0, 1.0)
-	return deg_to_rad(lerpf(28.0, 62.0, pow(t, 0.7)) + far * 6.0)
+	var far := clampf((d - FAR_D) / (OLD_MAX_D - FAR_D), 0.0, 1.0)
+	var further := clampf((d - OLD_MAX_D) / (MAX_D - OLD_MAX_D), 0.0, 1.0)
+	return deg_to_rad(lerpf(28.0, 62.0, pow(t, 0.7)) + far * 6.0 + further * 3.0)
 
 
 ## How steeply the camera looks down now, zoom and tilt together.

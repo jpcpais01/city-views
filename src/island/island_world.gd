@@ -693,8 +693,8 @@ func _process(delta: float) -> void:
 	_update_beams(PackedVector4Array())
 	for c in _clouds:
 		c.position.x += c.get_meta("speed") * delta
-		if c.position.x > 300.0:
-			c.position.x = -300.0
+		if c.position.x > Clouds.WRAP:
+			c.position.x = -Clouds.WRAP
 	frame_view(rig.dist, rig.view_pitch())
 	_draw_ring()
 

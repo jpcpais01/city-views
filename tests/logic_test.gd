@@ -789,15 +789,15 @@ func _island_budget() -> void:
 	check(total + reserve < TriBudget.BUDGET, "the busiest view over a big town stays under budget (%d)" % (total + reserve))
 	# pulled all the way out (João, 2026-10-24) a little more is allowed: more
 	# of the town fills the view
-	var far_view := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, deg_to_rad(-32.0))
+	var far_view := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.OLD_MAX_D, deg_to_rad(-32.0))
 	var far: int = far_view[0]
 	if OS.get_environment("CV_ONLY") == "budget":
 		for k in far_view[1]:
 			print("  far tris %-16s %7d +shadow %7d" % [k, far_view[1][k][0], far_view[1][k][1]])
-	print("island: %d triangles in the busiest view from all the way out" % far)
-	check(far + reserve < TriBudget.FAR_BUDGET, "and from all the way out stays under %dk (%d)" % [TriBudget.FAR_BUDGET / 1000, far + reserve])
+	print("island: %d triangles in the busiest view from far out" % far)
+	check(far + reserve < TriBudget.FAR_BUDGET, "and from far out stays under %dk (%d)" % [TriBudget.FAR_BUDGET / 1000, far + reserve])
 	# and tilted right up to look across the town from the side, more again
-	var side_view := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, CameraRig.MIN_TILT)
+	var side_view := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.OLD_MAX_D, CameraRig.MIN_TILT)
 	var side_near := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.FAR_D, CameraRig.MIN_TILT)
 	if side_near[0] > side_view[0]:
 		side_view = side_near
@@ -807,6 +807,18 @@ func _island_budget() -> void:
 			print("  side tris %-15s %7d +shadow %7d" % [k, side_view[1][k][0], side_view[1][k][1]])
 	print("island: %d triangles in the busiest view from the side" % side)
 	check(side + reserve < TriBudget.SIDE_BUDGET, "and from the side stays under %dk (%d)" % [TriBudget.SIDE_BUDGET / 1000, side + reserve])
+	# pulled all the way out (twice as far, João 2026-10-25), looking down or
+	# tilted up to the horizon: the whole town and the country round it
+	var wide_view := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, deg_to_rad(-32.0))
+	var wide_side := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, CameraRig.MIN_TILT)
+	if wide_side[0] > wide_view[0]:
+		wide_view = wide_side
+	var wide: int = wide_view[0]
+	if OS.get_environment("CV_ONLY") == "budget":
+		for k in wide_view[1]:
+			print("  wide tris %-15s %7d +shadow %7d" % [k, wide_view[1][k][0], wide_view[1][k][1]])
+	print("island: %d triangles in the busiest view from all the way out" % wide)
+	check(wide + reserve < TriBudget.WIDE_BUDGET, "and from all the way out stays under %dk (%d)" % [TriBudget.WIDE_BUDGET / 1000, wide + reserve])
 	# a city of a few thousand gets its airport, out in the country, and
 	# airliners take off from it and climb away
 	var rw := island.landmarks.runway()

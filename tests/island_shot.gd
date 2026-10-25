@@ -2,7 +2,7 @@ extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one; 3: two 24 m apart), CV_GROW=radius (paints and grows the town),
-## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_HOLD=brush (holds it, e.g. grow shows the painted districts), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_SPARKLE=1 (Magic sparkles over a few houses mid-view), CV_TAP=x,y (taps the screen there, as if asking what stands there), CV_MENU=page (opens the menu on that page: city, maps, coop, account, settings, controls, notes), CV_OUT.
+## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_HOLD=brush (holds it, e.g. grow shows the painted districts), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_SPARKLE=1 (Magic sparkles over a few houses mid-view), CV_TAP=x,y (taps the screen there, as if asking what stands there), CV_MENU=page (opens the menu on that page: city, maps, coop, account, settings, controls, notes), CV_NOHUD=1 (hides the HUD), CV_OUT.
 
 
 func _ready() -> void:
@@ -435,6 +435,10 @@ func _ready() -> void:
 		for jn in island.streets.junctions():
 			print("JN ", jn.at, " y ", jn.y, " ground ", island.land.height_at(jn.at.x, jn.at.y), " arms ", jn.arms.map(func(a): return "%s:%d" % [a.st.kind, a.st.id]), " owner ", jn.owner, " edge ", jn.edge.size())
 		print("pending ", island.streets._pending.size(), " laying ", island.streets._laying.size())
+	if OS.get_environment("CV_NOHUD") != "":
+		hud.visible = false
+		await get_tree().process_frame
+		await get_tree().process_frame
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(OS.get_environment("CV_OUT") if OS.get_environment("CV_OUT") != "" else "/tmp/island.png")
 	get_tree().quit()
