@@ -61,6 +61,8 @@ var _junctions: Array = []
 var _junctions_dirty := true
 ## [street id, street id] -> [fingerprint, meetings] (see _meetings_of)
 var _meet_cache := {}
+## where street meets highway, see _crossing: (id, id) -> [hash, result]
+var _cross_cache := {}
 ## this builder's mark on the streets it makes, so keys never clash in co-op
 static var tag := ""
 # streets being laid out along their length: id -> seconds since placed
@@ -289,6 +291,9 @@ func regrade_in(lo: Vector2, hi: Vector2) -> void:
 
 
 func _remove(s: Street) -> void:
+	for k: Vector2i in _cross_cache.keys():
+		if k.x == s.id or k.y == s.id:
+			_cross_cache.erase(k)
 	streets.erase(s)
 	_junctions_dirty = true
 	removed.emit(s)
@@ -1152,6 +1157,19 @@ static func _merges(a: Street, b: Street) -> bool:
 func _crossing(s: Street, o: Street) -> Vector2:
 	if not _boxes_overlap(s, o):
 		return Vector2(-1, -1)
+	# (asked often, for every street built near a highway: remembered while
+	# neither changes)
+	var key := Vector2i(s.id, o.id)
+	var sig := hash([s.pts, o.pts])
+	var hit: Array = _cross_cache.get(key, [])
+	if not hit.is_empty() and hit[0] == sig:
+		return hit[1]
+	var x := _find_crossing(s, o)
+	_cross_cache[key] = [sig, x]
+	return x
+
+
+func _find_crossing(s: Street, o: Street) -> Vector2:
 	var clear := (o.reach() + 1.0) / SAMPLE
 	var ns := s.pts.size()
 	var no := o.pts.size()
