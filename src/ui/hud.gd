@@ -104,6 +104,10 @@ var _photo := false
 var _photo_exit: Button
 var _photo_brush := ""
 var _photo_hidden: Array[Control] = []
+# drive mode (DriveMode): the HUD steps aside while the player drives
+var drive: DriveMode
+var _driving := false
+var _drive_hidden: Array[Control] = []
 
 const INK := Color("2b3440")
 const SOFT := Color("6b7785")
@@ -253,6 +257,10 @@ func _ready() -> void:
 	_build_goals()
 	_build_menu()
 	_build_photo_exit()
+	drive = DriveMode.new()
+	drive.island = island
+	drive.hud = self
+	add_child(drive)
 	island.brush_changed.connect(_refresh_brushes)
 	island.note.connect(func(t, k): show_toast(t, k))
 	island.inspected.connect(_show_info)
@@ -353,6 +361,10 @@ func _build_island_top() -> void:
 	photo_btn.pressed.connect(func(): set_photo(true))
 	photo_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	stats.add_child(photo_btn)
+	var drive_btn := _glass_button(58, "car")
+	drive_btn.pressed.connect(func(): drive.set_active(true))
+	drive_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	stats.add_child(drive_btn)
 	var menu_btn := _glass_button(58)
 	var mi := _icon("menu", 30)
 	mi.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1248,7 +1260,7 @@ func _refresh_goals() -> void:
 	_goal_count.text = ("%d to collect" % ready) if ready > 0 else ("%d done" % _goals_done())
 	_goal_count.add_theme_color_override("font_color", ACCENT if ready > 0 else SOFT)
 	_goal_fold.text = "-" if _goals_open else "+"
-	_goals.visible = not list.is_empty()
+	_goals.visible = not list.is_empty() and not _driving
 
 
 ## One goal: its icon, what to do over a thin
@@ -1438,6 +1450,30 @@ func set_photo(on: bool) -> void:
 		tw.tween_property(_photo_exit, "modulate:a", 0.35, 0.6)
 	elif _photo_brush != "" and island.brush == "":
 		island.set_brush(_photo_brush)
+
+
+## Drive mode hides the building HUD (all but the FPS counter and toasts)
+## and brings it back when the player gets out of the car.
+func set_drive(on: bool) -> void:
+	if on == _driving:
+		return
+	_driving = on
+	if on:
+		if _photo:
+			set_photo(false)
+		_set_menu(false)
+		_hide_info()
+		_drive_hidden.clear()
+		for c: Control in _root.get_children():
+			if c.visible and c != _fps_label and c != _toasts:
+				_drive_hidden.append(c)
+				c.hide()
+	else:
+		for c in _drive_hidden:
+			c.show()
+			c.modulate.a = 0.0
+			create_tween().tween_property(c, "modulate:a", 1.0, 0.3)
+		_drive_hidden.clear()
 
 
 func _notification(what: int) -> void:
