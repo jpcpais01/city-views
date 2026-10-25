@@ -1163,6 +1163,17 @@ func _districts() -> void:
 			tall += int(l.stage == 6)
 			homes_office += int(l.use != "home")
 	check(works >= 2 and works_ok, "an industrial district grows works, each on its own plot (%d)" % works)
+	# works come in kinds, more of them the higher the level
+	var kinds := {}
+	var probe := Town.Lot.new()
+	probe.width = 3.0
+	var krng := RandomNumberGenerator.new()
+	for stage in [0, 6]:
+		probe.stage = stage
+		for k in 200:
+			krng.seed = k
+			kinds["%d %s" % [stage, HouseGen.works_kind(probe, krng)]] = true
+	check(kinds.size() == 6 and kinds.has("0 factory"), "workshops start as factories, and grow into warehouses, mills, chemical works and tech plants (%s)" % str(kinds.keys()))
 	check(shops >= 2 and shops_all, "a shops district puts a shop under every house (%d)" % shops)
 	check(offices >= 2, "an office district grows offices (%d)" % offices)
 	check(tall >= 1 and homes_office == 0, "homes grow into residential towers, never offices (%d tall, %d not homes)" % [tall, homes_office])

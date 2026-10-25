@@ -104,7 +104,8 @@ func _ready() -> void:
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r * 0.8, 1.0)
 		if OS.get_environment("CV_LEVEL") != "":
 			# the Grow level painted over the town (1 village .. 6 skyline)
-			island.land.paint_level(Vector3(f.x, 0, f.z), r, float(OS.get_environment("CV_LEVEL")), 2.0)
+			# CV_USE=0..4 paints that district (HouseGen.HOMES .. FUN) over it all
+			island.land.paint_level(Vector3(f.x, 0, f.z), r, float(OS.get_environment("CV_LEVEL")), 2.0, int(OS.get_environment("CV_USE")) if OS.get_environment("CV_USE") != "" else 0)
 		if OS.get_environment("CV_RINGS") != "":
 			# a city: rings of Grow levels rising to the middle (CV_RINGS = the top level)
 			var top := int(OS.get_environment("CV_RINGS"))
@@ -381,6 +382,9 @@ func _ready() -> void:
 		island.wilds.rebuild_all()
 		island.yards.rebuild_all()
 		print("yards: %d, car parks: %d" % [island.yards.yard_count(), island.yards.car_parks()])
+		for l: Town.Lot in island.town.lots.values():
+			if l.use == "industry":
+				print("  works %s (stage %d) at %.1f,%.1f" % [l.trade, l.stage, l.origin.x, l.origin.y])
 		await get_tree().process_frame
 		await get_tree().process_frame
 	# CV_HIDE=Land,Wilds: hides those parts (by class), to see what is what

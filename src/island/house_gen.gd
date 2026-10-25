@@ -142,6 +142,10 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	var kit: int = l.kit
 	var K: Dictionary = KITS[kit]
 	l.use = "home"
+	# what it trades as is set again below if it still does (a works that
+	# was repainted for homes is no longer a mill)
+	if WORKS_NAMES.has(l.trade):
+		l.trade = ""
 	if l.district == INDUSTRY:
 		return build_industry(l, land, street_y, seed_value)
 	if l.district == FUN and l.stage >= 2:
@@ -1259,10 +1263,47 @@ static func _tree(mk: MeshKit, rng: RandomNumberGenerator, at: Vector3, land: La
 
 # ------------------------------------------------------------------ industry
 
-## A works on an industrial plot: a corrugated shed filling most of it, with
-## a sawtooth roof of north lights as it grows, a big loading door and a
-## concrete yard in front; tanks or silos alongside, and a chimney stack
-## on the bigger works.
+## What each kind of works is called on the info card, by size: up to
+## Grow level 5, from level 6, and at the Mega level.
+const WORKS_NAMES := {
+	"factory": ["Factory", "Works", "Industrial complex"],
+	"warehouse": ["Warehouse", "Distribution centre", "Logistics hub"],
+	"food": ["Grain mill", "Food works", "Food processing complex"],
+	"chemical": ["Chemical works", "Refinery", "Petrochemical complex"],
+	"tech": ["Tech plant", "Electronics plant", "Tech campus"],
+}
+const TRUCKS := [Color("c8553d"), Color("3d5f8f"), Color("e3e3e0"), Color("2f8f83"), Color("e3a33b")]
+
+
+## Which kind of works a plot grows into: workshops and factories at first,
+## then warehouses, mills, chemical works and, high up, clean tech plants.
+static func works_kind(l: Town.Lot, rng: RandomNumberGenerator) -> String:
+	var roll := rng.randf()
+	# silos and tanks need a plot wide enough to stand beside the shed
+	var wide := l.width >= 2.4
+	if l.stage >= 5 and roll < 0.25:
+		return "tech"
+	if l.stage >= 3 and roll < 0.42 and wide:
+		return "chemical"
+	if l.stage >= 2 and roll < 0.58 and wide:
+		return "food"
+	if l.stage >= 1 and roll < 0.8:
+		return "warehouse"
+	return "factory"
+
+
+## A works on an industrial plot, one of five kinds (see works_kind):
+## - a factory: a corrugated shed with a sawtooth roof of north lights as it
+##   grows, tanks or silos alongside and a chimney stack on the bigger ones;
+## - a warehouse: long and low, a row of loading docks with lorries backed
+##   up to them and roof lights;
+## - a mill or food works: a row of tall silos under a headhouse beside the
+##   shed, with an elevator tower;
+## - chemical works: spherical tanks on legs, a pipe rack and a flare stack;
+## - a tech plant: a clean white block with a band of dark glass, solar
+##   panels across the roof and trees out front.
+## The Mega level adds a cooling tower and a gantry crane to factories and
+## chemical works.
 static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value: int) -> Array:
 	var mk := MeshKit.new(seed_value)
 	mk.quiet_sprites = true
@@ -1271,11 +1312,20 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 	l.shop = false
 	l.floors = 1
 	l.smoke = Vector3.INF
+	var kind := works_kind(l, rng)
+	l.trade = kind
 	var big := l.stage >= 3
 	var yard := 0.35 + rng.randf() * 0.3
+	if kind == "warehouse":
+		# room in front for the lorries
+		yard = 0.85 + rng.randf() * 0.15
 	var hw := maxf(l.width - 0.3, 1.2)
 	var hd := clampf(l.room(-hw * 0.5, hw * 0.5) - yard - 0.2, 1.2, 5.2)
 	var hgt := 0.9 + minf(l.stage, 4) * 0.22 + rng.randf() * 0.2 + (0.5 if l.stage >= 7 else 0.0)
+	if kind == "warehouse":
+		hgt = 0.8 + minf(l.stage, 5) * 0.12
+	elif kind == "tech":
+		hgt += 0.3
 	var right := Vector2(cos(l.yaw), -sin(l.yaw))
 	var fwd := Vector2(sin(l.yaw), cos(l.yaw))
 	var lo := INF
@@ -1290,6 +1340,8 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 	l.foot = Rect2(-hw * 0.5, -yard - hd, hw, yard + hd)
 	var wall: Color = SHED_WALLS[rng.randi() % SHED_WALLS.size()]
 	var roof: Color = SHED_ROOFS[rng.randi() % SHED_ROOFS.size()]
+	if kind == "tech":
+		wall = [Color("eef0f0"), Color("e2e6e8"), Color("f2efe8")][rng.randi() % 3]
 	mk.push_at(Vector3(l.origin.x, y0, l.origin.y), l.yaw)
 	if y0 - lo > 0.04:
 		mk.shadow = false
@@ -1297,11 +1349,64 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 		mk.shadow = true
 	# the concrete yard between the street and the shed
 	mk.shadow = false
-	mk.box_faces(Vector3(0, 0.01, -yard * 0.5), Vector3(hw, 0.02, yard), Color(0.74, 0.73, 0.7), MeshKit.TOP)
+	mk.box_faces(Vector3(0, 0.01, -yard * 0.5), Vector3(hw, 0.02, yard), Color(0.74, 0.73, 0.7) if kind != "tech" else Color(0.82, 0.81, 0.78), MeshKit.TOP)
 	mk.shadow = true
+	# the shed itself; mills and chemical works keep one side of the plot
+	# for their silos or tanks
+	var sw := hw
+	var sx := 0.0
+	if kind == "food" or kind == "chemical":
+		sw = maxf(hw * 0.55, 0.9)
+		sx = -(hw - sw) * 0.5
 	var cz := -yard - hd * 0.5
-	mk.box_faces(Vector3(0, hgt * 0.5, cz), Vector3(hw, hgt, hd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, MeshKit.SIDING)
-	if big and hd > 1.6:
+	mk.box_faces(Vector3(sx, hgt * 0.5, cz), Vector3(sw, hgt, hd), wall, MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT, MeshKit.SIDING if kind != "tech" else 0.0)
+	match kind:
+		"factory":
+			_factory(mk, rng, l, hw, hd, hgt, yard, wall, roof)
+		"warehouse":
+			_warehouse(mk, rng, hw, hd, hgt, yard, roof)
+		"food":
+			_mill(mk, rng, hw, hd, hgt, yard, sw, roof)
+		"chemical":
+			_chemical(mk, rng, l, hw, hd, hgt, yard, sw, roof)
+		"tech":
+			_tech(mk, rng, hw, hd, hgt, yard, wall)
+	# an industrial complex: a cooling tower steaming over the back of the
+	# plot, and a gantry crane over the yard
+	if l.stage >= 7 and hw > 1.8 and (kind == "factory" or kind == "chemical"):
+		var tr := minf(0.75, hw * 0.22)
+		var tx := hw * 0.5 - tr - 0.05
+		var tz := -yard - hd + tr + 0.05
+		mk.cylinder(Vector3(tx, 0.0, tz), tr, 2.9, 12, Color(0.86, 0.85, 0.82), true, Color(0.3, 0.3, 0.3), tr * 0.68)
+		mk.cylinder(Vector3(tx, 2.9, tz), tr * 0.68, 0.35, 12, Color(0.83, 0.82, 0.79), true, Color(0.3, 0.3, 0.3), tr * 0.76)
+		if l.smoke == Vector3.INF:
+			l.smoke = mk.xf * Vector3(tx, 3.3, tz)
+		var crane := Color("e3a33b")
+		for gx: float in [-1.0, 1.0]:
+			mk.box(Vector3(gx * (hw * 0.5 - 0.1), 0.6, -yard * 0.5), Vector3(0.08, 1.2, 0.08), crane)
+		mk.box(Vector3(0, 1.24, -yard * 0.5), Vector3(hw, 0.1, 0.12), crane)
+	# a container or two stacked in the yard
+	if (kind == "factory" or kind == "chemical") and rng.randf() < 0.5 and yard > 0.45:
+		mk.box(Vector3(-hw * 0.5 + 0.55, 0.14, -yard * 0.5), Vector3(0.9, 0.26, 0.3), TRUCKS[rng.randi() % TRUCKS.size()])
+	mk.pop()
+	return [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,
+		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]
+
+
+## A flat roof over the shed (sw wide at sx), with roof lights along it.
+static func _shed_roof(mk: MeshKit, sx: float, sw: float, hd: float, hgt: float, yard: float, roof: Color, lights: int) -> void:
+	var cz := -yard - hd * 0.5
+	mk.box_faces(Vector3(sx, hgt + 0.01, cz), Vector3(sw, 0.02, hd), roof, MeshKit.TOP)
+	for k in lights:
+		var z := -yard - hd * (k + 0.5) / lights
+		mk.quad(Vector3(sx - sw * 0.4, hgt + 0.025, z + 0.12), Vector3(sx + sw * 0.4, hgt + 0.025, z + 0.12), Vector3(sx + sw * 0.4, hgt + 0.025, z - 0.12),
+			Vector3(sx - sw * 0.4, hgt + 0.025, z - 0.12), Vector3.UP, Color(0.62, 0.72, 0.78))
+
+
+## The original works: sawtooth roof, loading door, tanks and a chimney.
+static func _factory(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hw: float, hd: float, hgt: float, yard: float, wall: Color, roof: Color) -> void:
+	var cz := -yard - hd * 0.5
+	if l.stage >= 3 and hd > 1.6:
 		# a sawtooth roof: steep glazed faces looking one way, long slopes the other
 		var teeth := maxi(2, int(hd / 0.9))
 		var step := hd / teeth
@@ -1330,33 +1435,124 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 			var x := hw * 0.5 - r - 0.08 - k * (r * 2.0 + 0.1)
 			mk.cylinder(Vector3(x, 0.0, -yard * 0.5 + 0.02), r, hgt * (0.9 + rng.randf() * 0.5), 8, tank, true, tank.darkened(0.1))
 	# a chimney stack with a red and white top on the bigger works
-	if big and rng.randf() < 0.65:
+	if l.stage >= 3 and rng.randf() < 0.65:
 		var cx := -hw * 0.5 + 0.35
 		var ch := hgt + 1.6 + rng.randf() * 1.6
 		mk.cylinder(Vector3(cx, 0.0, cz - hd * 0.3), 0.16, ch - 0.4, 8, Color("a35a45"), false, null, 0.13)
 		mk.cylinder(Vector3(cx, ch - 0.4, cz - hd * 0.3), 0.13, 0.4, 8, Color(0.95, 0.95, 0.93), true, Color(0.2, 0.2, 0.2), 0.125)
 		l.smoke = mk.xf * Vector3(cx, ch, cz - hd * 0.3)
-	# an industrial complex: a cooling tower steaming over the back of the
-	# plot, and a gantry crane over the yard
-	if l.stage >= 7 and hw > 1.8:
-		var tr := minf(0.75, hw * 0.22)
-		var tx := hw * 0.5 - tr - 0.05
-		var tz := -yard - hd + tr + 0.05
-		mk.cylinder(Vector3(tx, 0.0, tz), tr, 2.9, 12, Color(0.86, 0.85, 0.82), true, Color(0.3, 0.3, 0.3), tr * 0.68)
-		mk.cylinder(Vector3(tx, 2.9, tz), tr * 0.68, 0.35, 12, Color(0.83, 0.82, 0.79), true, Color(0.3, 0.3, 0.3), tr * 0.76)
-		if l.smoke == Vector3.INF:
-			l.smoke = mk.xf * Vector3(tx, 3.3, tz)
-		var crane := Color("e3a33b")
-		for sx: float in [-1.0, 1.0]:
-			mk.box(Vector3(sx * (hw * 0.5 - 0.1), 0.6, -yard * 0.5), Vector3(0.08, 1.2, 0.08), crane)
-		mk.box(Vector3(0, 1.24, -yard * 0.5), Vector3(hw, 0.1, 0.12), crane)
-	# a container or two stacked in the yard
-	if rng.randf() < 0.5 and yard > 0.45:
-		var cc := [Color("c8553d"), Color("2f8f83"), Color("e3a33b"), Color("3d5f8f")]
-		mk.box(Vector3(-hw * 0.5 + 0.55, 0.14, -yard * 0.5), Vector3(0.9, 0.26, 0.3), cc[rng.randi() % cc.size()])
-	mk.pop()
-	return [mk.verts, mk.norms, mk.cols, mk.uvs, mk.dverts, mk.dnorms, mk.dcols, mk.duvs, mk.sverts, mk.snorms,
-		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]
+
+
+## A warehouse: a row of loading docks across the front under a canopy,
+## lorries backed up to some of them, and roof lights.
+static func _warehouse(mk: MeshKit, rng: RandomNumberGenerator, hw: float, hd: float, hgt: float, yard: float, roof: Color) -> void:
+	_shed_roof(mk, 0.0, hw, hd, hgt, yard, roof, clampi(int(hd / 1.2), 1, 4))
+	var docks := clampi(int(hw / 0.55), 2, 6)
+	var step := hw / docks
+	mk.shadow = false
+	mk.box_faces(Vector3(0, minf(hgt * 0.62, 0.62), -yard + 0.1), Vector3(hw, 0.03, 0.2), roof.lightened(0.2), MeshKit.TOP | MeshKit.FRONT)
+	mk.shadow = true
+	for k in docks:
+		var x := -hw * 0.5 + (k + 0.5) * step
+		mk.box_faces(Vector3(x, 0.26, -yard + 0.01), Vector3(step * 0.62, 0.42, 0.02), Color(0.5, 0.53, 0.56) if k % 3 != 1 else Color("d08a2e"), MeshKit.FRONT)
+		if rng.randf() < 0.5:
+			# a lorry backed up to the dock: a box trailer and its cab
+			var tc: Color = TRUCKS[rng.randi() % TRUCKS.size()]
+			mk.box(Vector3(x, 0.22, -yard + 0.34), Vector3(0.3, 0.34, 0.62), Color(0.93, 0.93, 0.91), tc)
+			mk.box(Vector3(x, 0.17, -yard + 0.78), Vector3(0.28, 0.26, 0.2), tc)
+			mk.box_faces(Vector3(x, 0.24, -yard + 0.885), Vector3(0.24, 0.09, 0.01), Palette.GLASS, MeshKit.FRONT)
+
+
+## A mill or food works: a row of tall silos under a covered headhouse, an
+## elevator tower taller still, and a door and windows in the shed.
+static func _mill(mk: MeshKit, rng: RandomNumberGenerator, hw: float, hd: float, hgt: float, yard: float, sw: float, roof: Color) -> void:
+	var sx := -(hw - sw) * 0.5
+	_shed_roof(mk, sx, sw, hd, hgt, yard, roof, 0)
+	mk.box_faces(Vector3(sx, minf(hgt * 0.4, 0.45), -yard + 0.01), Vector3(minf(sw * 0.5, 0.8), minf(hgt * 0.75, 0.9), 0.02), Color(0.55, 0.58, 0.6), MeshKit.FRONT)
+	var silo: Color = [Color(0.9, 0.89, 0.86), Color(0.8, 0.82, 0.83), Color("d9cdb4")][rng.randi() % 3]
+	var room := hw - sw - 0.1
+	var r := clampf(room * 0.25, 0.18, 0.3)
+	var n := clampi(int(room / (r * 2.0 + 0.04)), 1, 4)
+	var rows := 2 if hd > 2.2 else 1
+	var tall := hgt + 1.0 + rng.randf() * 0.9
+	var x0 := hw * 0.5 - 0.05 - r
+	var z0 := -yard - 0.15 - r
+	for j in rows:
+		for k in n:
+			mk.cylinder(Vector3(x0 - k * (r * 2.0 + 0.04), 0.0, z0 - j * (r * 2.0 + 0.04)), r, tall, 8, silo, true, silo.darkened(0.08))
+	# the headhouse along the tops of the silos
+	var span := n * (r * 2.0 + 0.04)
+	var depth := rows * (r * 2.0 + 0.04)
+	mk.box(Vector3(x0 + r - span * 0.5, tall + 0.14, z0 + r - depth * 0.5), Vector3(span, 0.28, minf(depth, 0.5)), silo.darkened(0.15), roof)
+	# the elevator tower beside them
+	var ex := x0 - span + r - 0.12
+	mk.box(Vector3(ex, (tall + 0.6) * 0.5, z0), Vector3(0.3, tall + 0.6, 0.3), silo.darkened(0.2), roof)
+	mk.window_row(Vector3(ex, tall * 0.8, z0 + 0.15), Vector3.BACK, 0.2, 1, 0.1, 0.16, OFFICE_GLASS, false)
+
+
+## Chemical works: a shed, spherical tanks on legs, a pipe rack along the
+## yard and a flare stack burning at the back.
+static func _chemical(mk: MeshKit, rng: RandomNumberGenerator, l: Town.Lot, hw: float, hd: float, hgt: float, yard: float, sw: float, roof: Color) -> void:
+	var sx := -(hw - sw) * 0.5
+	_shed_roof(mk, sx, sw, hd, hgt, yard, roof, 0)
+	mk.box(Vector3(sx + sw * 0.25, hgt + 0.15, -yard - hd * 0.5), Vector3(0.3, 0.3, 0.5), Color(0.7, 0.72, 0.74))
+	mk.box_faces(Vector3(sx, minf(hgt * 0.4, 0.45), -yard + 0.01), Vector3(minf(sw * 0.5, 0.8), minf(hgt * 0.75, 0.9), 0.02), Color("d08a2e"), MeshKit.FRONT)
+	var room := hw - sw - 0.1
+	var r := clampf(room * 0.3, 0.25, 0.42)
+	var n := clampi(int(room / (r * 2.0 + 0.1)), 1, 3)
+	var tank: Color = [Color(0.94, 0.94, 0.92), Color(0.86, 0.88, 0.9), Color("e9e2cf")][rng.randi() % 3]
+	var x0 := hw * 0.5 - 0.05 - r
+	var z := -yard - 0.25 - r
+	for k in n:
+		var x := x0 - k * (r * 2.0 + 0.1)
+		for leg in 4:
+			var a := TAU * (leg + 0.5) / 4.0
+			mk.pole(Vector3(x + cos(a) * r * 0.7, 0.0, z + sin(a) * r * 0.7), 0.025, r + 0.15, 4, Color(0.4, 0.42, 0.45))
+		mk.blob(Vector3(x, r + 0.2, z), Vector3(r, r, r), tank)
+	# a rack of pipes from the tanks to the shed
+	var px0 := sx + sw * 0.5
+	var px1 := x0 + r
+	var pz := -yard - 0.1
+	for k in 2:
+		mk.box_faces(Vector3((px0 + px1) * 0.5, 0.45 + k * 0.08, pz), Vector3(px1 - px0, 0.05, 0.05), [Color("c8553d"), Color(0.75, 0.77, 0.79)][k], MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK)
+	for x in [px0 + 0.1, (px0 + px1) * 0.5, px1 - 0.1]:
+		mk.box(Vector3(x, 0.26, pz), Vector3(0.04, 0.52, 0.04), Color(0.4, 0.42, 0.45))
+	# the flare stack, its flame lit day and night
+	var fx := hw * 0.5 - 0.2
+	var fz := -yard - hd + 0.25
+	var fh := hgt + 1.8 + rng.randf() * 1.2
+	mk.cylinder(Vector3(fx, 0.0, fz), 0.07, fh, 6, Color(0.55, 0.57, 0.6), false)
+	mk.shadow = false
+	mk.box(Vector3(fx, fh - 0.3, fz), Vector3(0.3, 0.04, 0.3), Color("c8553d"))
+	mk.blob(Vector3(fx, fh + 0.2, fz), Vector3(0.13, 0.26, 0.13), Color(1.0, 0.6, 0.18), 0.0, 2.7)
+	mk.shadow = true
+	if l.smoke == Vector3.INF:
+		l.smoke = mk.xf * Vector3(fx, fh + 0.25, fz)
+
+
+## A tech plant: a clean white block with a band of dark glass along the
+## front, solar panels in rows across the roof, and trees in the forecourt.
+static func _tech(mk: MeshKit, rng: RandomNumberGenerator, hw: float, hd: float, hgt: float, yard: float, wall: Color) -> void:
+	var cz := -yard - hd * 0.5
+	mk.box_faces(Vector3(0, hgt + 0.01, cz), Vector3(hw, 0.02, hd), wall.darkened(0.12), MeshKit.TOP)
+	# the glass band, and a glass entrance under a canopy
+	mk.box_faces(Vector3(0, hgt * 0.62, -yard + 0.006), Vector3(hw - 0.2, hgt * 0.3, 0.012), Color(0.2, 0.28, 0.34), MeshKit.FRONT, 1.0)
+	mk.box_faces(Vector3(-hw * 0.25, 0.22, -yard + 0.006), Vector3(0.5, 0.36, 0.012), Color(0.42, 0.55, 0.62), MeshKit.FRONT, 2.0)
+	mk.shadow = false
+	mk.box_faces(Vector3(-hw * 0.25, 0.42, -yard + 0.15), Vector3(0.7, 0.03, 0.3), wall, MeshKit.TOP | MeshKit.FRONT)
+	mk.shadow = true
+	# solar panels, tilted to the sun, in rows across the roof
+	var rows := clampi(int(hd / 0.55), 1, 8)
+	for k in rows:
+		var z := -yard - (k + 0.5) * hd / rows
+		mk.quad(Vector3(-hw * 0.42, hgt + 0.05, z + 0.16), Vector3(hw * 0.42, hgt + 0.05, z + 0.16), Vector3(hw * 0.42, hgt + 0.16, z - 0.16),
+			Vector3(-hw * 0.42, hgt + 0.16, z - 0.16), Vector3(0, 0.32, 0.11), Color(0.16, 0.24, 0.38))
+	# trees in the forecourt
+	if yard > 0.4:
+		for k in 3:
+			var x := hw * (0.05 + k * 0.17)
+			mk.pole(Vector3(x, 0.0, -yard * 0.5), 0.03, 0.3, 4, Color(0.45, 0.33, 0.24))
+			mk.blob(Vector3(x, 0.42, -yard * 0.5), Vector3(0.17, 0.16, 0.17), Palette.LEAF[rng.randi() % Palette.LEAF.size()], 0.06)
 
 
 const MALL_WALLS := [Color("efe9dd"), Color("e4ddd0"), Color("d9dee2"), Color("f3ece0"), Color("e9d9c4")]
