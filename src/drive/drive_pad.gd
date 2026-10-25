@@ -1,8 +1,9 @@
 class_name DrivePad
 extends Control
-## Touch controls for Drive mode: a thumb wheel anywhere on the left half to
-## steer (slide sideways), and two pedals on the right, accelerator and
-## brake (hold the brake at a standstill to back up). Several fingers at once.
+## Touch controls for Drive mode: a thumb wheel anywhere low on the left to
+## steer (slide sideways), and two pedals low on the right, accelerator and
+## brake (hold the brake at a standstill to back up). Anywhere else a drag
+## turns and tilts the camera and a pinch zooms it. Several fingers at once.
 ## A mouse works it too, for trying it on a PC.
 
 ## what the pad asks of the car: -1 .. 1 each
@@ -10,10 +11,15 @@ var steer := 0.0
 var throttle := 0.0
 ## controls the pad must leave alone (the buttons over it)
 var keep_clear: Array[Control] = []
+## camera drags and pinches since the camera last took them
+var look := Vector2.ZERO
+var zoom := 1.0
 var accent := Color("ff7a6b")
 
-# finger index -> "steer" | "gas" | "brake"
+# finger index -> "steer" | "gas" | "brake" | "look"
 var _fingers := {}
+# where each camera finger was last
+var _look_at := {}
 var _steer_from := Vector2.ZERO
 var _steer_at := Vector2.ZERO
 var _gas := false
@@ -27,6 +33,9 @@ func _init() -> void:
 
 func reset() -> void:
 	_fingers.clear()
+	_look_at.clear()
+	look = Vector2.ZERO
+	zoom = 1.0
 	_gas = false
 	_brake = false
 	steer = 0.0
@@ -90,6 +99,8 @@ func _input(event: InputEvent) -> void:
 			return
 		if _fingers[idx] == "steer":
 			_steer_at = pos
+		elif _fingers[idx] == "look":
+			_drag_look(idx, pos)
 		else:
 			_fingers[idx] = _pedal_at(pos)
 		_update()
@@ -98,18 +109,38 @@ func _input(event: InputEvent) -> void:
 		for c in keep_clear:
 			if c.is_visible_in_tree() and c.get_global_rect().has_point(pos):
 				return
-		if pos.x < size.x * 0.45:
+		var low := pos.y > size.y * 0.42
+		if low and pos.x < size.x * 0.42:
 			_fingers[idx] = "steer"
 			_steer_from = pos
 			_steer_at = pos
-		else:
+		elif low and pos.x > size.x * 0.58:
 			_fingers[idx] = _pedal_at(pos)
+		else:
+			_fingers[idx] = "look"
+			_look_at[idx] = pos
 		_update()
 		get_viewport().set_input_as_handled()
 	elif _fingers.has(idx):
 		_fingers.erase(idx)
+		_look_at.erase(idx)
 		_update()
 		get_viewport().set_input_as_handled()
+
+
+## One camera finger turns and tilts; two pinch to zoom (and pan together).
+func _drag_look(idx: int, pos: Vector2) -> void:
+	if _look_at.size() >= 2:
+		var keys := _look_at.keys()
+		var other: Vector2 = _look_at[keys[1] if keys[0] == idx else keys[0]]
+		var before: float = (_look_at[idx] as Vector2).distance_to(other)
+		var now := pos.distance_to(other)
+		if before > 1.0 and now > 1.0:
+			zoom *= before / now
+		look += (pos - _look_at[idx]) * 0.5
+	else:
+		look += pos - _look_at[idx]
+	_look_at[idx] = pos
 
 
 ## Which pedal a finger on the right side means: the one under it, or the
@@ -133,7 +164,7 @@ func _update() -> void:
 			_gas = true
 		elif v == "brake":
 			_brake = true
-		else:
+		elif v == "steer":
 			steering = true
 	throttle = (1.0 if _gas else 0.0) - (1.0 if _brake else 0.0)
 	if _brake and _gas:

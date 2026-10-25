@@ -30,10 +30,24 @@ var _cam_yaw := 0.0
 var _cam_pos := Vector3.ZERO
 var _cam_fresh := true
 var _shake := 0.0
+## the chase camera: how far back (metres) and the angle it looks down from;
+## the player's turn of it round the car, and when they last touched it
+var chase_dist := 1.45
+var _orbit := 0.0
+var _tilt := deg_to_rad(19.0)
+var _look_yaw := 0.0
+var _look_pitch := 0.0
+var _touched := 0.0
+var _mouse_drag := false
+var crowd: DriveCrowd
+## the views the eye button steps through: the driver's seat, then chase
+## cameras from close behind to high over the street ([distance, tilt])
+const VIEWS := [[0.0, 0.0], [0.95, 14.0], [1.45, 19.0], [2.4, 24.0], [4.0, 30.0], [7.0, 38.0]]
+var view := 2
+const MIN_DIST := 0.7
+const MAX_DIST := 9.0
 
-## chase camera: how far behind, how high, where it looks ahead of the car
-const CHASE_BACK := 1.35
-const CHASE_UP := 0.5
+## where the chase camera looks, ahead of the car
 const CHASE_LOOK := 0.7
 ## the driver's eye, in the car's own frame
 const EYE := Vector3(0.0, 0.305, 0.15)
@@ -163,6 +177,11 @@ func _enter() -> void:
 		car.town = island.town
 		car.material = island.city_mat
 		island.add_child(car)
+		crowd = DriveCrowd.new()
+		crowd.island = island
+		crowd.player = car
+		island.add_child(crowd)
+		car.obstacle = crowd.hits
 	car.visible = true
 	car.process_mode = Node.PROCESS_MODE_INHERIT
 	# the camera faces along the street the way the view looks
@@ -178,13 +197,21 @@ func _enter() -> void:
 	rig.cam.near = 0.03
 	_cam_fresh = true
 	_cam_yaw = car.heading
+	_orbit = 0.0
+	_look_yaw = 0.0
+	_look_pitch = 0.0
 	_pad.reset()
+	# the town's everyday traffic and walkers make way for the busy streets round the car
+	for n: Node3D in [island.cars, island.folk]:
+		n.visible = false
+		n.process_mode = Node.PROCESS_MODE_DISABLED
+	crowd.start()
 	_pad.visible = DisplayServer.is_touchscreen_available()
 	_catch.visible = true
 	_ui.visible = true
 	_ui.modulate.a = 0.0
 	create_tween().tween_property(_ui, "modulate:a", 1.0, 0.3)
-	_hint.text = "" if _pad.visible else "W A S D or arrows to drive  ·  C to change view  ·  Esc to get out"
+	_hint.text = "" if _pad.visible else "W A S D or arrows to drive  ·  drag or Q / E to look round  ·  wheel to zoom  ·  C to change view  ·  Esc to get out"
 	_hint.modulate.a = 1.0
 	var tw := create_tween()
 	tw.tween_interval(5.0)
@@ -202,6 +229,11 @@ func _leave() -> void:
 	_catch.visible = false
 	_ui.visible = false
 	_engine.stop()
+	if crowd:
+		crowd.stop()
+	for n: Node3D in [island.cars, island.folk]:
+		n.visible = true
+		n.process_mode = Node.PROCESS_MODE_INHERIT
 	if car:
 		car.visible = false
 		car.process_mode = Node.PROCESS_MODE_DISABLED
@@ -222,16 +254,29 @@ func _leave() -> void:
 		hud.set_drive(false)
 
 
+## Steps to the next view: driver's seat, then ever further back and higher.
 func toggle_view() -> void:
-	first_person = not first_person
-	_cam_fresh = true
+	set_view((view + 1) % VIEWS.size())
 	Sfx.play("click", 1.3)
+
+
+func set_view(i: int) -> void:
+	view = i
+	first_person = i == 0
+	if not first_person:
+		chase_dist = VIEWS[i][0]
+		_tilt = deg_to_rad(VIEWS[i][1])
+	_orbit = 0.0
+	_look_yaw = 0.0
+	_look_pitch = 0.0
+	_cam_fresh = true
 
 
 func _process(delta: float) -> void:
 	if not active:
 		return
 	_keyboard()
+	_steer_camera(delta)
 	car.night = island.night
 	car.input_steer = clampf(car.input_steer, -1.0, 1.0)
 	_update_camera(delta)
@@ -253,6 +298,65 @@ func _process(delta: float) -> void:
 	var k := clampf(World.SHADOW_NEAR_REACH / SHADOW_REACH, 0.3, 1.0)
 	island.sun.shadow_blur = World.SHADOW_BLUR * k
 	island.sun.shadow_normal_bias = World.SHADOW_NORMAL_BIAS * maxf(k, 0.5)
+
+
+## Drags turn the camera round the car and tilt it, pinches and the wheel
+## zoom; let go while driving and it swings back behind the car.
+func _steer_camera(delta: float) -> void:
+	var drag := _pad.look
+	_pad.look = Vector2.ZERO
+	var k := 1.0 / clampf(get_viewport().get_visible_rect().size.y / 720.0, 0.5, 3.0)
+	var keys := 0.0
+	if Input.is_key_pressed(KEY_Q):
+		keys -= 1.0
+	if Input.is_key_pressed(KEY_E):
+		keys += 1.0
+	if keys != 0.0:
+		drag.x += keys * 420.0 * delta / k
+	if Input.is_key_pressed(KEY_R) or Input.is_key_pressed(KEY_EQUAL):
+		zoom_by(exp(-1.4 * delta))
+	if Input.is_key_pressed(KEY_F) or Input.is_key_pressed(KEY_MINUS):
+		zoom_by(exp(1.4 * delta))
+	if _pad.zoom != 1.0:
+		zoom_by(_pad.zoom)
+		_pad.zoom = 1.0
+	if drag != Vector2.ZERO:
+		_touched = 0.0
+		if first_person:
+			_look_yaw = clampf(_look_yaw - drag.x * 0.005 * k, -2.2, 2.2)
+			_look_pitch = clampf(_look_pitch - drag.y * 0.004 * k, -0.6, 0.5)
+		else:
+			_orbit = wrapf(_orbit - drag.x * 0.006 * k, -PI, PI)
+			_tilt = clampf(_tilt + drag.y * 0.004 * k, deg_to_rad(2.0), deg_to_rad(75.0))
+	else:
+		_touched += delta
+		# back behind the car (and eyes front) a little after letting go, once it moves
+		if _touched > 1.5 and absf(car.speed) > 0.3:
+			var e := 1.0 - exp(-delta * 1.6)
+			_orbit = lerp_angle(_orbit, 0.0, e)
+			_look_yaw = lerpf(_look_yaw, 0.0, e)
+			_look_pitch = lerpf(_look_pitch, 0.0, e)
+
+
+## Pulls the chase camera in (factor < 1) or back out; from the driver's seat
+## zooming out steps outside behind the car.
+func zoom_by(factor: float) -> void:
+	if first_person:
+		if factor > 1.02:
+			set_view(1)
+		return
+	chase_dist = clampf(chase_dist * factor, MIN_DIST, MAX_DIST)
+	if chase_dist <= MIN_DIST and factor < 0.98:
+		# all the way in: into the driver's seat
+		set_view(0)
+		return
+	# it looks down a little more steeply the further back it is
+	if _touched > 0.5:
+		_tilt = lerpf(_tilt, deg_to_rad(clampf(12.0 + chase_dist * 3.8, 12.0, 40.0)), 0.15)
+	view = 1
+	for i in range(1, VIEWS.size()):
+		if chase_dist >= VIEWS[i][0] - 0.01:
+			view = i
 
 
 ## The keyboard drives on a PC (and adds to the touch pad where both exist).
@@ -282,34 +386,53 @@ func _update_camera(delta: float) -> void:
 		cam.fov = 70.0 + speed_k * 8.0
 		var eye := xf * EYE
 		cam.global_position = eye + jolt
-		# the eye leans with the car's pitch but only a little with its roll
-		cam.look_at(xf * (EYE + Vector3(0, -0.01, 3.0)), (Vector3.UP * 2.0 + xf.basis.y).normalized())
+		# the eye leans with the car's pitch but only a little with its roll,
+		# and looks where the player turns it
+		var look := Basis(Vector3.UP, _look_yaw) * Basis(Vector3.RIGHT, -_look_pitch) * Vector3(0, -0.003, 1.0)
+		cam.look_at(xf * (EYE + look * 3.0), (Vector3.UP * 2.0 + xf.basis.y).normalized())
 		return
-	cam.fov = 60.0 + speed_k * 8.0
+	var far_k := clampf((chase_dist - 1.0) / 6.0, 0.0, 1.0)
+	cam.fov = lerpf(60.0, 52.0, far_k) + speed_k * 8.0
 	# the camera swings round behind the car with a little lag (not when backing up)
 	var k := 1.0 if _cam_fresh else 1.0 - exp(-delta * (4.0 if car.speed >= -0.1 else 1.0))
 	_cam_yaw = lerp_angle(_cam_yaw, car.heading, k)
-	var back := Vector3(sin(_cam_yaw), 0, cos(_cam_yaw))
+	var yaw := _cam_yaw + _orbit
+	var back := Vector3(sin(yaw), 0, cos(yaw))
 	var focus := car.position + Vector3(0, 0.16, 0)
-	var dist := CHASE_BACK * (1.0 + speed_k * 0.15)
-	# pulled in ahead of a wall between the car and the camera
-	var steps := 8
+	var dist := chase_dist * (1.0 + speed_k * 0.12)
+	var flat := dist * cos(_tilt)
+	# pulled in ahead of a wall between the car and the camera, unless high above it
+	var steps := 10
+	var high := dist * sin(_tilt) > 1.6
 	for i in range(1, steps + 1):
-		var q := focus - back * dist * float(i) / steps
-		if car.blocked(Vector2(q.x, q.z)) and not car.land.height_at(q.x, q.z) < -0.05:
-			dist = maxf(dist * float(i - 1) / steps - 0.05, 0.35)
+		var q := focus - back * flat * float(i) / steps
+		if not high and car.blocked(Vector2(q.x, q.z)) and not car.land.height_at(q.x, q.z) < -0.05:
+			flat = maxf(flat * float(i - 1) / steps - 0.05, 0.3)
 			break
-	var want := focus - back * dist + Vector3(0, CHASE_UP * (0.6 + 0.4 * dist / CHASE_BACK), 0)
-	want.y = maxf(want.y, car.surface(want, car.position.y) + 0.12)
+	var want := focus - back * flat + Vector3(0, 0.08 + dist * sin(_tilt), 0)
+	want.y = maxf(want.y, car.surface(want, car.position.y) + 0.1)
 	_cam_pos = want if _cam_fresh else _cam_pos.lerp(want, 1.0 - exp(-delta * 10.0))
 	_cam_fresh = false
 	cam.global_position = _cam_pos + jolt
-	cam.look_at(focus + fwd * CHASE_LOOK * (0.5 + 0.5 * speed_k), Vector3.UP)
+	cam.look_at(focus + fwd * CHASE_LOOK * (0.5 + 0.5 * speed_k) * (1.0 - far_k * 0.6), Vector3.UP)
 
 
 func _input(event: InputEvent) -> void:
 	if not active:
 		return
+	# a mouse turns and zooms the camera (the touch pad does it on phones)
+	if event is InputEventMouseButton and event.device != InputEvent.DEVICE_ID_EMULATION and not _pad.visible:
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				zoom_by(0.9)
+			MOUSE_BUTTON_WHEEL_DOWN:
+				zoom_by(1.1)
+			MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT:
+				_mouse_drag = event.pressed and not (_exit_btn.get_global_rect().has_point(event.position) or _view_btn.get_global_rect().has_point(event.position))
+	elif event is InputEventMouseMotion and event.device != InputEvent.DEVICE_ID_EMULATION and _mouse_drag and not _pad.visible:
+		_pad.look += event.relative
+	elif event is InputEventMagnifyGesture:
+		zoom_by(1.0 / event.factor)
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_ESCAPE:
