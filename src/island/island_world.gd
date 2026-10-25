@@ -756,6 +756,11 @@ func _zone_radius() -> float:
 	return brush_radius * 1.4 + 1.5
 
 
+## The Magic brush reaches twice as far as the shaping brushes, ring and all.
+func _magic_radius() -> float:
+	return brush_radius * 2.0
+
+
 ## Paint where the town should grow (Green: as parks and gardens, which are
 ## still town, its streets running through them). Each dab paints at full
 ## strength at once, in a crisp disc that keeps to its side of the streets
@@ -815,8 +820,7 @@ const MAGIC_COST := 2.0
 ## The Magic brush: every house under it shoots up to the top level its
 ## plot allows (the painted Grow level), for a few coins a stage.
 func _magic_at(c: Vector2) -> void:
-	# (the same reach as the shaping brushes, so the size button means one thing)
-	var r := brush_radius
+	var r := _magic_radius()
 	var stages := town.magic(c, r, true)
 	if stages == 0:
 		return
@@ -1060,6 +1064,8 @@ func _ring_radius() -> float:
 			return brush_radius * 0.6
 		"grow", "green":
 			return _zone_radius()
+		"magic":
+			return _magic_radius()
 	return brush_radius
 
 
