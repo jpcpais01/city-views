@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-25 14:00 UTC
+- Real clouds: the drifting clouds over the land are no longer round cartoon puffs. Each one is now a true volume of vapour with a flat grey base, cauliflower billows and wispy, fraying edges, lit by sunlight passing through it: bright white tops, soft grey sides, a silver lining when the sun is behind it, gold and pink at sunset and dim, cool and moonlit at night. They slowly change shape as they drift, towers poke softly into them, and their shadows on the town are soft and ragged at the edges, darkest under the thickest part.
+
 ## 2026-10-25 13:00 UTC
 - Drive mode streets come alive: up to 120 cars and 200 people fill the streets around your car. Hatchbacks, saloons, SUVs, vans, yellow taxis, pickups, buses and lorries keep to their lanes, slow down into junctions, queue behind each other (and behind you), dip their noses as they brake and light their brake lights. People walk the pavements swinging their arms and legs, in all sorts of outfits, hairstyles, caps, skirts and backpacks. Some stop to chat, and they step aside when you drive close. The everyday traffic steps back while you drive and returns when you get out.
 - More ways to see your drive: the eye button now steps from the driver's seat through five chase cameras, from right behind the bumper to high over the street. Drag anywhere off the controls (or with the mouse, or Q and E) to swing the camera round the car and tilt it, and pinch or scroll to zoom. In the driver's seat a drag looks around. Let go while driving and the camera eases back behind you.

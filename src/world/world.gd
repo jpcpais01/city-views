@@ -415,6 +415,12 @@ func _update_sky() -> void:
 		m.set_shader_parameter("refl_sun_col", scol)
 		m.set_shader_parameter("refl_sun_dir", sun.global_transform.basis.z if is_day else Vector3(0, -1, 0))
 	detail_mat.set_shader_parameter("night", night)
+	if Clouds.material:
+		Clouds.material.set_shader_parameter("sun_dir", sun.global_transform.basis.z)
+		Clouds.material.set_shader_parameter("sun_light", Vector3(scol.srgb_to_linear().r, scol.srgb_to_linear().g, scol.srgb_to_linear().b) * sun.light_energy)
+		Clouds.material.set_shader_parameter("sky_top", top)
+		Clouds.material.set_shader_parameter("sky_hor", hor)
+		Clouds.material.set_shader_parameter("night", night)
 	# fewer windows stay lit as the night gets later
 	var nt := fmod(t + 0.15, 1.0)
 	var late := clampf(nt / 0.3, 0.0, 1.0) if nt < 0.4 else 0.0
