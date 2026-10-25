@@ -12,6 +12,10 @@ extends RefCounted
 ## the colours, the materials, the roofs and the details on the facades.
 
 const FH := 0.62
+## how tall a building may stand for its narrowest side: on a plot of its
+## own, and over plots joined into one (no pencil towers)
+const SLENDER_ONE := 3.4
+const SLENDER := 7.0
 const STONE := Color(0.74, 0.71, 0.66)
 const TERRACE := [Color("f3c6a5"), Color("c9dbe9"), Color("f6dca7"), Color("cfe0c3"), Color("e7d3ec"), Color("fbf1df"), Color("f2b8a8"), Color("b9d4c8"), Color("fff1c4")]
 const DOORS := [Color("8b5a44"), Color("4a7bb5"), Color("3d8a6a"), Color("b04a4a"), Color("2f3a48"), Color("e0b44a")]
@@ -601,6 +605,16 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		trim = wall.lightened(0.3)
 		floors += 1
 		hgt = floors * FH + 0.06
+	# never a pencil: a plot only carries so tall a building for how wide it
+	# is, so a narrow plot that found no neighbours to join stays a slab
+	var most := maxi(4, int(minf(box.size.x, box.size.y) * (SLENDER_ONE if ls.size() == 1 else SLENDER) / FH))
+	if floors > most:
+		floors = most
+		hgt = floors * FH + 0.06
+		if tower and floors < 14:
+			tower = false
+			sky = false
+			mega = false
 	# a tower: a podium over the whole plot, the shaft rising from it set back,
 	# in glass, white or warm stone, now and then brick
 	var shaft := PackedVector2Array()
