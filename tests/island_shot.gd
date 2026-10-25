@@ -376,6 +376,13 @@ func _ready() -> void:
 		island.land.rebuild_shadow()
 		await get_tree().process_frame
 		await get_tree().process_frame
+	if OS.get_environment("CV_YARDS") != "":
+		# the yards and wilds laid out now, not over the next frames
+		island.wilds.rebuild_all()
+		island.yards.rebuild_all()
+		print("yards: %d, car parks: %d" % [island.yards.yard_count(), island.yards.car_parks()])
+		await get_tree().process_frame
+		await get_tree().process_frame
 	# CV_HIDE=Land,Wilds: hides those parts (by class), to see what is what
 	var hide := OS.get_environment("CV_HIDE").split(",", false)
 	for part in island.get_children():

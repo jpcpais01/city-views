@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-25 06:00 UTC
+- Car parks: offices, shops, venues and works now get car parks beside them, tarmac with painted bays and a lamp, mostly full of white, silver, grey and black cars with the odd red or blue one. Big stores, venues and works get double-row lots, and so do the open patches inside busy districts. Tall apartment blocks sometimes get one too.
+
 ## 2026-10-25 05:00 UTC
 - Highways come with the map: every new map now lays out its own highway network the moment it's made. Highways run from one edge of the map to another along valleys and level ground, round hills, lakes and your town, over rivers and inlets on bridges (and through hills in tunnels), in long straights and wide, sweeping curves.
 - Where two highways meet they cross square on in a full cloverleaf interchange. Draw a street or an avenue across a highway and it still gets its own diamond interchange.
