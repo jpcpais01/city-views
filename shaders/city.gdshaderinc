@@ -382,6 +382,8 @@ void fragment() {
 	float pv = -1.0;
 	float cover = 0.0;
 	vec3 cover_col = vec3(1.0);
+	// 1 on a curtain wall's pane: a stronger mirror
+	float curtain = 0.0;
 #ifdef WINDOW_ROWS
 	if (emit > 299.5) {
 		// trim lines round a block: y counts lines from the first, COLOR.a = half thickness
@@ -401,12 +403,28 @@ void fragment() {
 		float seed = mod(floor(rnd), 100.0);
 		float cv = fract(rnd) / 0.98 * floors;
 		float lv = (fract(cv) - 0.139) / 0.742;
-		if (lu < 0.0 || lu > 1.0 || lv < 0.0 || lv > 1.0) {
-			discard;
-		}
 		float r2 = fract(sin(seed * 12.9898 + floor(cu) * 78.233 + floor(cv) * 37.719) * 43758.5453);
-		emit = 4.0 + lu * 0.98;
-		rnd = floor(r2 * 100.0) + lv * 0.98;
+		if (COLOR.a > 0.985) {
+			// a curtain wall: frameless panes floor to ceiling and edge to edge,
+			// thin dark mullions and a slim spandrel at each floor between them,
+			// each pane mirroring the sky and lit on its own at night
+			float aa = fwidth(lu) + 0.002;
+			float av = fwidth(cv) + 0.002;
+			float fv = fract(cv);
+			float mull = 1.0 - smoothstep(0.02, 0.02 + aa, lu) * (1.0 - smoothstep(0.98 - aa, 0.98, lu))
+				* smoothstep(0.04, 0.04 + av, fv) * (1.0 - smoothstep(0.985 - av, 0.985, fv));
+			base = mix(base * mix(0.93, 1.05, r2), base * 0.62, mull);
+			ALBEDO = base;
+			emit = mull > 0.5 ? 0.0 : 1.0;
+			rnd = r2;
+			curtain = mull > 0.5 ? 0.0 : 1.0;
+		} else {
+			if (lu < 0.0 || lu > 1.0 || lv < 0.0 || lv > 1.0) {
+				discard;
+			}
+			emit = 4.0 + lu * 0.98;
+			rnd = floor(r2 * 100.0) + lv * 0.98;
+		}
 	}
 	if (emit > 19.5) {
 		// a whole row of windows on one quad: x = 20 + count (+100 if frameless) + u,
@@ -475,6 +493,12 @@ void fragment() {
 			if (fract(rnd * 31.0) > 0.93) {
 				glow = mix(glow, vec3(0.55, 0.75, 1.0), 0.5 + 0.5 * sin(TIME * 3.0 + rnd * 40.0));
 			}
+			if (curtain > 0.5) {
+				// a glass tower's floor-to-ceiling panes: fewer lit, cooler and
+				// softer, so a tower reads as glass rather than a lantern
+				lit = step(rnd, lit_ratio * 0.35) * night;
+				glow = mix(glow, vec3(0.82, 0.9, 1.0), 0.5) * 0.3;
+			}
 		} else if (emit < 2.5) {
 			lit = night;
 			glow = vec3(1.0, 0.82, 0.55);
@@ -499,7 +523,7 @@ void fragment() {
 			vec3 vw = normalize(v_world - CAMERA_POSITION_WORLD);
 			vec3 n = normalize(v_wnorm);
 			float ndv = clamp(-dot(vw, n), 0.0, 1.0);
-			float f = (0.24 + 0.6 * pow(1.0 - ndv, 2.0)) * (1.0 - lit * 0.85) * refl_amount;
+			float f = (mix(0.24, 0.42, curtain) + 0.55 * pow(1.0 - ndv, 2.0)) * (1.0 - lit * 0.85) * refl_amount;
 			ALBEDO *= 1.0 - f;
 			EMISSION += sky_reflect(reflect(vw, n)) * f;
 			// the engine's own blurry sky reflection would double it

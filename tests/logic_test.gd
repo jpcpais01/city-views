@@ -731,6 +731,9 @@ func _island_budget() -> void:
 	if OS.get_environment("CV_BUDGET_LEVEL") != "":
 		# the same island at another Grow level, to see what it costs
 		island.land.paint_level(Vector3.ZERO, 70.0, float(OS.get_environment("CV_BUDGET_LEVEL")), 2.0)
+	if OS.get_environment("CV_BUDGET_MEGA") != "":
+		# a Mega downtown of this radius in the middle of the town
+		island.land.paint_level(Vector3.ZERO, float(OS.get_environment("CV_BUDGET_MEGA")), 7.0, 9.0)
 	island.growth.focus = Vector2.ZERO
 	var made := island.growth.grow_all()
 	island.streets.flush()
@@ -1178,7 +1181,7 @@ func _districts() -> void:
 	var pr := island.progress
 	var before := pr.coins
 	pr.title = "Hamlet"
-	pr.best = maxi(pr.best, 1300)
+	pr.best = maxi(pr.best, 6500)
 	pr.recount(false)
 	check(pr.title in ["Big City", "Large City", "Metropolis"] and pr.coins >= before + pr.milestone_reward(pr.title) - 0.01, "a milestone gives a title and coins (%s, +%d)" % [pr.title, int(pr.coins - before)])
 	check(pr.can_use("level6") and pr.can_use("industry") and pr.can_use("offices"), "milestones open the Skyline level and the districts")
@@ -1187,9 +1190,9 @@ func _districts() -> void:
 		sane = sane and d >= 0.0 and d <= 1.0
 	check(sane and island.town.demand == pr.demand, "demand is worked out for every district (%s)" % str(pr.demand))
 	var any: Town.Lot = island.town.lots.values()[0]
-	island.town.demand = [1.0, 1.0, 1.0, 1.0]
+	island.town.demand = [1.0, 1.0, 1.0, 1.0, 1.0]
 	var quick := island.town._delay(any, Vector2.ZERO)
-	island.town.demand = [0.0, 0.0, 0.0, 0.0]
+	island.town.demand = [0.0, 0.0, 0.0, 0.0, 0.0]
 	check(island.town._delay(any, Vector2.ZERO) > quick * 2.0, "a district in demand grows faster")
 	# at the top levels a shops district grows stores, malls and cinemas, not offices
 	island.land.paint_level(Vector3(-30, 0, 3), 9.0, 6.0, 9.0, HouseGen.SHOPS)

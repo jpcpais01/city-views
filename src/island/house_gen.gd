@@ -17,9 +17,11 @@ const TERRACE := [Color("f3c6a5"), Color("c9dbe9"), Color("f6dca7"), Color("cfe0
 const DOORS := [Color("8b5a44"), Color("4a7bb5"), Color("3d8a6a"), Color("b04a4a"), Color("2f3a48"), Color("e0b44a")]
 const IRON := Color(0.22, 0.24, 0.27)
 ## pale stone, concrete and dark cladding for office blocks
-const OFFICE_WALLS := [Color("dedad2"), Color("c9ced1"), Color("ebe5d8"), Color("97a3ab"), Color("b8b2a6")]
+const OFFICE_WALLS := [Color("dedad2"), Color("c9ced1"), Color("ebe5d8"), Color("97a3ab"), Color("b8b2a6"), Color("c47a5a"),
+	Color("2f4458"), Color("d9c7a3"), Color("6f7f74")]
 const OFFICE_GLASS := Color(0.38, 0.5, 0.6)
-const APARTMENT_WALLS := [Color("e8b07a"), Color("d98b6a"), Color("efd29a"), Color("c9d3b0"), Color("e6c2b0"), Color("b8c9cf"), Color("f0e2c8"), Color("cf7f5f")]
+const APARTMENT_WALLS := [Color("e8b07a"), Color("d98b6a"), Color("efd29a"), Color("c9d3b0"), Color("e6c2b0"), Color("b8c9cf"), Color("f0e2c8"), Color("cf7f5f"),
+	Color("f4f4f0"), Color("4a4f57"), Color("9fb7a0"), Color("e9a8a0"), Color("8fb1cf")]
 ## a tower's look: [wall tones, glass, window width, offices, brick]
 const TOWER_SCHEMES := [
 	[[Color("4f6f86"), Color("3f5a6e"), Color("5a7d8c"), Color("344b5c")], Color(0.24, 0.38, 0.5), 0.56, true, false],
@@ -27,11 +29,14 @@ const TOWER_SCHEMES := [
 	[[Color("f2f1ec"), Color("e8e6df"), Color("dfe3e4")], OFFICE_GLASS, 0.42, true, false],
 	[[Color("d6c3a5"), Color("cbb595"), Color("e0d1b6")], Color(0.32, 0.42, 0.5), 0.34, false, false],
 	[[Color("a65a43"), Color("9a4f3c"), Color("b26a4f")], Palette.GLASS, 0.28, false, true],
+	# dark glass with bronze, and the sea-blue curtain wall
+	[[Color("2f3640"), Color("3a3330"), Color("39424c")], Color(0.3, 0.33, 0.36), 0.6, true, false],
+	[[Color("3d7fa6"), Color("4a8db3"), Color("3a7598")], Color(0.3, 0.5, 0.64), 0.6, true, false],
 ]
 
 enum { HARBOUR, PASTEL, BRICK, STONE_SLATE, SOUTH, NORDIC }
 ## the districts painted with the Grow brush (Land.USES)
-enum { HOMES, SHOPS, OFFICES, INDUSTRY }
+enum { HOMES, SHOPS, OFFICES, INDUSTRY, FUN }
 ## residential towers: white render, warm stone, pale brick, terracotta and
 ## sea-green, with homely glass and balconies all the way up
 const HOME_TOWER_SCHEMES := [
@@ -40,8 +45,20 @@ const HOME_TOWER_SCHEMES := [
 	[[Color("c98d6c"), Color("d09a78"), Color("b97a5c")], Palette.GLASS, 0.28, true],
 	[[Color("e7a98a"), Color("efbe9e"), Color("dd9a7a")], Color(0.3, 0.44, 0.52), 0.3, false],
 	[[Color("bcd6cf"), Color("cfe2dc"), Color("aecbc4")], Color(0.28, 0.42, 0.5), 0.3, false],
+	# grey concrete with deep windows, and soft yellow
+	[[Color("b5b8b8"), Color("a9adae"), Color("c2c4c1")], Color(0.28, 0.38, 0.46), 0.34, false],
+	[[Color("f1dc9c"), Color("ecd28a"), Color("f5e3b0")], Color(0.3, 0.44, 0.52), 0.3, false],
 ]
-const SHED_WALLS := [Color("a9b2b8"), Color("8e9aa6"), Color("c9c2b0"), Color("b4614a"), Color("7f97a8"), Color("d6d0c2")]
+## glass curtain walls: [spandrel and mullions, the panes' tint] in blue,
+## green, bronze, silver, black and aqua
+const GLASS_SCHEMES := [
+	[Color("24384a"), Color("4f86b8")], [Color("23423c"), Color("4f9a86")], [Color("3b2f25"), Color("a07a4e")],
+	[Color("5e6870"), Color("b9c6cf")], [Color("1d2126"), Color("3c4650")], [Color("2a4a55"), Color("5fb0c0")],
+]
+## e for a wall of glass that mirrors the sky and never lights up (city.gdshaderinc)
+const MIRROR := 3.0
+const SHED_WALLS := [Color("a9b2b8"), Color("8e9aa6"), Color("c9c2b0"), Color("b4614a"), Color("7f97a8"), Color("d6d0c2"),
+	Color("5f8a6a"), Color("3f6a8f"), Color("e3dcc8"), Color("c98a3a")]
 const SHED_ROOFS := [Color("6f767c"), Color("5d6872"), Color("8a8f92"), Color("4f5a63")]
 const KIT_NAMES := ["harbour", "pastel", "brick", "stone", "south", "nordic"]
 # roof weights: [ridge along the street, gable end to the street, hip, flat]
@@ -127,6 +144,8 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	l.use = "home"
 	if l.district == INDUSTRY:
 		return build_industry(l, land, street_y, seed_value)
+	if l.district == FUN and l.stage >= 2:
+		return VenueGen.build([l], land, street_y, seed_value)
 	if l.stage >= 5 or l.district == OFFICES:
 		# apartments, towers, offices and stores are blocks, even on a plot of their own
 		return build_block([l], land, street_y, seed_value, main)
@@ -191,7 +210,7 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 		floors = 3
 	# a busy main street keeps shops on the ground floor, and in a shopping
 	# district every house has one
-	var shop := (main and dense and floors >= 2 and rng.randf() < 0.6) or l.district == SHOPS
+	var shop := (main and dense and floors >= 2 and rng.randf() < 0.6) or l.district == SHOPS or l.district == FUN
 	l.floors = floors
 	l.shop = shop
 	var hgt := floors * FH + 0.06
@@ -253,7 +272,9 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 	for fl in floors:
 		var y := fl * FH + FH * 0.55
 		if fl == 0:
-			if shop:
+			if shop and l.district == FUN:
+				l.trade = VenueGen.barfront(mk, rng, hw, front, wall)
+			elif shop:
 				l.trade = _shopfront(mk, rng, hw, front, wall)
 			elif count > 1:
 				# the door takes one bay of the ground floor
@@ -304,6 +325,10 @@ static func build(l: Town.Lot, land: Land, street_y: float, seed_value: int, mai
 			wing.x = -1.0 if behind_l > behind_r else 1.0
 			wing.y = minf(maxf(behind_l, behind_r) - 0.6, minf(hd * 0.9, 1.7))
 			_wing(mk, rng, K, hx + wing.x * hw * 0.25, -setback - hd, hw, wing, floors, dense, wall, we, roof)
+	if l.district == FUN:
+		# a pub, bar or club downstairs: it brings jobs rather than homes
+		l.use = "fun"
+		l.shop = false
 	if not dense:
 		_garden(mk, rng, l, hx, hw, hd, setback, door_x + hx, land, y0, wing)
 		l.foot = Rect2()
@@ -512,12 +537,19 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	# for apartments and twelve to sixteen for a tower
 	var floors: int = [4 + rng.randi() % 2, 5 + rng.randi() % 3, 8 + rng.randi() % 3, 12 + rng.randi() % 5][clampi(stage - 3, 0, 3)]
 	var district: int = h.district
+	if district == FUN:
+		return VenueGen.build(ls, land, street_y, seed_value)
 	if district == OFFICES and stage < 3:
 		# a low office building on the edge of a business district
 		floors = 2 + stage
 	if stage >= 6 and ls.size() >= 2:
 		# a skyscraper: twenty to forty floors, more over a wider plot
 		floors = 20 + rng.randi() % 12 + mini(ls.size() - 2, 2) * 4
+	var mega := stage >= 7
+	if mega:
+		# a supertall: thirty-odd floors on a plot of its own, up to eighty
+		# over joined plots, the offices tallest of all
+		floors = 26 + rng.randi() % 18 + mini(ls.size() - 1, 3) * 10 + (8 if district == OFFICES else 0)
 	# each district keeps its own buildings all the way up: only a business
 	# district grows offices, shops grow stores and malls, homes grow flats
 	if district == SHOPS and stage >= 5:
@@ -526,7 +558,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	var homes := not office
 	var tower := stage >= 6
 	# where tall plots have joined up downtown, the tower is a skyscraper
-	var sky := tower and ls.size() >= 2
+	var sky := tower and (ls.size() >= 2 or mega)
 	var pts := block_outline(ls)
 	var box := Rect2(pts[0], Vector2.ZERO)
 	for p in pts:
@@ -572,7 +604,7 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 	var win_w := 0.5 if office else 0.24
 	if tower and office:
 		# office skyscrapers are mostly glass or white
-		var scheme: Array = TOWER_SCHEMES[rng.randi() % (3 if sky and rng.randf() < 0.8 else TOWER_SCHEMES.size())]
+		var scheme: Array = TOWER_SCHEMES[[0, 1, 2, 5, 6][rng.randi() % 5] if sky and rng.randf() < 0.8 else rng.randi() % TOWER_SCHEMES.size()]
 		var tones: Array = scheme[0]
 		wall = tones[rng.randi() % tones.size()]
 		glass_col = scheme[1]
@@ -588,12 +620,37 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		win_w = scheme[2]
 		we = MeshKit.BRICKS if scheme[3] else 0.0
 		trim = Color(0.97, 0.96, 0.93)
+	# glass curtain walls: most office towers, many office blocks, some of
+	# the residential towers and more of the supertalls
+	var glassy := 0.0
+	if office:
+		glassy = (0.85 if mega else 0.7) if tower else 0.4 if stage >= 3 else 0.15
+	elif tower:
+		glassy = 0.4 if mega else 0.22
+	elif stage >= 5:
+		glassy = 0.12
+	var curtain := rng.randf() < glassy
+	if curtain:
+		var gs: Array = GLASS_SCHEMES[rng.randi() % GLASS_SCHEMES.size()]
+		wall = gs[0]
+		glass_col = gs[1]
+		win_w = 2.0
+		we = MIRROR
+		trim = wall.lightened(0.25)
 	var all_floors := floors
 	if tower:
 		var inner := Geometry2D.offset_polygon(pts, -0.45)
+		if sky and rng.randf() < 0.3:
+			# a shaft with rounded corners: in further, then back out round
+			var r := rng.randf_range(0.35, 0.6)
+			var tight := Geometry2D.offset_polygon(pts, -0.45 - r)
+			if tight.size() == 1 and tight[0].size() >= 3:
+				var soft := _rounded(tight[0], r)
+				if soft.size() >= 3 and outline_ok(soft):
+					inner = [soft]
 		if inner.size() == 1 and inner[0].size() >= 3 and outline_ok(inner[0]):
 			shaft = inner[0]
-			floors = 3
+			floors = 3 if not mega else 4
 			hgt = floors * FH + 0.06
 	mk.push_at(Vector3(h.origin.x, y0, h.origin.y), h.yaw)
 	if y0 - lo > 0.04:
@@ -670,8 +727,17 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		var rest := all_floors - floors
 		# a skyscraper steps in once or twice on the way up
 		var tiers: Array = [[shaft, rest]]
+		# glass towers take modern forms: twisting a little at every
+		# setback, or stacked off to one side
+		var form := ""
+		if curtain and sky:
+			form = ["twist", "twist", "shift", "", ""][rng.randi() % 5]
+		var turn := rng.randf_range(0.07, 0.14) * (1.0 if rng.randf() < 0.5 else -1.0)
+		var lean := Vector2.from_angle(rng.randf() * TAU)
 		if sky and rest > 12:
 			var parts := 1 + rng.randi() % 3
+			if form == "twist":
+				parts = clampi(rest / 9, 3, 5)
 			var outline := shaft
 			var left := rest
 			tiers = []
@@ -680,11 +746,20 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 				tiers.append([outline, fl])
 				left -= fl
 				if t < parts - 1:
-					var nxt := Geometry2D.offset_polygon(outline, -rng.randf_range(0.25, 0.45))
+					var step := rng.randf_range(0.25, 0.45) if form != "twist" else rng.randf_range(0.04, 0.12)
+					var nxt := Geometry2D.offset_polygon(outline, -step)
 					if nxt.size() != 1 or nxt[0].size() < 3 or not outline_ok(nxt[0]):
 						tiers[tiers.size() - 1][1] += left
 						break
-					outline = nxt[0]
+					var moved: PackedVector2Array = nxt[0]
+					if form == "twist" or form == "shift":
+						var mc := Vector2.ZERO
+						for p in moved:
+							mc += p
+						mc /= moved.size()
+						for i in moved.size():
+							moved[i] = mc + (moved[i] - mc).rotated(turn) if form == "twist" else moved[i] + lean * step * 0.9
+					outline = moved
 		mk.pop()
 		for t in tiers.size():
 			var outline: PackedVector2Array = tiers[t][0]
@@ -693,8 +768,8 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 				_flat_roof(mk, tiers[t - 1][0], hgt, wall)
 			mk.push_at(Vector3(0, hgt, 0))
 			_prism(mk, outline, fl * FH + 0.06, wall, we, fl, trim, 0, office, win_w, glass_col, 0)
-			if homes:
-				_tower_balconies(mk, outline, fl, trim)
+			if homes and not curtain:
+				_tower_balconies(mk, outline, fl, trim, 4 if mega else 3)
 			mk.pop()
 			hgt += fl * FH + 0.06
 			shaft = outline
@@ -703,7 +778,10 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		if crown.size() == 1 and crown[0].size() >= 3 and outline_ok(crown[0]):
 			_flat_roof(mk, shaft, hgt, wall)
 			mk.push_at(Vector3(0, hgt, 0))
-			if homes:
+			if curtain:
+				# a glass crown, mirroring the sky
+				_prism(mk, crown[0], FH * 0.9, glass_col.darkened(0.15), MIRROR, 0, trim, 0)
+			elif homes:
 				# a glazed penthouse on top, lit warm at night
 				_prism(mk, crown[0], FH * 0.9, Color(0.5, 0.62, 0.7), 0.0, 0, trim, 0)
 			else:
@@ -728,7 +806,16 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 			for p in shaft:
 				mc += p
 			mc /= shaft.size()
-			if homes:
+			if curtain and sky and rng.randf() < 0.45:
+				# a glass pyramid or a tall glass spike for a roof, lit at its tip
+				var peak := Vector3(mc.x, hgt + rng.randf_range(1.0, 3.5 if mega else 2.2), mc.y)
+				for k in shaft.size():
+					var a2: Vector2 = shaft[k]
+					var b2: Vector2 = shaft[(k + 1) % shaft.size()]
+					var mid := (a2 + b2) * 0.5 - mc
+					mk.tri(Vector3(a2.x, hgt, a2.y), Vector3(b2.x, hgt, b2.y), peak, glass_col, MIRROR, 0.0, Vector3(mid.x, 0.4, mid.y))
+				mk.box(peak, Vector3(0.07, 0.07, 0.07), Color(0.86, 0.93, 1.0), null, false, 2.75)
+			elif homes:
 				# a roof garden: a lawn round the penthouse's own terrace, and trees
 				var lawn := Geometry2D.offset_polygon(shaft, -0.12)
 				if lawn.size() == 1 and lawn[0].size() >= 3:
@@ -745,9 +832,9 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 					# and a mast with a beacon, for the aircraft
 					mk.cylinder(Vector3(mc.x, hgt, mc.y), 0.03, 1.4, 4, IRON, false)
 					mk.box(Vector3(mc.x, hgt + 1.4, mc.y), Vector3(0.07, 0.07, 0.07), Color(1.0, 0.12, 0.08), null, false, 2.7)
-			elif sky and rng.randf() < 0.55:
+			elif sky and (mega or rng.randf() < 0.55):
 				# a spire, with a beacon on top
-				var tall := rng.randf_range(2.2, 4.0)
+				var tall := rng.randf_range(4.5, 8.0) if mega else rng.randf_range(2.2, 4.0)
 				mk.cylinder(Vector3(mc.x, hgt, mc.y), 0.09, tall, 4, Color(0.82, 0.84, 0.86), false, null, 0.015)
 				mk.box(Vector3(mc.x, hgt + tall, mc.y), Vector3(0.08, 0.08, 0.08), Color(1.0, 0.12, 0.08), null, false, 2.7)
 			elif rng.randf() < 0.4:
@@ -786,9 +873,44 @@ static func build_block(ls: Array, land: Land, street_y: float, seed_value: int,
 		mk.bverts, mk.bcols, mk.buvs, mk.bradius, mk.qverts, mk.qcols, mk.quvs, mk.qradius]
 
 
+## A convex outline grown out by r with each corner rounded in two steps
+## (empty if the outline has a hollow corner).
+static func _rounded(pts: PackedVector2Array, r: float) -> PackedVector2Array:
+	var clean := PackedVector2Array()
+	for p in pts:
+		if clean.is_empty() or p.distance_to(clean[clean.size() - 1]) > 0.05:
+			clean.append(p)
+	if clean.size() >= 2 and clean[0].distance_to(clean[clean.size() - 1]) <= 0.05:
+		clean.remove_at(clean.size() - 1)
+	var out := PackedVector2Array()
+	if clean.size() < 3:
+		return out
+	var cw := Geometry2D.is_polygon_clockwise(clean)
+	var n := clean.size()
+	var turn := 0.0
+	for k in n:
+		var c := (clean[k] - clean[(k - 1 + n) % n]).normalized().cross((clean[(k + 1) % n] - clean[k]).normalized())
+		if absf(c) > 0.01:
+			if turn != 0.0 and signf(c) != turn:
+				return out
+			turn = signf(c)
+	for k in n:
+		var a := clean[(k - 1 + n) % n]
+		var v := clean[k]
+		var b := clean[(k + 1) % n]
+		var t1 := (v - a).normalized()
+		var t2 := (b - v).normalized()
+		var n1 := Vector2(-t1.y, t1.x) if cw else Vector2(t1.y, -t1.x)
+		var n2 := Vector2(-t2.y, t2.x) if cw else Vector2(t2.y, -t2.x)
+		out.append(v + n1 * r)
+		out.append(v + (n1 + n2).normalized() * r)
+		out.append(v + n2 * r)
+	return out
+
+
 ## Balconies up the two longest sides of a residential tower's shaft (its
 ## local floor at y = 0), every other floor.
-static func _tower_balconies(mk: MeshKit, outline: PackedVector2Array, floors: int, slab: Color) -> void:
+static func _tower_balconies(mk: MeshKit, outline: PackedVector2Array, floors: int, slab: Color, every := 2) -> void:
 	var cw := Geometry2D.is_polygon_clockwise(outline)
 	var sides: Array = []
 	for k in outline.size():
@@ -802,21 +924,21 @@ static func _tower_balconies(mk: MeshKit, outline: PackedVector2Array, floors: i
 		var b: Vector2 = outline[(side[1] + 1) % outline.size()]
 		var t := (b - a).normalized()
 		var out := Vector2(-t.y, t.x) if cw else Vector2(t.y, -t.x)
-		for fl in range(1, floors, 2):
+		for fl in range(1, floors, every):
 			_balcony(mk, a.lerp(b, 0.12), a.lerp(b, 0.88), out, fl * FH + 0.06, slab)
 	mk.shadow = true
 
 
 ## A balcony along a wall from a to b (block-local, the wall's outward
-## direction `out`) at height y: a slab, its edge and a glass rail.
+## direction `out`) at height y: a slab and a glass rail.
 static func _balcony(mk: MeshKit, a: Vector2, b: Vector2, out: Vector2, y: float, slab: Color) -> void:
 	var d := 0.2
 	var a2 := a + out * d
 	var b2 := b + out * d
 	var o3 := Vector3(out.x, 0, out.y)
 	mk.quad(Vector3(a.x, y, a.y), Vector3(b.x, y, b.y), Vector3(b2.x, y, b2.y), Vector3(a2.x, y, a2.y), Vector3.UP, slab)
-	mk.quad(Vector3(a2.x, y - 0.05, a2.y), Vector3(b2.x, y - 0.05, b2.y), Vector3(b2.x, y, b2.y), Vector3(a2.x, y, a2.y), o3, slab.darkened(0.08))
-	mk.quad(Vector3(a2.x, y, a2.y), Vector3(b2.x, y, b2.y), Vector3(b2.x, y + 0.17, b2.y), Vector3(a2.x, y + 0.17, a2.y), o3, Color(0.62, 0.74, 0.8))
+	# the rail runs down over the slab's edge, so the edge needs no face of its own
+	mk.quad(Vector3(a2.x, y - 0.05, a2.y), Vector3(b2.x, y - 0.05, b2.y), Vector3(b2.x, y + 0.17, b2.y), Vector3(a2.x, y + 0.17, a2.y), o3, Color(0.62, 0.74, 0.8))
 
 
 ## Twice the signed area of an outline (its winding: > 0 one way, < 0 the other).
@@ -985,7 +1107,7 @@ static func _prism(mk: MeshKit, pts: PackedVector2Array, hgt: float, wall: Color
 		mk.window_grid(Vector3(m.x, 0, m.y), o3, run, maxi(1, int(run / 0.6)), floors, win_w, glass, sills)
 		# floor bands as thin strips standing just proud of the wall (one quad,
 		# the gaps between them cut out by the shader)
-		if floors >= 2:
+		if floors >= 2 and we != MIRROR:
 			var a2 := a + out * 0.012
 			var b2 := b + out * 0.012
 			mk.band_wall(Vector3(a2.x, 0, a2.y), Vector3(b2.x, 0, b2.y), o3, FH + 0.03, FH, floors - 1 if every_floor else 1, 0.036, trim)
@@ -1153,7 +1275,7 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 	var yard := 0.35 + rng.randf() * 0.3
 	var hw := maxf(l.width - 0.3, 1.2)
 	var hd := clampf(l.room(-hw * 0.5, hw * 0.5) - yard - 0.2, 1.2, 5.2)
-	var hgt := 0.9 + minf(l.stage, 4) * 0.22 + rng.randf() * 0.2
+	var hgt := 0.9 + minf(l.stage, 4) * 0.22 + rng.randf() * 0.2 + (0.5 if l.stage >= 7 else 0.0)
 	var right := Vector2(cos(l.yaw), -sin(l.yaw))
 	var fwd := Vector2(sin(l.yaw), cos(l.yaw))
 	var lo := INF
@@ -1214,6 +1336,20 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 		mk.cylinder(Vector3(cx, 0.0, cz - hd * 0.3), 0.16, ch - 0.4, 8, Color("a35a45"), false, null, 0.13)
 		mk.cylinder(Vector3(cx, ch - 0.4, cz - hd * 0.3), 0.13, 0.4, 8, Color(0.95, 0.95, 0.93), true, Color(0.2, 0.2, 0.2), 0.125)
 		l.smoke = mk.xf * Vector3(cx, ch, cz - hd * 0.3)
+	# an industrial complex: a cooling tower steaming over the back of the
+	# plot, and a gantry crane over the yard
+	if l.stage >= 7 and hw > 1.8:
+		var tr := minf(0.75, hw * 0.22)
+		var tx := hw * 0.5 - tr - 0.05
+		var tz := -yard - hd + tr + 0.05
+		mk.cylinder(Vector3(tx, 0.0, tz), tr, 2.9, 12, Color(0.86, 0.85, 0.82), true, Color(0.3, 0.3, 0.3), tr * 0.68)
+		mk.cylinder(Vector3(tx, 2.9, tz), tr * 0.68, 0.35, 12, Color(0.83, 0.82, 0.79), true, Color(0.3, 0.3, 0.3), tr * 0.76)
+		if l.smoke == Vector3.INF:
+			l.smoke = mk.xf * Vector3(tx, 3.3, tz)
+		var crane := Color("e3a33b")
+		for sx: float in [-1.0, 1.0]:
+			mk.box(Vector3(sx * (hw * 0.5 - 0.1), 0.6, -yard * 0.5), Vector3(0.08, 1.2, 0.08), crane)
+		mk.box(Vector3(0, 1.24, -yard * 0.5), Vector3(hw, 0.1, 0.12), crane)
 	# a container or two stacked in the yard
 	if rng.randf() < 0.5 and yard > 0.45:
 		var cc := [Color("c8553d"), Color("2f8f83"), Color("e3a33b"), Color("3d5f8f")]
@@ -1226,7 +1362,7 @@ static func build_industry(l: Town.Lot, land: Land, street_y: float, seed_value:
 const MALL_WALLS := [Color("efe9dd"), Color("e4ddd0"), Color("d9dee2"), Color("f3ece0"), Color("e9d9c4")]
 ## sign colours, lit at night (never red-dominant: that blinks, for aircraft)
 const SIGNS := [Color("ffb51f"), Color("3f8cff"), Color("22c7c7"), Color("ff6fae"), Color("8ad14a"), Color("ffffff")]
-const RETAIL_NAMES := {"store": "Department store", "mall": "Shopping mall", "cinema": "Cinema"}
+const RETAIL_NAMES := {"store": "Department store", "mall": "Shopping mall", "cinema": "Cinema", "megamall": "Mega mall"}
 
 
 ## The top of a shopping district: a department store on its own plot or a
@@ -1243,11 +1379,13 @@ static func build_mall(ls: Array, land: Land, street_y: float, seed_value: int) 
 	for l: Town.Lot in ls:
 		stage = maxi(stage, l.stage)
 	var kind := "store"
-	if stage >= 6 and ls.size() >= 2:
+	if stage >= 7:
+		kind = "megamall"
+	elif stage >= 6 and ls.size() >= 2:
 		kind = "mall"
 	elif stage >= 6 and rng.randf() < 0.5:
 		kind = "cinema"
-	var floors: int = {"store": 4 + rng.randi() % 2, "mall": 3, "cinema": 3}[kind]
+	var floors: int = {"store": 4 + rng.randi() % 2, "mall": 3, "cinema": 3, "megamall": 5 + rng.randi() % 2}[kind]
 	var pts := block_outline(ls)
 	var box := Rect2(pts[0], Vector2.ZERO)
 	for p in pts:
@@ -1330,7 +1468,7 @@ static func build_mall(ls: Array, land: Land, street_y: float, seed_value: int) 
 			CivicGen._lamp(mk, Vector3(run * 0.5, street_y - y0, 0.5))
 		mk.pop()
 	_flat_roof(mk, pts, hgt, wall)
-	if kind == "mall":
+	if kind == "mall" or kind == "megamall":
 		# a glass atrium at the middle of the front, under a glass dome
 		var a := fronts[mid]
 		var b := fronts[mid + 1]
@@ -1339,8 +1477,13 @@ static func build_mall(ls: Array, land: Land, street_y: float, seed_value: int) 
 		var c := (a + b) * 0.5 - out * 1.0
 		var yaw := atan2(out.x, out.y)
 		mk.push_at(Vector3(c.x, 0, c.y), yaw)
-		mk.box(Vector3(0, (hgt + 0.7) * 0.5, 0.1), Vector3(1.8, hgt + 0.7, 2.2), Color(0.5, 0.64, 0.72), Color(0.86, 0.88, 0.9), false, 1.0)
-		mk.cylinder(Vector3(0, hgt + 0.7, 0.1), 0.8, 0.5, 10, Color(0.62, 0.75, 0.82), true, Color(0.7, 0.82, 0.88), 0.35)
+		var big := 1.35 if kind == "megamall" else 1.0
+		mk.box(Vector3(0, (hgt + 0.7) * 0.5, 0.1), Vector3(1.8 * big, hgt + 0.7, 2.2 * big), Color(0.5, 0.64, 0.72), Color(0.86, 0.88, 0.9), false, 1.0)
+		mk.cylinder(Vector3(0, hgt + 0.7, 0.1), 0.8 * big, 0.5 * big, 10, Color(0.62, 0.75, 0.82), true, Color(0.7, 0.82, 0.88), 0.35 * big)
+		if kind == "megamall":
+			# a pylon by the doors, its name lit up and down it, seen across town
+			mk.box(Vector3(1.6, (hgt + 2.4) * 0.5, 0.6), Vector3(0.3, hgt + 2.4, 0.3), Color(0.25, 0.27, 0.3))
+			mk.box(Vector3(1.6, hgt + 1.6, 0.77), Vector3(0.26, 1.4, 0.04), sign, null, false, 2.7)
 		mk.pop()
 		# cars parked in rows on the roof
 		var cars := [Color("c8553d"), Color("3d5f8f"), Color("e3e3e0"), Color("2b2f36"), Color("e3a33b"), Color("8fa3b3")]
