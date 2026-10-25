@@ -8,7 +8,6 @@ extends Node3D
 ## seed, ground, painting and town, so every co-op builder sees the same woods.
 
 const SPAN := float(Land.TILE)
-const CHUNKS := Land.TILES
 # one candidate spot per GAP x GAP metres, nudged off the grid
 const GAP := 1.8
 const PER := int(SPAN / GAP)
@@ -17,6 +16,8 @@ const CLEAR := 0.75
 const ROADSIDE := 1.25
 # the most trees one chunk holds, so even an island painted all green stays cheap
 const MOST := 36
+# the share of trees the big coast keeps, its woods filling a far wider view
+const THIN_BIG := 0.45
 const TRUNK := Color(0.42, 0.31, 0.22)
 const PINE := [Color("3f7d4e"), Color("356f45"), Color("4a8a55")]
 
@@ -33,9 +34,13 @@ var _counts := {}
 var _todo: Array[Vector2i] = []
 var _check := 1.0
 var _seen := -1
+# the map size its chunks were laid out for
+var _size := 0.0
 
 
 func _process(delta: float) -> void:
+	if _size != Land.SIZE:
+		_resize()
 	if not _todo.is_empty():
 		# a few chunks a frame keeps the frame time flat
 		var start := Time.get_ticks_usec()
@@ -58,13 +63,29 @@ func _process(delta: float) -> void:
 		_queue_changed()
 
 
+## A map of another size: its chunks lie elsewhere, so start afresh.
+func _resize() -> void:
+	_size = Land.SIZE
+	for c in _nodes:
+		if is_instance_valid(_nodes[c]):
+			_nodes[c].queue_free()
+	_nodes.clear()
+	_sigs.clear()
+	_counts.clear()
+	_todo.clear()
+	_scan = -1
+	_seen = -1
+
+
 ## Rebuilds every chunk now (a fresh island, a load, and tests).
 func rebuild_all() -> void:
+	if _size != Land.SIZE:
+		_resize()
 	_reseed()
 	_todo.clear()
 	_scan = -1
-	for cz in CHUNKS:
-		for cx in CHUNKS:
+	for cz in Land.TILES:
+		for cx in Land.TILES:
 			var c := Vector2i(cx, cz)
 			_sigs[c] = _chunk_sig(c)
 			_build(c)
@@ -99,14 +120,14 @@ func _queue_changed() -> void:
 func _scan_some() -> void:
 	var start := Time.get_ticks_usec()
 	var budget := FrameBudget.cap(2000)
-	while _scan < CHUNKS * CHUNKS and Time.get_ticks_usec() - start < budget:
-		var c := Vector2i(_scan % CHUNKS, _scan / CHUNKS)
+	while _scan < Land.TILES * Land.TILES and Time.get_ticks_usec() - start < budget:
+		var c := Vector2i(_scan % Land.TILES, _scan / Land.TILES)
 		_scan += 1
 		var s := _chunk_sig(c)
 		if _sigs.get(c, -1) != s:
 			_sigs[c] = s
 			_todo.append(c)
-	if _scan >= CHUNKS * CHUNKS:
+	if _scan >= Land.TILES * Land.TILES:
 		_scan = -1
 
 
@@ -146,6 +167,8 @@ func _build(c: Vector2i) -> void:
 			var keep := rng.randf()
 			var kind := _spot(x, z, keep)
 			if kind < 0:
+				continue
+			if Land.SIZE > Land.NORMAL_SIZE and rng.randf() > THIN_BIG:
 				continue
 			_tree(mk, rng, Vector3(x, world.land.height_at(x, z) - 0.04, z), kind)
 			n += 1

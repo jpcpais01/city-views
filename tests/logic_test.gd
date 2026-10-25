@@ -59,6 +59,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "coast":
+		await _big_coast()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "roads":
 		await _road_kinds()
 		print("FAILURES: %d" % failures)
@@ -86,6 +91,7 @@ func _ready() -> void:
 	await preload("res://tests/charts_check.gd").run(self)
 	await _legacy_save()
 	await _map_kinds()
+	await _big_coast()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -446,8 +452,8 @@ func _island_wilds() -> void:
 	check(cost < 20000, "the woods stay cheap (%d triangles)" % cost)
 	var near := 0
 	var s0: Streets.Street = island.streets.streets[0]
-	for j in Wilds.PER * Wilds.CHUNKS:
-		for i in Wilds.PER * Wilds.CHUNKS:
+	for j in Wilds.PER * Land.TILES:
+		for i in Wilds.PER * Land.TILES:
 			var p := Vector2(-Land.HALF + (i + 0.5) * Wilds.GAP, -Land.HALF + (j + 0.5) * Wilds.GAP)
 			if s0.closest(p).x < s0.reach() + 0.6 and island.wilds._spot(p.x, p.y, 0.0) >= 0:
 				near += 1
@@ -562,7 +568,7 @@ func _island_coop() -> void:
 func _island_budget() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
-	island.new_island(11)
+	island.new_island(11, OS.get_environment("CV_BUDGET_MAP") if OS.get_environment("CV_BUDGET_MAP") != "" else "river")
 	for line in [[Vector2(-34, 4), Vector2(26, 2)], [Vector2(-6, -30), Vector2(-2, 30)]]:
 		var pts := PackedVector2Array()
 		for k in 41:
@@ -619,8 +625,14 @@ func _island_budget() -> void:
 	print("island: %d triangles in the busiest view from all the way out" % far)
 	check(far + reserve < TriBudget.FAR_BUDGET, "and from all the way out stays under %dk (%d)" % [TriBudget.FAR_BUDGET / 1000, far + reserve])
 	# and tilted right up to look across the town from the side, more again
-	var side: int = _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, CameraRig.MIN_TILT)[0]
-	side = maxi(side, _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.FAR_D, CameraRig.MIN_TILT)[0])
+	var side_view := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.MAX_D, CameraRig.MIN_TILT)
+	var side_near := _busiest_view(island, [Vector2.ZERO, Vector2(-25, 15), Vector2(25, -15)], CameraRig.FAR_D, CameraRig.MIN_TILT)
+	if side_near[0] > side_view[0]:
+		side_view = side_near
+	var side: int = side_view[0]
+	if OS.get_environment("CV_ONLY") == "budget":
+		for k in side_view[1]:
+			print("  side tris %-15s %7d +shadow %7d" % [k, side_view[1][k][0], side_view[1][k][1]])
 	print("island: %d triangles in the busiest view from the side" % side)
 	check(side + reserve < TriBudget.SIDE_BUDGET, "and from the side stays under %dk (%d)" % [TriBudget.SIDE_BUDGET / 1000, side + reserve])
 	var kits := {}
@@ -694,11 +706,24 @@ func _island_budget() -> void:
 			if d < near:
 				near = d
 				truth = o
+		var hit_at := eye + dir * near
+		# (a hit below the ground, say a building's footing on a slope, is not what shows)
 		if truth == null:
 			continue
+		var buried := false
+		var tt := 0.0
+		while tt < near:
+			var q := eye + dir * tt
+			buried = buried or q.y < island.land.height_at(q.x, q.z) - 0.05
+			tt += 0.15
+		if buried or hit_at.y < island.land.height_at(hit_at.x, hit_at.z) - 0.05:
+			continue
 		slant_n += 1
-		if island.town.lot_on_ray(eye, dir) == truth:
+		var got: Town.Lot = island.town.lot_on_ray(eye, dir)
+		if got == truth:
 			slant_ok += 1
+		else:
+			print("  slant miss: truth %d at %.2f, got %s at %s" % [truth.id, near, str(got.id) if got else "none", str(island.town._ray_hit(got, eye, dir)) if got else "-"])
 	check(slant_n >= 8 and slant_ok == slant_n, "a slanting tap picks the building drawn under it (%d of %d)" % [slant_ok, slant_n])
 	# painting green turns the houses there into parks
 	var at: Vector2 = some.origin
@@ -1257,7 +1282,8 @@ func _legacy_save() -> void:
 
 
 ## Every kind of map: open country runs on past the map's edge (no rim of
-## sea), with its river, lakes or coast; the kind is saved and comes back.
+## sea, but for the big coast), with its river, lakes or coast; the kind is
+## saved and comes back.
 func _map_kinds() -> void:
 	var island := IslandWorld.new()
 	add_child(island)
@@ -1276,7 +1302,9 @@ func _map_kinds() -> void:
 					dry_rim += int(h > 0.0)
 		var share := float(wet) / float((Land.SIDE / 4 + 1) * (Land.SIDE / 4 + 1))
 		check(share > 0.01 and share < 0.45, "a %s map has water but is mostly land (%.0f%% water)" % [kind, share * 100.0])
-		check(dry_rim > rim / 2, "the land of a %s map runs on past its edge (%d of %d rim samples dry)" % [kind, dry_rim, rim])
+		# (the big coast is nearly all map instead, its land ending in a shore: see _big_coast)
+		if kind != "coast":
+			check(dry_rim > rim / 2, "the land of a %s map runs on past its edge (%d of %d rim samples dry)" % [kind, dry_rim, rim])
 		check(not land._horizon.is_empty(), "and the country carries on to the horizon")
 		var sp := island._home()
 		check(land.height_at(sp.x, sp.z) > 0.3, "a fresh %s map opens over dry ground" % kind)
@@ -1359,3 +1387,39 @@ func _tris(m: Mesh) -> int:
 		var arr := m.surface_get_arrays(k)
 		n += (arr[Mesh.ARRAY_INDEX].size() if arr[Mesh.ARRAY_INDEX] else arr[Mesh.ARRAY_VERTEX].size()) / 3
 	return n
+
+
+## The coast map is bigger than the others, nearly all of it land to build on,
+## and a coast saved before it grew comes back with its town where it was.
+func _big_coast() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(5, "coast")
+	check(Land.SIZE == Land.COAST_SIZE and Town.RES == int(Land.SIZE / Town.CELL), "the coast map is %d m across" % int(Land.SIZE))
+	# land well past where the old map ended, but none right at the far edges
+	var past := 0
+	var rim := 0
+	for k in 64:
+		var a := TAU * k / 64.0
+		var p := Vector2(cos(a), sin(a)) * 250.0
+		if island.land.height_at(p.x, p.y) > 0.3:
+			past += 1
+		# round the square the horizon ends on, just inside it
+		var dirn := Vector2(cos(a), sin(a))
+		var e := dirn / maxf(absf(dirn.x), absf(dirn.y)) * (Land.HALF + Land.FAR - 10.0)
+		if island.land._natural(e) > 0.0:
+			rim += 1
+	check(past >= 24, "the big coast has land out past the old map's edge (%d of 64)" % past)
+	check(rim == 0, "and its land ends in a shore before the horizon does (%d)" % rim)
+	# an old, smaller coast save: painted ground, by the old sample numbering
+	var at := Vector2(30.0, 40.0)
+	var old_k := int(at.y + 192.0) * 385 + int(at.x + 192.0)
+	var old := {"v": IslandWorld.SAVE_VERSION, "map": "coast", "seed": 5, "zone": {str(old_k): 1.0}}
+	island._apply_save(old)
+	check(Land.SIZE == Land.COAST_SIZE and island.land.zone_at(at.x, at.y) > 0.5, "an old coast save comes back on the big map, painted where it was (%.2f)" % island.land.zone_at(at.x, at.y))
+	check(island.to_dict().get("size") == Land.COAST_SIZE, "and saves its size")
+	# and back to an ordinary map
+	island.new_island(5, "river")
+	check(Land.SIZE == Land.NORMAL_SIZE and Town.RES == int(Land.SIZE / Town.CELL), "other maps stay %d m across" % int(Land.SIZE))
+	island.queue_free()
+	await get_tree().process_frame
