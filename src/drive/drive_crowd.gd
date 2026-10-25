@@ -4,14 +4,22 @@ extends Node3D
 ## cars, vans, taxis, buses and lorries keeping to their lanes, easing off
 ## into corners and behind each other (and behind the player), and crowds on
 ## the pavements walking with swinging arms and legs, some stopping to chat.
-## Only near the car and only while driving; the everyday traffic and
-## townsfolk step aside meanwhile. Each body is one MultiMesh (one draw call)
+## Cars stop at the lights of the bigger crossings and queue there. Only
+## round the car while driving, or round the middle of the view when the
+## camera is down close over the town; the everyday traffic and townsfolk
+## step aside meanwhile. Each body is one MultiMesh (one draw call)
 ## that crowd.gdshader paints and animates per copy.
 
-const CAR_R := 75.0
-const PED_R := 50.0
-const MAX_CARS := 120
-const MAX_PEDS := 200
+const CAR_R := 66.0
+const PED_R := 36.0
+const MAX_CARS := 170
+const MAX_PEDS := 400
+## a car every this many metres of lane, someone every this many of pavement
+const CAR_EVERY := 4.0
+const PED_EVERY := 1.0
+## traffic lights: a whole cycle, and how long each way's green lasts of it
+const CYCLE := 16.0
+const GREEN := 7.0
 ## car bodies, in mesh order, with their length
 const KINDS := ["hatch", "sedan", "suv", "van", "taxi", "pickup", "bus", "truck"]
 const LENGTHS := [0.6, 0.68, 0.68, 0.72, 0.68, 0.74, 1.5, 1.15]
@@ -49,6 +57,9 @@ var _spot_timer := 0.0
 var _car_want := 0
 var _ped_want := 0
 var _frame := 0
+var _clock := 0.0
+# where the middle was last frame, to fill afresh after a jump
+var _last_centre := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -99,9 +110,14 @@ func start() -> void:
 	visible = true
 	set_process(true)
 	_find_spots()
-	for i in _car_want:
+	_last_centre = _centre()
+	for i in _car_want * 2:
+		if _cars.size() >= _car_want:
+			break
 		_spawn_car(true)
-	for i in _ped_want:
+	for i in _ped_want * 2:
+		if _peds.size() >= _ped_want:
+			break
 		_spawn_ped(true)
 	# a few seconds of life, so nobody stands frozen where they spawned
 	for i in 4:
@@ -128,10 +144,17 @@ func ped_count() -> int:
 
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
+	_clock += delta
+	material.set_shader_parameter("night", island.night)
 	_spot_timer -= delta
 	if _spot_timer <= 0.0:
 		_spot_timer = 0.5
 		_find_spots()
+	# the view jumped across town: fill the streets there at once
+	if _centre().distance_to(_last_centre) > 20.0:
+		start()
+		return
+	_last_centre = _centre()
 	# a few new arrivals a frame, out of the way of the view where possible
 	for i in 3:
 		if _cars.size() < _car_want:
@@ -147,6 +170,12 @@ func _process(delta: float) -> void:
 func _find_spots() -> void:
 	_car_spots.clear()
 	_ped_spots.clear()
+	# a street rebuilt or a city loaded: those on streets gone go too
+	var now := {}
+	for s: Streets.Street in island.streets.streets:
+		now[s] = true
+	_cars = _cars.filter(func(m: Dictionary) -> bool: return now.has(m.s))
+	_peds = _peds.filter(func(m: Dictionary) -> bool: return now.has(m.s))
 	var c := _centre()
 	var car_m := 0.0
 	var ped_m := 0.0
@@ -165,13 +194,14 @@ func _find_spots() -> void:
 				_ped_spots.append([s, i])
 				ped_m += 2.0 * (1.0 if walk else 2.0)
 			i += 4
-	# a car every 8 m of lane, someone every 3 m of pavement
-	_car_want = mini(int(car_m / 8.0), MAX_CARS)
-	_ped_want = mini(int(ped_m / 3.0), MAX_PEDS)
+	_car_want = mini(int(car_m / CAR_EVERY), MAX_CARS)
+	_ped_want = mini(int(ped_m / PED_EVERY), MAX_PEDS)
 
 
 func _centre() -> Vector2:
-	return Vector2(player.position.x, player.position.z) if player else Vector2.ZERO
+	if player:
+		return Vector2(player.position.x, player.position.z)
+	return Vector2(island.rig.target.x, island.rig.target.z)
 
 
 ## Whether a spot is in plain sight just ahead, where nobody should pop up.
@@ -187,10 +217,27 @@ func _in_view(p: Vector2) -> bool:
 
 # ------------------------------------------------------------------ cars
 
+## A street spot to put someone at, more likely the nearer it is and in
+## front of the camera: the crowd is spent where it is seen.
+func _pick(spots: Array) -> Array:
+	var c := _centre()
+	var cam := island.rig.cam
+	var f := -cam.global_transform.basis.z
+	var ahead := Vector2(f.x, f.z).normalized()
+	var spot: Array = spots[_rng.randi() % spots.size()]
+	for i in 6:
+		var d: Vector2 = (spot[0] as Streets.Street).pts[spot[1]] - c
+		var w := clampf(16.0 / (d.length() + 6.0), 0.12, 1.0) * (1.0 if ahead.dot(d) > 0.0 else 0.5)
+		if _rng.randf() < w:
+			break
+		spot = spots[_rng.randi() % spots.size()]
+	return spot
+
+
 func _spawn_car(anywhere: bool) -> void:
 	if _car_spots.is_empty():
 		return
-	var spot: Array = _car_spots[_rng.randi() % _car_spots.size()]
+	var spot: Array = _pick(_car_spots)
 	var s: Streets.Street = spot[0]
 	var f: float = spot[1] + _rng.randf_range(0.0, 3.9)
 	f = clampf(f, 1.0, s.pts.size() - 2.0)
@@ -220,7 +267,7 @@ func _spawn_car(anywhere: bool) -> void:
 		paint = [Color("d9483b"), Color("2f8f83"), Color("2b6cb0")][_rng.randi() % 3]
 	_cars.append({"s": s, "f": f, "dir": dir, "since": 0.0, "k": k, "len": len, "lane": lane,
 		"pace": _rng.randf_range(0.82, 1.12) * (0.82 if k >= 6 else 1.0), "speed": 0.0, "ahead": INF,
-		"paint": paint, "brake": 0.0, "dyn": 0.0, "lean": 0.0, "xf": Transform3D(), "grow": 1.0 if anywhere else 0.0, "fresh": true})
+		"paint": paint, "brake": 0.0, "dyn": 0.0, "lean": 0.0, "xf": Transform3D(), "vel": Vector3.ZERO, "grow": 1.0 if anywhere else 0.0, "fresh": true})
 
 
 ## For each car, the room before the next one ahead in its lane.
@@ -246,14 +293,26 @@ func _queue() -> void:
 func _drive(c: Dictionary, graph: Dictionary, delta: float, warm: bool) -> bool:
 	var s: Streets.Street = c.s
 	var want: float = Traffic.SPEEDS.get(s.kind, 1.5) * c.pace
-	# easing off into a junction, where it may turn
+	var room: float = c.ahead - GAP
+	# easing off into the next junction, where it may turn, and stopping at
+	# its lights on red
 	if graph.has(s.id):
+		var next := INF
 		for l in graph[s.id]:
 			var ahead: float = (l[0] - c.f) * c.dir
-			if ahead > 0.0 and ahead < 6.0:
-				want *= lerpf(0.5, 1.0, ahead / 6.0)
+			if ahead > 0.0 and ahead < next:
+				next = ahead
+		if next < 6.0:
+			want *= lerpf(0.5, 1.0, next / 6.0)
+		if next < 10.0:
+			for l in graph[s.id]:
+				if absf((l[0] - c.f) * c.dir - next) > 1.0 or not _red(s, l):
+					continue
+				var line: float = next * Streets.SAMPLE - (l[1] as Streets.Street).w() - 0.2 - c.len * 0.5
+				# already in the crossing, or too close to stop: on through it
+				if line > -0.05 and line > c.speed * c.speed * 0.06:
+					room = minf(room, line)
 				break
-	var room: float = c.ahead - GAP
 	# and behind the player's car when it is in the lane ahead
 	if player:
 		var fwd: Vector3 = c.xf.basis.z.normalized()
@@ -300,7 +359,30 @@ func _drive(c: Dictionary, graph: Dictionary, delta: float, warm: bool) -> bool:
 	c.fresh = false
 	var q := old.basis.orthonormalized().get_rotation_quaternion().slerp(goal.get_rotation_quaternion(), k) if k < 1.0 else goal.get_rotation_quaternion()
 	c.xf = Transform3D(Basis(q).scaled(Vector3.ONE * maxf(sc, 0.01)), old.origin.lerp(pos, k))
+	c.vel = Vector3.ZERO if k >= 1.0 else (c.xf.origin - old.origin) / maxf(delta, 0.001)
 	return true
+
+
+## Whether a car on `s` coming up to where it meets another street (`l`, a
+## link from Streets.links) has to stop there now. The crossings of main
+## roads and avenues have lights, each crossing on its own time: one way
+## green, a moment of red both ways, then the other way green.
+func _red(s: Streets.Street, l: Array) -> bool:
+	var o: Streets.Street = l[1]
+	if o.kind == "walk" or Streets.KINDS[s.kind].verge or Streets.KINDS[o.kind].verge:
+		return false
+	if not (s.kind == "main" or s.kind == "avenue" or o.kind == "main" or o.kind == "avenue"):
+		return false
+	var jf: float = l[0]
+	var of: float = l[2]
+	# one street running on into the next is no crossing
+	if (jf < 1.0 or jf > s.pts.size() - 2.0) and (of < 1.0 or of > o.pts.size() - 2.0):
+		return false
+	var p: Vector2 = s.pts[clampi(roundi(jf), 0, s.pts.size() - 1)]
+	var t := fposmod(_clock + p.x * 0.37 + p.y * 0.61, CYCLE)
+	if s.id < o.id:
+		return t >= GREEN
+	return t < CYCLE * 0.5 or t >= CYCLE * 0.5 + GREEN
 
 
 ## Whether the point `p` is inside one of the cars (for the player bumping into them).
@@ -323,7 +405,7 @@ func hits(p: Vector2) -> bool:
 func _spawn_ped(anywhere: bool) -> void:
 	if _ped_spots.is_empty():
 		return
-	var spot: Array = _ped_spots[_rng.randi() % _ped_spots.size()]
+	var spot: Array = _pick(_ped_spots)
 	var s: Streets.Street = spot[0]
 	var f: float = clampf(spot[1] + _rng.randf_range(0.0, 3.9), 0.5, s.pts.size() - 1.5)
 	var at := island.streets._ptf(s, f)
@@ -335,11 +417,29 @@ func _spawn_ped(anywhere: bool) -> void:
 	var off: float = (_rng.randf_range(-0.6, 0.6) * s.w()) if walk else (s.w() + Streets.PAVE * _rng.randf_range(0.22, 0.8)) * side
 	var standing := _rng.randf() < 0.14
 	var speed := _rng.randf_range(0.15, 0.26)
-	_peds.append({"s": s, "f": f, "dir": 1.0 if _rng.randf() < 0.5 else -1.0, "since": 0.0, "off": off, "walk": walk,
+	var p := {"s": s, "f": f, "dir": 1.0 if _rng.randf() < 0.5 else -1.0, "since": 0.0, "off": off, "walk": walk,
 		"b": _rng.randi() % BUILDS, "speed": speed, "ph": _rng.randf() * TAU, "pause": _rng.randf_range(8.0, 40.0) if standing else 0.0,
-		"face": _rng.randf() * TAU, "dodge": 0.0, "q": Quaternion.IDENTITY, "xf": Transform3D(), "grow": 1.0 if anywhere else 0.0, "fresh": true,
-		"look": Color(_rng.randi() % 12, (_rng.randi() % 8) + 8 * (_rng.randi() % 4), _rng.randi() % 6, 0.0),
-		"scale": _rng.randf_range(0.9, 1.08) * (0.72 if _rng.randf() < 0.08 else 1.0)})
+		"face": _rng.randf() * TAU, "dodge": 0.0, "q": Quaternion.IDENTITY, "xf": Transform3D(), "vel": Vector3.ZERO, "grow": 1.0 if anywhere else 0.0, "fresh": true,
+		"look": _look(), "scale": _rng.randf_range(0.9, 1.08) * (0.72 if _rng.randf() < 0.08 else 1.0)}
+	_peds.append(p)
+	# friends and families walk together, side by side
+	var more := 1 if _rng.randf() < 0.3 else 2 if _rng.randf() < 0.08 else 0
+	for i in mini(more, _ped_want - _peds.size()):
+		var q := p.duplicate()
+		# alongside, on the roomier side of the pavement (or the path)
+		var mid := 0.0 if walk else signf(off) * (s.w() + Streets.PAVE * 0.5)
+		q.off = off + (0.075 + 0.07 * i) * (1.0 if mid >= off else -1.0)
+		q.f = f + _rng.randf_range(-0.12, 0.12)
+		q.b = _rng.randi() % BUILDS
+		q.ph = p.ph + PI + _rng.randf_range(-0.6, 0.6)
+		q.look = _look()
+		q.scale = _rng.randf_range(0.9, 1.08) * (0.72 if _rng.randf() < 0.25 else 1.0)
+		_peds.append(q)
+
+
+## A walker's colours for crowd.gdshader: shirt, trousers + 8 * skin, hair.
+func _look() -> Color:
+	return Color(_rng.randi() % 12, (_rng.randi() % 8) + 8 * (_rng.randi() % 4), _rng.randi() % 6, 0.0)
 
 
 func _walk(p: Dictionary, graph: Dictionary, delta: float, warm: bool) -> bool:
@@ -402,6 +502,7 @@ func _walk(p: Dictionary, graph: Dictionary, delta: float, warm: bool) -> bool:
 	var q := oq.slerp(gq, 1.0 - exp(-delta * 7.0)) if k < 1.0 and not oq.is_equal_approx(gq) else gq
 	p.q = q
 	p.xf = Transform3D(Basis(q).scaled(Vector3.ONE * maxf(sc * p.scale, 0.01)), old.origin.lerp(pos, k))
+	p.vel = Vector3.ZERO if k >= 1.0 else (p.xf.origin - old.origin) / maxf(delta, 0.001)
 	var look: Color = p.look
 	look.a = p.ph
 	p.look = look
@@ -414,8 +515,9 @@ func _step(delta: float, warm: bool) -> void:
 	var graph := island.streets.links()
 	var c := _centre()
 	_queue()
-	# those well away move on alternate frames, a double step at a time: at
-	# that distance it looks the same and costs half
+	# those well away think every second, third or fourth frame, a longer
+	# step at a time, and in between just glide on the way they were going:
+	# at that distance it looks the same and costs a fraction
 	_frame += 1
 	var i := 0
 	while i < _cars.size():
@@ -423,11 +525,13 @@ func _step(delta: float, warm: bool) -> void:
 		var o: Vector3 = car.xf.origin
 		var d := Vector2(o.x, o.z).distance_to(c)
 		var dt := delta
-		if d > 25.0 and not warm and not car.fresh:
-			if (i + _frame) % 2 == 1:
+		if d > 18.0 and not warm and not car.fresh:
+			var every := 4 if d > 52.0 else 3 if d > 36.0 else 2
+			if (i + _frame) % every != 0:
+				_glide(car, delta)
 				i += 1
 				continue
-			dt = delta * 2.0
+			dt = delta * every
 		if not _drive(car, graph, dt, warm) or (not car.fresh and d > CAR_R + 8.0):
 			_cars.remove_at(i)
 			continue
@@ -438,15 +542,24 @@ func _step(delta: float, warm: bool) -> void:
 		var o: Vector3 = p.xf.origin
 		var d := Vector2(o.x, o.z).distance_to(c)
 		var dt := delta
-		if d > 14.0 and not warm and not p.fresh:
-			if (i + _frame) % 2 == 1:
+		if d > 7.0 and not warm and not p.fresh:
+			var every := 4 if d > 26.0 else 3 if d > 16.0 else 2
+			if (i + _frame) % every != 0:
+				_glide(p, delta)
 				i += 1
 				continue
-			dt = delta * 2.0
+			dt = delta * every
 		if not _walk(p, graph, dt, warm) or (not p.fresh and d > PED_R + 6.0):
 			_peds.remove_at(i)
 			continue
 		i += 1
+
+
+## A frame on between two steps: on at the speed it last went.
+static func _glide(m: Dictionary, delta: float) -> void:
+	var t: Transform3D = m.xf
+	t.origin += (m.vel as Vector3) * delta
+	m.xf = t
 
 
 func _draw() -> void:
@@ -630,7 +743,7 @@ func _car_body(mk: MeshKit, k: int) -> void:
 		for sx in [-1.0, 1.0]:
 			var x: float = sx * (w * 0.5 - 0.012)
 			mk.push(Transform3D(Basis(Vector3.BACK, -PI * 0.5 * sx), Vector3(x, wr, z)))
-			mk.cylinder(Vector3(0, -0.022, 0), wr, 0.044, 10, TYRE)
+			mk.cylinder(Vector3(0, -0.022, 0), wr, 0.044, 8, TYRE)
 			mk.cylinder(Vector3(0, 0.022, 0), wr * 0.55, 0.003, 6, HUB)
 			mk.pop()
 	mk.shadow = true
@@ -684,7 +797,7 @@ func _walker(b: int) -> ArrayMesh:
 			mk.box(Vector3(sx, 0.06, 0), Vector3(0.026, 0.11, 0.028), white, null, false, 7.0)
 		else:
 			mk.box(Vector3(sx, 0.062, 0), Vector3(0.032, 0.116, 0.036), white, null, false, 6.0)
-		mk.box(Vector3(sx, 0.009, 0.008), Vector3(0.034, 0.018, 0.054), shoe)
+		mk.box_faces(Vector3(sx, 0.009, 0.008), Vector3(0.034, 0.018, 0.054), shoe, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
 		_limb(mk, v0, leg)
 	if b == 1:
 		# a flared skirt
@@ -697,12 +810,10 @@ func _walker(b: int) -> ArrayMesh:
 	for arm in [3, 4]:
 		var sx := -0.063 if arm == 3 else 0.063
 		var v0 := mk.verts.size()
-		mk.box(Vector3(sx, 0.168, 0), Vector3(0.024, 0.074, 0.03), white, null, false, 5.0)
-		mk.box(Vector3(sx, 0.122, 0), Vector3(0.02, 0.024, 0.024), white, null, false, 7.0)
+		mk.box(Vector3(sx, 0.158, 0), Vector3(0.024, 0.094, 0.03), white, null, false, 5.0)
 		_limb(mk, v0, arm)
-	# neck and head
-	mk.box(Vector3(0, 0.222, 0), Vector3(0.026, 0.014, 0.026), white, null, false, 7.0)
-	mk.blob(Vector3(0, 0.252, 0.002), Vector3(0.034, 0.038, 0.034), white, 0.0, 7.0)
+	# head
+	mk.blob(Vector3(0, 0.248, 0.002), Vector3(0.034, 0.04, 0.034), white, 0.0, 7.0)
 	match b:
 		0:
 			mk.blob(Vector3(0, 0.264, -0.008), Vector3(0.036, 0.03, 0.035), white, 0.0, 8.0)

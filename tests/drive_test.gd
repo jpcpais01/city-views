@@ -232,6 +232,46 @@ func _ready() -> void:
 	hud.drive.set_active(false)
 	check(island.rig.is_processing() and is_equal_approx(island.rig.cam.fov, fov), "getting out gives the orbit camera back")
 	check(not hud.drive._ui.visible and hud._drive_hidden.is_empty(), "and the building HUD returns")
-	check(island.cars.visible and crowd.car_count() == 0, "and the everyday traffic comes back")
+	# out of the car, down close over the town: the busy streets stay on round
+	# the middle of the view, within the triangle budget from every side
+	check(crowd.visible and crowd.player == null and not island.cars.visible, "out of the car the busy streets stay on while the camera is close")
+	var worst_n := 0
+	var acc_n := {}
+	for d in [12.0, 26.0, DriveMode.LIFE_OFF]:
+		for focus in [Vector2(-20, 2), Vector2(6, 2), Vector2(6, -12)]:
+			island.rig.target = Vector3(focus.x, 0, focus.y)
+			crowd.start()
+			for yaw_deg in [0, 80, 200, 290]:
+				for pitch: float in [island.rig.pitch_for(d), maxf(island.rig.pitch_for(d) - CameraRig.MAX_TILT, deg_to_rad(3.0))]:
+					var yaw := deg_to_rad(yaw_deg)
+					var at := Vector3(focus.x, maxf(island.land.height_at(focus.x, focus.y), 0.0) * 0.8, focus.y)
+					var eye: Vector3 = at + Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * d
+					var acc := TriBudget.count_view(island, eye, at)
+					var t := TriBudget.total(acc)
+					if t > worst_n:
+						worst_n = t
+						acc_n = acc
+	for k in acc_n:
+		print("  close tris %-16s %7d +shadow %7d" % [k, acc_n[k][0], acc_n[k][1]])
+	print("drive: %d cars, %d walkers; %d triangles in the busiest close view" % [crowd.car_count(), crowd.ped_count(), worst_n])
+	check(worst_n + reserve < TriBudget.BUDGET, "close views with the busy streets stay under %dk (%d)" % [TriBudget.BUDGET / 1000, worst_n + reserve])
+	if OS.get_environment("CV_LIFE") != "":
+		# a shot of the busy streets from the everyday camera
+		island.rig.set_process(true)
+		island.rig.focus(Vector3(-5, 0, 2))
+		island.rig.target = Vector3(-5, 0, 2)
+		island.rig.dist = float(OS.get_environment("CV_LIFE"))
+		island.rig._t_dist = island.rig.dist
+		for i in 150:
+			await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(OS.get_environment("CV_LIFE_OUT"))
+	island.rig.set_process(false)
+	island.rig.dist = DriveMode.LIFE_OFF + 10.0
+	hud.drive._street_life()
+	check(island.cars.visible and crowd.car_count() == 0, "zoomed out, the everyday traffic comes back")
+	island.rig.dist = DriveMode.LIFE_ON - 4.0
+	hud.drive._street_life()
+	check(not island.cars.visible and crowd.car_count() > 20, "and zoomed in again the streets fill up (%d cars)" % crowd.car_count())
 	print("DRIVE TESTS: %s (%d failed)" % ["PASS" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(1 if _fails > 0 else 0)
