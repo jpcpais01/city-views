@@ -2,7 +2,7 @@ extends Node
 ## Screenshot of the island.
 ## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one; 3: two 24 m apart), CV_GROW=radius (paints and grows the town),
-## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_HOLD=brush (holds it, e.g. grow shows the painted districts), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_SPARKLE=1 (Magic sparkles over a few houses mid-view), CV_TAP=x,y (taps the screen there, as if asking what stands there), CV_MENU=page (opens the menu on that page: island, coop, account, settings, notes), CV_OUT.
+## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_HOLD=brush (holds it, e.g. grow shows the painted districts), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_SPARKLE=1 (Magic sparkles over a few houses mid-view), CV_TAP=x,y (taps the screen there, as if asking what stands there), CV_MENU=page (opens the menu on that page: city, maps, coop, account, settings, controls, notes), CV_OUT.
 
 
 func _ready() -> void:
@@ -256,8 +256,7 @@ func _ready() -> void:
 		Game.settings["hyper"] = OS.get_environment("CV_NOHYPER") == ""
 		hud.set_photo(true)
 	if OS.get_environment("CV_MENU") != "":
-		hud._page = OS.get_environment("CV_MENU")
-		hud._set_menu(true)
+		hud._set_menu(true, OS.get_environment("CV_MENU"))
 	if OS.get_environment("CV_PIP") != "":
 		# Pip's look round, open with its tips on the map (CV_PIP=2: flown to the first)
 		island.progress.best = maxi(island.progress.best, int(OS.get_environment("CV_PIP_BEST")) if OS.get_environment("CV_PIP_BEST") != "" else 1300)

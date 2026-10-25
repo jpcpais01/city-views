@@ -3,6 +3,9 @@
 ## 2026-10-25 00:00 UTC
 - Graphs of your city's story: tap the population to open the stats, and the new Trends section draws how your residents and jobs (People) or your coins and income a minute (Money) have grown, over the whole life of your city.
 - New Drive mode: tap the car button and take a little car out on your own streets. Follow it with a close chase camera or switch to the driver's seat, roll over hills, kerbs and bridges, and bump into the buildings you grew. Touch pedals and a thumb wheel on phones, WASD or arrows on PC, with an engine that revs, headlights that light the road at night and a speedometer. The X button (or Back / Esc) takes you back to building.
+- A brand new menu, console style: your city blurs behind smoked glass, sections run down the left (City, New map, Co-op, Account, Settings, Controls, What's new) and each page glides in. Esc or a pad's Start opens it from anywhere.
+- The City page shows your city at a glance (its name, the next milestone and tiles for residents, jobs, homes, shops, parks, streets and taxes), and a new map picker paints a preview of each landscape and asks before your city is replaced.
+- Settings are grouped into Audio, Graphics, Sky, Interface and Updates, with a new Interface size and, on PC, a Display mode switch, plus a Controls page for every gesture and key. The whole menu works with keyboard and game pad (arrows or D-pad, Enter or A, Q/E or LB/RB for sections, Esc or B to go back), in a clean new typeface.
 
 ## 2026-10-24 23:30 UTC
 - Fixed the last update not starting up: the game opens normally again.

@@ -108,7 +108,7 @@ func _process(delta: float) -> void:
 
 ## Desktop: WASD/arrows pan, Q/E rotate, R/F or +/- zoom. Ignored while typing.
 func _keyboard(delta: float) -> void:
-	if get_viewport().gui_get_focus_owner() is LineEdit or Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
+	if Game.menu_open or get_viewport().gui_get_focus_owner() is LineEdit or Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
 		return
 	var mv := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): mv.x += 1.0
