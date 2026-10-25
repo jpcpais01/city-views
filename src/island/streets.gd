@@ -30,11 +30,15 @@ const KINDS := {
 	"highway": {"w": 1.95, "dash": true, "median": 0.3, "verge": true},
 	# a paved walk through a park or green: no cars, only people (see Growth)
 	"walk": {"w": 0.7, "dash": false, "median": 0.0, "verge": false},
+	# a slip road between a highway and the street flying over it, laid by
+	# the town itself (see _refresh_ramps)
+	"ramp": {"w": 0.85, "dash": false, "median": 0.0, "verge": true},
 }
 ## a highway's crash barrier (down the middle) and guardrails (along the edges)
 const BARRIER := 0.2
 const BARRIER_GREY := Color(0.74, 0.73, 0.7)
-const RAIL_AT := 1.95 + 0.22
+## how far out past the carriageway's edge the guardrail stands
+const RAIL_OUT := 0.22
 const RAIL_LO := 0.12
 const RAIL_HI := 0.2
 const GUARDRAIL := Color(0.72, 0.75, 0.78)
@@ -84,6 +88,10 @@ class Street:
 	## stable across saves and between co-op builders (ids are only this session's)
 	var key := ""
 	var kind := "main"
+	## laid by the streets themselves (an interchange's ramps): never saved,
+	## worked out again from the streets that are, from these points
+	var auto := false
+	var src := PackedVector2Array()
 	var pts := PackedVector2Array()
 	var ys := PackedFloat32Array()
 	var lo := Vector2.ZERO
@@ -199,6 +207,7 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	for o in _touching(s):
 		_build_later(o)
 	added.emit(s)
+	_refresh_ramps()
 	changed.emit()
 	return s
 
@@ -207,7 +216,8 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 func erase_at(p: Vector2, radius: float) -> bool:
 	var hit := false
 	for s in streets.duplicate():
-		if not s.near_box(p, radius + s.reach()):
+		# an interchange's ramps go with the street that has them
+		if s.auto or not s.near_box(p, radius + s.reach()):
 			continue
 		var pieces: Array = []
 		var cur := PackedVector2Array()
@@ -251,6 +261,7 @@ func erase_at(p: Vector2, radius: float) -> bool:
 			if o in streets:
 				_build_later(o)
 	if hit:
+		_refresh_ramps()
 		changed.emit()
 	return hit
 
@@ -273,6 +284,7 @@ func regrade_in(lo: Vector2, hi: Vector2) -> void:
 		for o in _touching(s):
 			if not o in moved:
 				_build_later(o)
+	_refresh_ramps()
 
 
 func _remove(s: Street) -> void:
@@ -346,7 +358,7 @@ func _grade(s: Street) -> void:
 			if c.x < best.x:
 				best = c
 				bi = i
-		if bi < 0 or best.x > o.w() + 0.2:
+		if bi < 0 or best.x > o.w() + 0.2 + (s.w() + 0.1 if _merges(s, o) else 0.0):
 			continue
 		var shift: float = best.y - ys[bi]
 		for i in n:
@@ -397,7 +409,8 @@ func _conform(s: Street) -> void:
 	for sp in ends:
 		var stop := mini(int(sp.x), n - 1)
 		if stop - start >= 1:
-			land.conform(s.pts.slice(start, stop + 1), s.ys.slice(start, stop + 1), s.w() + PAVE + 0.15, 2.6)
+			# a ramp's bank, up to a street flying over, eases out further
+			land.conform(s.pts.slice(start, stop + 1), s.ys.slice(start, stop + 1), s.w() + PAVE + 0.15, 4.5 if s.kind == "ramp" else 2.6)
 		start = maxi(start, int(sp.y))
 	for bit in [1, 2]:
 		var side := -1.0 if bit == 1 else 1.0
@@ -927,8 +940,9 @@ func _build(s: Street) -> void:
 				# are put in below), and the edge of the road down into the ground
 				_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * (w + 0.12), 0.0, kerb, 0.0, Vector3.UP)
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + 0.12), 0.0, side * (w + 0.3), -SKIRT, kerb.darkened(0.1), 0.0, out3 + Vector3.UP)
-				_band(buf, p0, n0, y0, p1, n1, y1, side * RAIL_AT, RAIL_LO, side * RAIL_AT, RAIL_HI, GUARDRAIL, 0.0, -out3)
-				_band(buf, p0, n0, y0, p1, n1, y1, side * RAIL_AT, RAIL_HI, side * RAIL_AT, RAIL_LO, GUARDRAIL.darkened(0.15), 0.0, out3)
+				var rail := side * (w + RAIL_OUT)
+				_band(buf, p0, n0, y0, p1, n1, y1, rail, RAIL_LO, rail, RAIL_HI, GUARDRAIL, 0.0, -out3)
+				_band(buf, p0, n0, y0, p1, n1, y1, rail, RAIL_HI, rail, RAIL_LO, GUARDRAIL.darkened(0.15), 0.0, out3)
 				continue
 			# kerb face, pavement, and the pavement's outer edge down into the ground
 			_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * w, CURB, kerb, 0.0, -out3)
@@ -1083,14 +1097,17 @@ func _meetings(s: Street, o: Street) -> PackedVector2Array:
 	var spots := PackedVector2Array()
 	var ns := s.pts.size()
 	var no := o.pts.size()
+	# a ramp merges alongside a highway's outer lane rather than onto it
+	var slip_s := s.w() + 0.1 if _merges(s, o) and s.kind == "ramp" else 0.0
+	var slip_o := o.w() + 0.1 if _merges(s, o) and o.kind == "ramp" else 0.0
 	for e in [0, ns - 1]:
 		var c: Vector3 = o.closest(s.pts[e])
-		if c.x < o.w() + 0.3:
+		if c.x < o.w() + 0.3 + slip_s:
 			out.append(Vector2(e, c.z))
 			spots.append(s.pts[e])
 	for e in [0, no - 1]:
 		var c: Vector3 = s.closest(o.pts[e])
-		if c.x < s.w() + 0.3 and not _near_any(spots, o.pts[e], 1.5):
+		if c.x < s.w() + 0.3 + slip_o and not _near_any(spots, o.pts[e], 1.5):
 			out.append(Vector2(c.z, e))
 			spots.append(o.pts[e])
 	for i in ns - 1:
@@ -1117,6 +1134,11 @@ func _flies(a: Street, b: Street) -> bool:
 	var low := a if a.kind == "highway" else b
 	var high := b if low == a else a
 	return _crossing(high, low).x >= 0.0
+
+
+## Whether one is a ramp and the other a highway it runs alongside.
+static func _merges(a: Street, b: Street) -> bool:
+	return (a.kind == "ramp" and b.kind == "highway") or (a.kind == "highway" and b.kind == "ramp")
 
 
 ## Where street s crosses highway o, carrying on well past it either way,
@@ -1216,7 +1238,8 @@ func _find_junctions() -> Array:
 		for k in range(i + 1, streets.size()):
 			var a: Street = streets[i]
 			var b: Street = streets[k]
-			if not _boxes_overlap(a, b):
+			# a ramp joins its highway alongside, with no junction to lay
+			if not _boxes_overlap(a, b) or _merges(a, b):
 				continue
 			for m in _meetings_of(a, b, seen):
 				var at := (_ptf(a, m.x) + _ptf(b, m.y)) * 0.5
@@ -1455,7 +1478,7 @@ func _highway_kit(s: Street, buf: MeshBuf, upto: float, skip: PackedVector2Array
 		var on_bridge := _in_cuts(s.spans, f)
 		if not _in_cuts(skip, f) and not on_bridge:
 			for side: float in [-1.0, 1.0]:
-				var base := _atf(s, f, side * RAIL_AT, 0.0)
+				var base := _atf(s, f, side * (w + RAIL_OUT), 0.0)
 				var nn := _sidef(s, f)
 				var t := Vector3(-nn.y, 0.0, nn.x) * 0.025
 				var out := Vector3(nn.x, 0.0, nn.y) * side
@@ -1463,7 +1486,7 @@ func _highway_kit(s: Street, buf: MeshBuf, upto: float, skip: PackedVector2Array
 				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, out)
 				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, -out)
 		since_gantry += POST_EVERY
-		if since_gantry >= GANTRY_EVERY and not on_bridge and not _in_cuts(skip, f) and f > 4.0 and f < upto - 4.0:
+		if since_gantry >= GANTRY_EVERY and s.kind == "highway" and not on_bridge and not _in_cuts(skip, f) and f > 4.0 and f < upto - 4.0:
 			since_gantry = 0.0
 			_gantry(s, buf, f, w)
 		f += POST_EVERY / SAMPLE
@@ -1665,7 +1688,8 @@ static func _band(buf: MeshBuf, p0: Vector2, n0: Vector2, y0: float, p1: Vector2
 func to_data() -> Array:
 	var out := []
 	for s in streets:
-		out.append(street_data(s))
+		if not s.auto:
+			out.append(street_data(s))
 	return out
 
 
@@ -1690,6 +1714,7 @@ func from_data(data: Array) -> void:
 		_build(s)
 	for s in streets:
 		added.emit(s)
+	_refresh_ramps()
 
 
 ## Brings the streets back to `data` (as to_data() gave it), taking up and
@@ -1700,6 +1725,8 @@ func restore_data(data: Array) -> bool:
 		want[d.id] = d
 	var gone: Array[Street] = []
 	for st: Street in streets:
+		if st.auto:
+			continue
 		if not want.has(st.key) or street_data(st) != want[st.key]:
 			gone.append(st)
 		else:
@@ -1708,12 +1735,13 @@ func restore_data(data: Array) -> bool:
 		remove_street(st)
 	for d in data:
 		if want.has(d.id):
-			add_data(d)
+			add_data(d, false)
+	_refresh_ramps()
 	return not gone.is_empty() or not want.is_empty()
 
 
 ## Lays one street exactly as saved (from another builder, or an undo).
-func add_data(d: Dictionary) -> Street:
+func add_data(d: Dictionary, ramps := true) -> Street:
 	var s := _from_dict(d)
 	if s == null:
 		return null
@@ -1723,17 +1751,113 @@ func add_data(d: Dictionary) -> Street:
 	for o in _touching(s):
 		_build_later(o)
 	added.emit(s)
+	if ramps:
+		_refresh_ramps()
 	changed.emit()
 	return s
 
 
 func remove_street(s: Street) -> void:
+	_take_up(s)
+	_refresh_ramps()
+	changed.emit()
+
+
+## Takes a street up, re-laying the ones it touched.
+func _take_up(s: Street) -> void:
 	var touching := _touching(s)
 	_remove(s)
 	for o in touching:
 		if o in streets:
 			_build_later(o)
-	changed.emit()
+
+
+# ------------------------------------------------------------------ interchanges
+
+## how far along the highway a ramp leaves it, from the street flying over
+const RAMP_RUN := 30.0
+## how far along the street flying over a ramp meets it, past its deck
+const RAMP_MEET := 6.0
+
+
+## Interchanges: wherever a main street or an avenue flies over a highway, a
+## diamond of four ramps, one in each corner, from alongside the highway's
+## outer lanes up to a crossroads on the street either side of its deck.
+## Laid and taken up to match the streets there are, so every builder (and
+## every reload) works out the same ones.
+func _refresh_ramps() -> void:
+	var want := {}
+	for s: Street in streets:
+		if s.auto or not s.major():
+			continue
+		for fly in _flyovers(s):
+			for r in _diamond(s, fly):
+				want[r.key] = r.pts
+	for s: Street in streets.duplicate():
+		if not s.auto:
+			continue
+		if want.has(s.key) and want[s.key] == s.src:
+			want.erase(s.key)
+		else:
+			_take_up(s)
+	for k: String in want:
+		var raw: PackedVector2Array = want[k]
+		var s := _new_street()
+		s.key = k
+		s.kind = "ramp"
+		s.auto = true
+		s.src = raw
+		s.pts = _resample(raw, SAMPLE)
+		if s.pts.size() < 3:
+			continue
+		s.update_bounds()
+		_grade(s)
+		streets.append(s)
+		_junctions_dirty = true
+		_conform(s)
+		_reconform_near(s)
+		_conform_junctions(s)
+		_build(s)
+		for o in _touching(s):
+			_build_later(o)
+		added.emit(s)
+
+
+## The four ramps of a diamond where street s flies over a highway, as
+## [{key, pts}]: each leaves the highway alongside its outer lane RAMP_RUN
+## ahead of or behind the crossing, runs beside it a while, then swings out
+## to meet s RAMP_MEET past the end of its deck.
+func _diamond(s: Street, fly: Dictionary) -> Array:
+	var out: Array = []
+	var o: Street = fly.hw
+	var no := o.pts.size()
+	var ns := s.pts.size()
+	var nh := _sidef(o, fly.fo)
+	var ds := (_ptf(s, minf(fly.f + 1.0, ns - 1)) - _ptf(s, maxf(fly.f - 1.0, 0.0))).normalized()
+	var off := o.w() + KINDS.ramp.w
+	for side: float in [-1.0, 1.0]:
+		# which way along s leads to this side of the highway
+		var fwd := signf(ds.dot(nh)) * side
+		var fs: float = (fly.b if fwd > 0.0 else fly.a) + fwd * RAMP_MEET / SAMPLE
+		if fs < 2.0 or fs > ns - 3.0:
+			continue
+		var meet := _ptf(s, fs)
+		for way: float in [-1.0, 1.0]:
+			var fo: float = fly.fo + way * RAMP_RUN / SAMPLE
+			if fo < 1.0 or fo > no - 2.0:
+				continue
+			var d := (_ptf(o, minf(fo + 1.0, no - 1)) - _ptf(o, maxf(fo - 1.0, 0.0))).normalized()
+			var start := _ptf(o, fo) + _sidef(o, fo) * side * off
+			var c1 := start - d * way * RAMP_RUN * 0.45
+			var d0 := (_ptf(o, minf(fly.fo + 1.0, no - 1)) - _ptf(o, maxf(fly.fo - 1.0, 0.0))).normalized()
+			var c2 := meet + d0 * way * RAMP_RUN * 0.3
+			var pts := PackedVector2Array()
+			for k in 41:
+				var t := k / 40.0
+				var u := 1.0 - t
+				pts.append(start * u * u * u + c1 * 3.0 * u * u * t + c2 * 3.0 * u * t * t + meet * t * t * t)
+			out.append({"key": "~%s~%s~%d%d" % [s.key, o.key, int(side), int(way)], "pts": pts})
+	return out
 
 
 func by_id(id: int) -> Street:

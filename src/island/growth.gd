@@ -199,7 +199,7 @@ func _sorted(list: Array) -> Array:
 func _seeds(s: Streets.Street) -> Array:
 	var out: Array = []
 	# streets don't branch off a highway (it has no pavements, and nobody lives along it)
-	if s.kind == "highway":
+	if Streets.KINDS[s.kind].verge:
 		return out
 	var n := s.pts.size()
 	var total := (n - 1) * Streets.SAMPLE
@@ -320,7 +320,7 @@ func _reach_ahead(p: Vector2, heading: Vector2, parent: Streets.Street, start: V
 	var best: Variant = null
 	var bd := 7.0
 	for o: Streets.Street in streets.streets:
-		if o == parent or o.kind == "highway" or o.closest(start).x < o.reach() + 0.5 or not o.near_box(p, bd):
+		if o == parent or Streets.KINDS[o.kind].verge or o.closest(start).x < o.reach() + 0.5 or not o.near_box(p, bd):
 			continue
 		var c: Vector3 = o.closest(p)
 		if c.x >= bd:
@@ -353,7 +353,7 @@ func _hit(q: Vector2, heading: Vector2, parent: Streets.Street, start: Vector2, 
 		if c.x > o.reach() + 4.5:
 			continue
 		# a highway is never joined: the street stops short of it
-		if o.kind == "highway":
+		if Streets.KINDS[o.kind].verge:
 			return Vector3(2, 0, 0)
 		var i := clampi(int(c.z), 0, o.pts.size() - 2)
 		var t := (o.pts[i + 1] - o.pts[i]).normalized()
