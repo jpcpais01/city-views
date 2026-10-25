@@ -14,6 +14,7 @@ func _ready() -> void:
 	hud.island = island
 	add_child(hud)
 	AdvisorBot.attach(hud, island)
+	CityCharts.attach(hud, island)
 	loader.set_progress(0.3)
 	loader.track(island)
 	move_child(loader, -1)
