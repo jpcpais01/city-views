@@ -162,10 +162,19 @@ func _plan(c: Dictionary) -> PackedVector2Array:
 
 
 func _lay(c: Dictionary, pts: PackedVector2Array) -> bool:
-	if c.street in streets.streets and streets.add_stroke(pts, "side") != null:
+	if c.street in streets.streets and streets.add_stroke(pts, _kind_for(pts)) != null:
 		return true
 	_failed[c.key] = true
 	return false
+
+
+## A street through painted green is a paved walk for people, not a road.
+func _kind_for(pts: PackedVector2Array) -> String:
+	var green := 0
+	for p in pts:
+		if land.green_at(p.x, p.y) > 0.5:
+			green += 1
+	return "walk" if green * 2 >= pts.size() else "side"
 
 
 # ------------------------------------------------------------------ where to branch

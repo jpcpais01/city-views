@@ -44,6 +44,19 @@ func _ready() -> void:
 			lines = [[]]
 			for k in 41:
 				lines[0].append(Vector2(f.x - 24.0 + 48.0 * k / 40.0, f.z + sin(k / 40.0 * PI) * 3.0))
+		if OS.get_environment("CV_STREETS") == "long":
+			# one long gently bending road, long enough for a gantry
+			lines = [[]]
+			for k in 61:
+				lines[0].append(Vector2(f.x - 120.0 + 240.0 * k / 60.0, f.z + sin(k / 60.0 * PI) * 12.0))
+		if OS.get_environment("CV_STREETS") == "cross":
+			# a long highway, a street crossing it square and one at a slant
+			lines = [[], [], []]
+			for k in 61:
+				var t := k / 60.0
+				lines[0].append(Vector2(f.x - 120.0 + 240.0 * t, f.z + sin(t * PI) * 12.0))
+				lines[1].append(Vector2(f.x - 30.0, f.z - 40.0 + 80.0 * t))
+				lines[2].append(Vector2(f.x + 10.0 + 60.0 * t, f.z - 30.0 + 80.0 * t))
 		if OS.get_environment("CV_STREETS") == "fuzz":
 			# the hand-drawn tangle the logic test checks junctions on
 			lines = []
@@ -74,6 +87,7 @@ func _ready() -> void:
 		print("streets: ", island.streets.streets.size())
 	if OS.get_environment("CV_GROW") != "":
 		var r := float(OS.get_environment("CV_GROW"))
+		print("grow focus ", f)
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 1.0)
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r * 0.8, 1.0)
 		if OS.get_environment("CV_LEVEL") != "":

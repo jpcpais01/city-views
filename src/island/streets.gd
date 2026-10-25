@@ -28,7 +28,21 @@ const KINDS := {
 	"side": {"w": 0.56, "dash": false, "median": 0.0, "verge": false},
 	"avenue": {"w": 1.5, "dash": true, "median": 0.3, "verge": false},
 	"highway": {"w": 1.95, "dash": true, "median": 0.3, "verge": true},
+	# a paved walk through a park or green: no cars, only people (see Growth)
+	"walk": {"w": 0.7, "dash": false, "median": 0.0, "verge": false},
 }
+## a highway's crash barrier (down the middle) and guardrails (along the edges)
+const BARRIER := 0.2
+const BARRIER_GREY := Color(0.74, 0.73, 0.7)
+const RAIL_AT := 1.95 + 0.22
+const RAIL_LO := 0.12
+const RAIL_HI := 0.2
+const GUARDRAIL := Color(0.72, 0.75, 0.78)
+const POST_EVERY := 5.0
+const GANTRY_EVERY := 150.0
+const SIGN_GREEN := Color(0.12, 0.45, 0.3)
+## a walk's paving, warmer and lighter than a pavement
+const PAVING := Color(0.86, 0.8, 0.7)
 ## the kinds a player can draw, with what a metre costs compared with a street
 const DRAWN := {"main": 1.0, "avenue": 2.5, "highway": 4.0}
 
@@ -56,6 +70,8 @@ const DECK_DEPTH := 0.32
 const CONCRETE := Color(0.8, 0.78, 0.74)
 # a quay: how far out past the pavement the water must be, and how deep the
 # water is dredged along its wall
+## how high a street's deck stands over a highway it flies over
+const CLEARANCE := 2.5
 const QUAY_PROBE := 2.9
 const QUAY_DEPTH := -0.9
 const QUAY_STONE := Color(0.74, 0.69, 0.6)
@@ -76,6 +92,9 @@ class Street:
 	var cuts := {}
 	## where it crosses water on a bridge: (from, to) sample ranges
 	var spans := PackedVector2Array()
+	## where it flies over a highway it crosses without joining it: (from, to)
+	## sample ranges, the deck from abutment to abutment (see _flyovers)
+	var overs := PackedVector2Array()
 	## per sample, which sides run along the water on a stone quay (1 left, 2 right)
 	var quay := PackedByteArray()
 	## its bus stops: (sample index, side), set once it is built (see BusStops)
@@ -165,6 +184,14 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	streets.append(s)
 	_junctions_dirty = true
 	_conform(s)
+	if s.kind == "highway":
+		# streets it crosses go up and over it
+		for o in _touching(s):
+			if _flies(o, s):
+				_grade(o)
+				_conform(o)
+		# and the banks their ramps stand on stop at its shoulders
+		land.conform(s.pts, s.ys, s.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
 	_reconform_near(s)
 	_conform_junctions(s)
 	_laying[s.id] = 0.0
@@ -202,6 +229,7 @@ func erase_at(p: Vector2, radius: float) -> bool:
 		if cur.size() >= 3:
 			pieces.append([cur, cy])
 		var touching := _touching(s)
+		var flew := touching.filter(func(o): return _flies(o, s))
 		_remove(s)
 		for pc in pieces:
 			var ns := _new_street()
@@ -215,6 +243,10 @@ func erase_at(p: Vector2, radius: float) -> bool:
 			_junctions_dirty = true
 			_build(ns)
 			added.emit(ns)
+		for o in flew:
+			if o in streets:
+				_grade(o)
+				_conform(o)
 		for o in touching:
 			if o in streets:
 				_build_later(o)
@@ -291,11 +323,21 @@ func _grade(s: Street) -> void:
 		for i in range(a, b + 1):
 			ys[i] = deck + arch * sin(PI * float(i - a) / maxf(b - a, 1))
 			pins[i] = ys[i]
+	# over a highway it crosses, a deck at a lorry's height over the
+	# carriageway, the ramps up to it graded like any street
+	s.overs = PackedVector2Array()
+	for fly in _flyovers(s):
+		var o: Street = fly.hw
+		var deck := _yf(o, fly.fo) + CLEARANCE
+		s.overs.append(Vector2(fly.a, fly.b))
+		for i in range(int(ceil(fly.a)), int(floor(fly.b)) + 1):
+			ys[i] = deck
+			pins[i] = deck
 	if not pins.is_empty():
 		_limit(s.pts, ys, pins)
 	# meet other streets at their height, easing the change in over a few metres
 	for o in streets:
-		if o == s or not _boxes_overlap(s, o):
+		if o == s or not _boxes_overlap(s, o) or _flies(s, o):
 			continue
 		var best := Vector3(INF, 0, 0)
 		var bi := -1
@@ -347,12 +389,16 @@ func _conform(s: Street) -> void:
 	var start := 0
 	var n := s.pts.size()
 	var ends := s.spans.duplicate()
+	ends.append_array(s.overs)
+	var by_start := Array(ends)
+	by_start.sort_custom(func(a: Vector2, b: Vector2): return a.x < b.x)
+	ends = PackedVector2Array(by_start)
 	ends.append(Vector2(n, n))
 	for sp in ends:
 		var stop := mini(int(sp.x), n - 1)
 		if stop - start >= 1:
 			land.conform(s.pts.slice(start, stop + 1), s.ys.slice(start, stop + 1), s.w() + PAVE + 0.15, 2.6)
-		start = int(sp.y)
+		start = maxi(start, int(sp.y))
 	for bit in [1, 2]:
 		var side := -1.0 if bit == 1 else 1.0
 		var run := PackedVector2Array()
@@ -633,6 +679,17 @@ class MeshBuf:
 		else:
 			idx.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
 
+	## A lidded box with no floor: size.x along `ax`, size.y up, size.z along `az`.
+	func box(c: Vector3, size: Vector3, ax: Vector3, az: Vector3, col: Color) -> void:
+		var x := ax * size.x * 0.5
+		var z := az * size.z * 0.5
+		var lo := c + Vector3.DOWN * size.y * 0.5
+		var hi := c + Vector3.UP * size.y * 0.5
+		for f: Vector3 in [x, -x, z, -z]:
+			var g := z if f == x or f == -x else x
+			quad(lo + f - g, lo + f + g, hi + f + g, hi + f - g, col, 0.0, f)
+		quad(hi - x - z, hi + x - z, hi + x + z, hi - x + z, col, 0.0, Vector3.UP)
+
 	## A stretch of carriageway whose markings the city shader paints: a-b
 	## across the start (a on the left kerb), c-d across the end. Colour alpha
 	## carries the way across (0 left kerb, 1 right), UV.y the way along.
@@ -686,8 +743,13 @@ func _build(s: Street) -> void:
 	var w := s.w()
 	var buf := MeshBuf.new()
 	var asphalt := Palette.ASPHALT.darkened(0.05) if s.kind != "side" else Palette.ASPHALT
+	var walk := s.kind == "walk"
 	var median: float = KINDS[s.kind].median
 	var verge: bool = KINDS[s.kind].verge
+	var flyovers := _flyovers(s)
+	s.overs = PackedVector2Array()
+	for fly in flyovers:
+		s.overs.append(Vector2(fly.a, fly.b))
 	# where junction corners take over this street's pavements, per side,
 	# and where a junction's own asphalt takes over from this street's
 	var cuts := {-1.0: PackedVector2Array(), 1.0: PackedVector2Array()}
@@ -728,7 +790,7 @@ func _build(s: Street) -> void:
 	for i in range(1, mini(s.quay.size(), last_i + 1)):
 		if s.quay[i] != s.quay[i - 1]:
 			rows[float(i)] = true
-	for list in [cuts[-1.0], cuts[1.0], skip, s.spans]:
+	for list in [cuts[-1.0], cuts[1.0], skip, s.spans, s.overs]:
 		for c in list:
 			for f in [c.x, c.y]:
 				if f > 0.0 and f < upto:
@@ -765,8 +827,9 @@ func _build(s: Street) -> void:
 		var n1 := rn[r + 1]
 		var y0 := ry[r]
 		var y1 := ry[r + 1]
-		var bridge := _in_cuts(s.spans, fm)
-		var stone := bridge and styles[BridgeGen.span_at(s.spans, fm)] == "stone"
+		var over := _in_cuts(s.overs, fm)
+		var bridge := over or _in_cuts(s.spans, fm)
+		var stone := bridge and not over and styles[BridgeGen.span_at(s.spans, fm)] == "stone"
 		if bridge:
 			# the deck's underside, seen from the water and the banks
 			var edge := w + (0.3 if verge else PAVE)
@@ -784,6 +847,13 @@ func _build(s: Street) -> void:
 				var out_dir := (n0 + n1) * 0.5 * side
 				_band(buf, p0, n0, y0, p1, n1, y1, side * median, 0.0, side * median, CURB, kerb, 0.0, Vector3(out_dir.x, 0.0, out_dir.y))
 			_band(buf, p0, n0, y0, p1, n1, y1, -median, CURB, median, CURB, Palette.VERGE, MeshKit.MOWN_X, Vector3.UP)
+			if verge:
+				# a concrete crash barrier down the middle, sloping in to a narrow top
+				var nm := (n0 + n1) * 0.5
+				var nm3 := Vector3(nm.x, 0.0, nm.y)
+				_band(buf, p0, n0, y0, p1, n1, y1, -0.09, CURB, -0.035, CURB + BARRIER, BARRIER_GREY, 0.0, -nm3 + Vector3.UP * 0.3)
+				_band(buf, p0, n0, y0, p1, n1, y1, -0.035, CURB + BARRIER, 0.035, CURB + BARRIER, BARRIER_GREY.lightened(0.08), 0.0, Vector3.UP)
+				_band(buf, p0, n0, y0, p1, n1, y1, 0.035, CURB + BARRIER, 0.09, CURB, BARRIER_GREY, 0.0, nm3 + Vector3.UP * 0.3)
 		elif not _in_cuts(skip, fm):
 			if KINDS[s.kind].dash:
 				# the centre line is painted by the shader, not drawn
@@ -792,6 +862,8 @@ func _build(s: Street) -> void:
 				var c := p1 + n1 * w
 				var d := p1 - n1 * w
 				buf.road(Vector3(a.x, y0, a.y), Vector3(b.x, y0, b.y), Vector3(c.x, y1, c.y), Vector3(d.x, y1, d.y), asphalt, MeshKit.ASPHALT_DASHED, f0 * SAMPLE, f1 * SAMPLE)
+			elif walk:
+				_band(buf, p0, n0, y0, p1, n1, y1, -w, 0.0, w, 0.0, PAVING, MeshKit.SLABS, Vector3.UP)
 			else:
 				_band(buf, p0, n0, y0, p1, n1, y1, -w, 0.0, w, 0.0, asphalt, MeshKit.ASPHALT, Vector3.UP)
 		for side: float in [-1.0, 1.0]:
@@ -821,10 +893,17 @@ func _build(s: Street) -> void:
 					g0 = -DECK_DEPTH - (0.0 if stone else 0.1)
 				if land.height_at(e1.x, e1.y) < 0.0:
 					g1 = -DECK_DEPTH - (0.0 if stone else 0.1)
+				if over:
+					# over the highway only the deck's own depth; down to the
+					# bank where the ramps' embankments come up to meet it
+					if g0 < -1.2:
+						g0 = -DECK_DEPTH - 0.1
+					if g1 < -1.2:
+						g1 = -DECK_DEPTH - 0.1
 				var wall := BridgeGen.STONE if stone else CONCRETE
 				var base := 0.0 if verge else CURB
-				if stone:
-					# a solid stone parapet
+				if stone or over:
+					# a solid parapet, of stone or (over a highway) concrete
 					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), base, side * (edge - lip), top, wall.darkened(0.04), 0.0, -out3)
 					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), top, side * edge, top, wall.lightened(0.1), 0.0, Vector3.UP)
 					buf.quad(Vector3(e0.x, y0 + top, e0.y), Vector3(e1.x, y1 + top, e1.y), Vector3(e1.x, y1 + maxf(g1, -DECK_DEPTH - 3.0), e1.y), Vector3(e0.x, y0 + maxf(g0, -DECK_DEPTH - 3.0), e0.y), wall, 0.0, out3)
@@ -838,10 +917,18 @@ func _build(s: Street) -> void:
 					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), base, side * edge, base, CONCRETE.lightened(0.08), 0.0, Vector3.UP)
 					buf.quad(Vector3(e0.x, y0 + base, e0.y), Vector3(e1.x, y1 + base, e1.y), Vector3(e1.x, y1 + maxf(g1, -DECK_DEPTH - 3.0), e1.y), Vector3(e0.x, y0 + maxf(g0, -DECK_DEPTH - 3.0), e0.y), wall.darkened(0.06), 0.0, out3)
 				continue
-			if verge:
-				# a pale shoulder line and the edge of the road down into the ground
+			if walk:
+				# a stone edging flush with the grass, and the edge down into the ground
 				_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * (w + 0.12), 0.0, kerb, 0.0, Vector3.UP)
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + 0.12), 0.0, side * (w + 0.3), -SKIRT, kerb.darkened(0.1), 0.0, out3 + Vector3.UP)
+				continue
+			if verge:
+				# a pale shoulder line, a steel guardrail along the edge (its posts
+				# are put in below), and the edge of the road down into the ground
+				_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * (w + 0.12), 0.0, kerb, 0.0, Vector3.UP)
+				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + 0.12), 0.0, side * (w + 0.3), -SKIRT, kerb.darkened(0.1), 0.0, out3 + Vector3.UP)
+				_band(buf, p0, n0, y0, p1, n1, y1, side * RAIL_AT, RAIL_LO, side * RAIL_AT, RAIL_HI, GUARDRAIL, 0.0, -out3)
+				_band(buf, p0, n0, y0, p1, n1, y1, side * RAIL_AT, RAIL_HI, side * RAIL_AT, RAIL_LO, GUARDRAIL.darkened(0.15), 0.0, out3)
 				continue
 			# kerb face, pavement, and the pavement's outer edge down into the ground
 			_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * w, CURB, kerb, 0.0, -out3)
@@ -857,18 +944,23 @@ func _build(s: Street) -> void:
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE - 0.09), CURB + 0.16, side * (w + PAVE - 0.09), CURB + 0.19, HouseGen.IRON, 0.0, out3)
 				continue
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
+	if verge and not _laying.has(s.id):
+		_highway_kit(s, buf, upto, skip)
 	# a dead end rounds off in a half circle, like a turning head
 	if not _laying.has(s.id):
 		for f: float in [0.0, upto]:
-			if _dead_end(s, int(f)) and not _in_cuts(s.spans, f) and not _in_cuts(skip, f):
+			if _dead_end(s, int(f)) and not _in_cuts(s.spans, f) and not _in_cuts(s.overs, f) and not _in_cuts(skip, f):
 				_build_cap(s, buf, f, asphalt, pave, kerb)
 	# bus stops, once the street is laid out and knows its junctions
 	if not _laying.has(s.id):
-		s.stops = BusStops.place(s, skip, cuts)
+		s.stops = BusStops.place(s, skip + s.overs, cuts)
 		BusStops.build(self, s, buf, s.stops)
 	# what carries the bridges: arches, piers, pylons and cables
 	var sup := MeshBuf.new()
 	BridgeGen.build(self, s, buf, sup, upto, styles)
+	for fly in flyovers:
+		if fly.b <= upto:
+			_flyover_pier(s, fly, sup)
 	var mi: MeshInstance3D = _meshes.get(s.id)
 	if mi == null:
 		mi = MeshInstance3D.new()
@@ -923,7 +1015,7 @@ func _put_bridges(mi: MeshInstance3D, sup: MeshBuf) -> void:
 func _overlap_cuts(s: Street, cuts: Dictionary) -> void:
 	var out := s.w() + PAVE * 0.5
 	for o: Street in streets:
-		if o == s or not _boxes_overlap(s, o):
+		if o == s or not _boxes_overlap(s, o) or _flies(s, o):
 			continue
 		var r := o.w() + 0.05
 		for side: float in [-1.0, 1.0]:
@@ -957,6 +1049,20 @@ static func _in_cuts(list: PackedVector2Array, f: float) -> bool:
 
 # ------------------------------------------------------------------ junctions
 
+## A flyover's pier: a slim concrete wall standing on the highway's median
+## under the deck, lined up with the traffic either side of it.
+func _flyover_pier(s: Street, fly: Dictionary, sup: MeshBuf) -> void:
+	var o: Street = fly.hw
+	var c := _ptf(o, fly.fo)
+	var do := (_ptf(o, minf(fly.fo + 1.0, o.pts.size() - 1)) - _ptf(o, maxf(fly.fo - 1.0, 0.0))).normalized()
+	var ds := (_ptf(s, minf(fly.f + 1.0, s.pts.size() - 1)) - _ptf(s, maxf(fly.f - 1.0, 0.0))).normalized()
+	var sin_a := maxf(absf(ds.cross(do)), 0.35)
+	var lo := _yf(o, fly.fo) + CURB
+	var hi := _yf(s, fly.f) + 0.03 - DECK_DEPTH
+	var length := minf((s.w() + PAVE) * 2.0 * 0.8 / sin_a, 6.0)
+	sup.box(Vector3(c.x, (lo + hi) * 0.5, c.y), Vector3(length, hi - lo, 0.16), Vector3(do.x, 0.0, do.y), Vector3(-do.y, 0.0, do.x), CONCRETE.darkened(0.08))
+
+
 ## Where two streets meet, as (index on s, index on o) pairs (fractional
 ## sample indices): ends that stop on the other street, and crossings.
 ## Where two streets meet, remembered between rebuilds while neither changes
@@ -972,6 +1078,8 @@ func _meetings_of(s: Street, o: Street, seen: Dictionary) -> PackedVector2Array:
 
 func _meetings(s: Street, o: Street) -> PackedVector2Array:
 	var out := PackedVector2Array()
+	if _flies(s, o):
+		return out
 	var spots := PackedVector2Array()
 	var ns := s.pts.size()
 	var no := o.pts.size()
@@ -999,6 +1107,75 @@ func _meetings(s: Street, o: Street) -> PackedVector2Array:
 			out.append(Vector2(fs, fo))
 			spots.append(hit)
 	return out
+
+
+## Whether one of the two is a highway the other crosses on a bridge of its
+## own instead of meeting it at a junction.
+func _flies(a: Street, b: Street) -> bool:
+	if (a.kind == "highway") == (b.kind == "highway"):
+		return false
+	var low := a if a.kind == "highway" else b
+	var high := b if low == a else a
+	return _crossing(high, low).x >= 0.0
+
+
+## Where street s crosses highway o, carrying on well past it either way,
+## as (index on s, index on o); (-1, -1) where it doesn't, or only ends on it.
+func _crossing(s: Street, o: Street) -> Vector2:
+	if not _boxes_overlap(s, o):
+		return Vector2(-1, -1)
+	var clear := (o.reach() + 1.0) / SAMPLE
+	var ns := s.pts.size()
+	var no := o.pts.size()
+	for i in ns - 1:
+		var a := s.pts[i]
+		var b := s.pts[i + 1]
+		if not o.near_box(a, 0.6) and not o.near_box(b, 0.6):
+			continue
+		for j in no - 1:
+			var hit: Variant = Geometry2D.segment_intersects_segment(a, b, o.pts[j], o.pts[j + 1])
+			if hit == null:
+				continue
+			var fs := i + a.distance_to(hit) / maxf(a.distance_to(b), 1e-6)
+			var fo := j + o.pts[j].distance_to(hit) / maxf(o.pts[j].distance_to(o.pts[j + 1]), 1e-6)
+			if fs > clear and fs < ns - 1 - clear and fo > clear and fo < no - 1 - clear:
+				return Vector2(fs, fo)
+	return Vector2(-1, -1)
+
+
+## The highways street s flies over: [{hw, fo, f, a, b}], the deck running
+## from a to b on s, far enough out each side to clear the highway's shoulders
+## at whatever angle the two cross.
+func _flyovers(s: Street) -> Array:
+	var out: Array = []
+	if s.kind == "highway":
+		return out
+	for o: Street in streets:
+		if o.kind != "highway" or o == s:
+			continue
+		var x := _crossing(s, o)
+		if x.x < 0.0:
+			continue
+		var ds := (_ptf(s, minf(x.x + 1.0, s.pts.size() - 1)) - _ptf(s, maxf(x.x - 1.0, 0.0))).normalized()
+		var do := (_ptf(o, minf(x.y + 1.0, o.pts.size() - 1)) - _ptf(o, maxf(x.y - 1.0, 0.0))).normalized()
+		var sin_a := maxf(absf(ds.cross(do)), 0.35)
+		var cos_a := absf(ds.dot(do))
+		var half := (o.w() + 0.3 + 1.2 + (s.w() + PAVE) * cos_a) / sin_a
+		var k := half / SAMPLE
+		out.append({"hw": o, "fo": x.y, "f": x.x, "a": maxf(x.x - k, 0.0), "b": minf(x.x + k, s.pts.size() - 1.0)})
+	return out
+
+
+## Whether p lies within r of some street's deck where it flies over a highway.
+func under_deck(p: Vector2, r: float) -> bool:
+	for o: Street in streets:
+		if o.overs.is_empty() or not o.near_box(p, o.reach() + r):
+			continue
+		for sp in o.overs:
+			for i in range(int(sp.x), int(ceil(sp.y)) + 1):
+				if o.pts[mini(i, o.pts.size() - 1)].distance_to(p) < o.reach() + r:
+					return true
+	return false
 
 
 static func _near_any(list: PackedVector2Array, p: Vector2, r: float) -> bool:
@@ -1234,8 +1411,13 @@ func _conform_junctions(s: Street) -> void:
 ## Builds a junction's asphalt and corner kerbs into a street's mesh.
 func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 	var main := false
+	var walks := true
 	for arm in jn.arms:
 		main = main or arm.st.kind != "side"
+		walks = walks and arm.st.kind == "walk"
+	if walks:
+		_build_plaza(jn, buf)
+		return
 	var asphalt := Palette.ASPHALT.darkened(0.05) if main else Palette.ASPHALT
 	var c3 := Vector3(jn.at.x, jn.y, jn.at.y)
 	var edge: Array = jn.edge
@@ -1261,6 +1443,103 @@ func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 			prev_p = p3
 			prev_o = o3
 			prev_n = n3
+
+
+## A highway's guardrail posts, and now and then a gantry of direction signs
+## over both carriageways.
+func _highway_kit(s: Street, buf: MeshBuf, upto: float, skip: PackedVector2Array) -> void:
+	var w := s.w()
+	var f := 1.0
+	var since_gantry := GANTRY_EVERY * 0.5
+	while f < upto - 1.0:
+		var on_bridge := _in_cuts(s.spans, f)
+		if not _in_cuts(skip, f) and not on_bridge:
+			for side: float in [-1.0, 1.0]:
+				var base := _atf(s, f, side * RAIL_AT, 0.0)
+				var nn := _sidef(s, f)
+				var t := Vector3(-nn.y, 0.0, nn.x) * 0.025
+				var out := Vector3(nn.x, 0.0, nn.y) * side
+				# a thin steel post, its two broad faces along the road
+				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, out)
+				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, -out)
+		since_gantry += POST_EVERY
+		if since_gantry >= GANTRY_EVERY and not on_bridge and not _in_cuts(skip, f) and f > 4.0 and f < upto - 4.0:
+			since_gantry = 0.0
+			_gantry(s, buf, f, w)
+		f += POST_EVERY / SAMPLE
+
+
+func _gantry(s: Street, buf: MeshBuf, f: float, w: float) -> void:
+	var nn := _sidef(s, f)
+	var n3 := Vector3(nn.x, 0.0, nn.y)
+	var t3 := Vector3(-nn.y, 0.0, nn.x)
+	var span := w + 0.4
+	var top := 2.1
+	var steel := Color(0.62, 0.64, 0.66)
+	for side: float in [-1.0, 1.0]:
+		var b := _atf(s, f, side * span, 0.0)
+		buf.box(b + Vector3.UP * top * 0.5, Vector3(0.12, top, 0.12), n3, t3, steel)
+	# the beam, and a sign over each carriageway facing its traffic
+	var mid := _atf(s, f, 0.0, top)
+	buf.box(mid, Vector3(span * 2.0 + 0.1, 0.1, 0.12), n3, t3, steel)
+	for side: float in [-1.0, 1.0]:
+		var c := _atf(s, f, side * (w + KINDS[s.kind].median) * 0.5, top - 0.32)
+		var face := t3 * side
+		buf.box(c, Vector3(w * 0.8, 0.5, 0.04), n3, t3, SIGN_GREEN)
+		for row in 2:
+			var stripe := c + face * 0.025 + Vector3.UP * (0.1 - row * 0.2)
+			var a := stripe - n3 * (w * 0.3 - row * 0.06)
+			var b := stripe + n3 * (w * 0.3 - row * 0.06)
+			buf.quad(a + Vector3.DOWN * 0.03, b + Vector3.DOWN * 0.03, b + Vector3.UP * 0.03, a + Vector3.UP * 0.03, Color(0.95, 0.96, 0.95), 0.0, face)
+
+
+## Where walks meet: a little round paved square, with a fountain in the
+## middle where three or more meet.
+func _build_plaza(jn: Dictionary, buf: MeshBuf) -> void:
+	const SEGS := 14
+	var c3 := Vector3(jn.at.x, jn.y, jn.at.y)
+	var edge: Array = jn.edge
+	for k in edge.size():
+		buf.tri(c3, edge[k], edge[(k + 1) % edge.size()], PAVING, MeshKit.SLABS, true)
+	var r := KINDS.walk.w + PAVE + 1.4
+	var kerb := Palette.SIDEWALK.darkened(0.12)
+	var ring := func(rad: float, dy: float, k: int) -> Vector3:
+		var a := TAU * k / SEGS
+		return c3 + Vector3(cos(a) * rad, dy, sin(a) * rad)
+	for k in SEGS:
+		var a0: Vector3 = ring.call(r, 0.004, k)
+		var a1: Vector3 = ring.call(r, 0.004, k + 1)
+		buf.tri(c3 + Vector3.UP * 0.004, a0, a1, PAVING.lightened(0.04), MeshKit.SLABS, true)
+		var mid := TAU * (k + 0.5) / SEGS
+		var out := Vector3(cos(mid), 0.0, sin(mid))
+		buf.quad(a0, a1, ring.call(r + 0.12, 0.004, k + 1), ring.call(r + 0.12, 0.004, k), kerb, 0.0, Vector3.UP)
+		buf.quad(ring.call(r + 0.12, 0.004, k), ring.call(r + 0.12, 0.004, k + 1), ring.call(r + 0.3, -SKIRT, k + 1), ring.call(r + 0.3, -SKIRT, k), kerb.darkened(0.1), 0.0, out + Vector3.UP)
+	if jn.arms.size() < 3:
+		return
+	# a stone basin, its water, and a column with a bowl spilling into it
+	const BASIN := 0.85
+	const WALL := 0.28
+	var stone := Color(0.8, 0.77, 0.72)
+	var water := Color(0.36, 0.62, 0.74)
+	for k in SEGS:
+		var mid := TAU * (k + 0.5) / SEGS
+		var out := Vector3(cos(mid), 0.0, sin(mid))
+		buf.quad(ring.call(BASIN, 0.0, k), ring.call(BASIN, 0.0, k + 1), ring.call(BASIN, WALL, k + 1), ring.call(BASIN, WALL, k), stone, 0.0, out)
+		buf.quad(ring.call(BASIN, WALL, k), ring.call(BASIN, WALL, k + 1), ring.call(BASIN - 0.12, WALL, k + 1), ring.call(BASIN - 0.12, WALL, k), stone.lightened(0.1), 0.0, Vector3.UP)
+		buf.quad(ring.call(BASIN - 0.12, WALL, k), ring.call(BASIN - 0.12, WALL, k + 1), ring.call(BASIN - 0.12, WALL - 0.08, k + 1), ring.call(BASIN - 0.12, WALL - 0.08, k), stone.darkened(0.08), 0.0, -out)
+		buf.tri(c3 + Vector3.UP * (WALL - 0.08), ring.call(BASIN - 0.12, WALL - 0.08, k), ring.call(BASIN - 0.12, WALL - 0.08, k + 1), water, 0.0, true)
+	for k in 6:
+		var a0 := TAU * k / 6.0
+		var a1 := TAU * (k + 1) / 6.0
+		var out := Vector3(cos((a0 + a1) * 0.5), 0.0, sin((a0 + a1) * 0.5))
+		var p0 := c3 + Vector3(cos(a0) * 0.1, 0.0, sin(a0) * 0.1)
+		var p1 := c3 + Vector3(cos(a1) * 0.1, 0.0, sin(a1) * 0.1)
+		buf.quad(p0, p1, p1 + Vector3.UP * 0.75, p0 + Vector3.UP * 0.75, stone, 0.0, out)
+		# the bowl on top, flaring out, with water in it
+		var b0 := c3 + Vector3(cos(a0) * 0.36, 0.86, sin(a0) * 0.36)
+		var b1 := c3 + Vector3(cos(a1) * 0.36, 0.86, sin(a1) * 0.36)
+		buf.quad(p0 + Vector3.UP * 0.75, p1 + Vector3.UP * 0.75, b1, b0, stone.lightened(0.05), 0.0, out + Vector3.DOWN)
+		buf.tri(c3 + Vector3.UP * 0.84, b0, b1, water.lightened(0.15), 0.0, true)
 
 
 # ------------------------------------------------------------------ sampling
@@ -1312,6 +1591,7 @@ func _build_cap(s: Street, buf: MeshBuf, f: float, asphalt: Color, pave: Color, 
 	var w := s.w()
 	var median: float = KINDS[s.kind].median
 	var verge: bool = KINDS[s.kind].verge
+	var walk := s.kind == "walk"
 	var c := _ptf(s, f)
 	var side := _sidef(s, f)
 	var out := (s.pts[0] - s.pts[1]).normalized() if f < 0.5 else (s.pts[n - 1] - s.pts[n - 2]).normalized()
@@ -1326,8 +1606,8 @@ func _build_cap(s: Street, buf: MeshBuf, f: float, asphalt: Color, pave: Color, 
 		var tm := (t0 + t1) * 0.5
 		var o := side * cos(tm) + out * sin(tm)
 		var o3 := Vector3(o.x, 0.0, o.y)
-		buf.tri(c3, at.call(t0, w, 0.0), at.call(t1, w, 0.0), asphalt, MeshKit.ASPHALT, true)
-		if verge:
+		buf.tri(c3, at.call(t0, w, 0.0), at.call(t1, w, 0.0), PAVING if walk else asphalt, MeshKit.SLABS if walk else MeshKit.ASPHALT, true)
+		if verge or walk:
 			buf.quad(at.call(t0, w, 0.0), at.call(t1, w, 0.0), at.call(t1, w + 0.12, 0.0), at.call(t0, w + 0.12, 0.0), kerb, 0.0, Vector3.UP)
 			buf.quad(at.call(t0, w + 0.12, 0.0), at.call(t1, w + 0.12, 0.0), at.call(t1, w + 0.3, -SKIRT), at.call(t0, w + 0.3, -SKIRT), kerb.darkened(0.1), 0.0, o3 + Vector3.UP)
 			continue
