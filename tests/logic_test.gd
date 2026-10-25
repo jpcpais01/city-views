@@ -807,6 +807,26 @@ func _island_budget() -> void:
 			print("  side tris %-15s %7d +shadow %7d" % [k, side_view[1][k][0], side_view[1][k][1]])
 	print("island: %d triangles in the busiest view from the side" % side)
 	check(side + reserve < TriBudget.SIDE_BUDGET, "and from the side stays under %dk (%d)" % [TriBudget.SIDE_BUDGET / 1000, side + reserve])
+	# a city of a few thousand gets its airport, out in the country, and
+	# airliners take off from it and climb away
+	var rw := island.landmarks.runway()
+	check(island.progress.residents < 4000 or (island.landmarks.spots.has("airport") and rw.size() == 2 and rw[0].distance_to(rw[1]) > 40.0),
+		"a city of %d gets an airport with a runway (%s)" % [island.progress.residents, str(island.landmarks.spots.get("airport"))])
+	if rw.size() == 2:
+		var ap: Vector2 = island.landmarks.spots.airport
+		check(island.town.is_built(ap) and island.town.is_built(ap + Vector2(sin(island.landmarks.airport_yaw), cos(island.landmarks.airport_yaw)) * 20.0), "the town keeps off the airport's ground")
+		island.planes.spawn(false, "up")
+		var start: float = island.planes._plane.position.y
+		for k in 300:
+			island.planes._process(0.05)
+		check(island.planes._plane != null and island.planes._plane.position.y > start + 5.0, "an airliner takes off from the runway and climbs away")
+		island.planes.spawn(false, "down")
+		var high: float = island.planes._plane.position.y
+		check(high > start + 20.0, "an airliner comes in to land from high up")
+		var saved := island.landmarks.to_dict()
+		var yaw0 := island.landmarks.airport_yaw
+		island.landmarks.from_dict(JSON.parse_string(JSON.stringify(saved)))
+		check(island.landmarks.spots.has("airport") and absf(island.landmarks.airport_yaw - yaw0) < 0.001, "the airport comes back from a save, its runway the same way")
 	var kits := {}
 	for l: Town.Lot in island.town.lots.values():
 		kits[l.kit] = true

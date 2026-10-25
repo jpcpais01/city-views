@@ -338,6 +338,15 @@ func _ready() -> void:
 		for k in acc:
 			print("  est %-16s %7d +shadow %7d" % [k, acc[k][0], acc[k][1]])
 		print("estimate: ", TriBudget.total(acc))
+	if OS.get_environment("CV_MARK") != "":
+		island.progress.recount(true)
+		island.landmarks.settle()
+	if OS.get_environment("CV_PLANE") != "":
+		# an airliner this far (metres) along its take-off run from the airport
+		island.planes.spawn(false, "up")
+		island.planes._d = float(OS.get_environment("CV_PLANE"))
+		island.planes._speed = Planes.SPEED
+		island.planes._fly()
 	print("landmarks: ", island.landmarks.spots)
 	if island.landmarks.spots.has(OS.get_environment("CV_MARK")):
 		# then look at that landmark (a pier from out near its end)

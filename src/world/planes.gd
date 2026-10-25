@@ -3,12 +3,19 @@ extends Node3D
 ## An airliner crossing high over the city now and then: white with a
 ## coloured tail, swept wings with an engine under each, a row of cabin
 ## windows that glow at night and nav lights on the wingtips, red on the
-## left blinking and green on the right.
+## left blinking and green on the right. Once the city has its airport,
+## about half of them take off from its runway or come in to land on it.
 
 const WAIT := Vector2(40.0, 90.0)
 const SPEED := 16.0
 const HEIGHT := 40.0
 const TAILS := [Color("c8553d"), Color("2f5f9f"), Color("2f8f83"), Color("e3a33b")]
+## how high an airliner's middle rides over the tarmac, on its wheels
+const GROUND := 0.42
+## how steeply they climb away and come down, and how far out they go
+const CLIMB := 0.14
+const GLIDE := 0.09
+const OUT := 320.0
 
 var material: Material
 var world: Node3D
@@ -19,6 +26,10 @@ var _dir := Vector2.ZERO
 var _run := 0.0
 var _d := 0.0
 var _wait := 12.0
+# "" crossing high over the city, "up" taking off, "down" coming in to land
+var _mode := ""
+var _ground := 0.0
+var _speed := SPEED
 var _rng := RandomNumberGenerator.new()
 
 
@@ -110,17 +121,69 @@ func _process(delta: float) -> void:
 			_wait = _rng.randf_range(WAIT.x, WAIT.y)
 			spawn()
 		return
-	_d += SPEED * delta
+	if _mode == "up":
+		# rolls down the runway gathering speed, lifts off and climbs away
+		_speed = minf(_speed + 3.0 * delta, SPEED)
+	elif _mode == "down" and _d > 0.0:
+		# touched down: brakes along the runway
+		_speed = maxf(_speed - 3.2 * delta, 1.5)
+	_d += _speed * delta
 	if _d > _run:
 		_plane.queue_free()
 		_plane = null
 		return
+	_fly()
+
+
+## Puts the airliner where it is along its course, nose up as it climbs
+## and a little down as it comes in.
+func _fly() -> void:
 	var p := _from + _dir * _d
-	_plane.position = Vector3(p.x, HEIGHT + _d * 0.01, p.y)
+	var y := HEIGHT + _d * 0.01
+	var pitch := 0.0
+	if _mode == "up":
+		# off the ground after the first stretch of runway
+		var air := maxf(_d - 14.0, 0.0)
+		y = minf(_ground + GROUND + air * CLIMB, HEIGHT)
+		pitch = -0.16 if air > 0.0 and y < HEIGHT else 0.0
+	elif _mode == "down":
+		# down the glide path to the threshold, then rolling on the runway
+		y = minf(_ground + GROUND + maxf(-_d, 0.0) * GLIDE, HEIGHT)
+		pitch = 0.05 if _d < 0.0 else 0.0
+	_plane.position = Vector3(p.x, y, p.y)
+	_plane.basis = Basis(Vector3.UP, atan2(_dir.x, _dir.y)) * Basis(Vector3.RIGHT, pitch)
 
 
-## Sends an airliner across the sky on a fresh course.
-func spawn(halfway := false) -> void:
+## Sends an airliner across the sky on a fresh course (or, with an airport,
+## often up from it or down onto it).
+## `force` ("up" or "down") picks a flight from the airport (shots, tests).
+func spawn(halfway := false, force := "") -> void:
+	var marks: Landmarks = world.get("landmarks") if world else null
+	var rw := marks.runway() if marks else PackedVector3Array()
+	if not halfway and rw.size() == 2 and (force != "" or _rng.randf() < 0.6):
+		_mode = force if force != "" else "up" if _rng.randf() < 0.5 else "down"
+		var a := Vector2(rw[0].x, rw[0].z)
+		var b := Vector2(rw[1].x, rw[1].z)
+		if _rng.randf() < 0.5:
+			var t := a
+			a = b
+			b = t
+		_ground = rw[0].y
+		_dir = (b - a).normalized()
+		_from = a
+		if _mode == "up":
+			_speed = 0.5
+			_run = OUT
+			_d = 0.0
+		else:
+			# from far out on the approach to the far end of the runway
+			_speed = SPEED * 0.75
+			_d = -(HEIGHT - GROUND) / GLIDE
+			_run = a.distance_to(b)
+		_launch()
+		return
+	_mode = ""
+	_speed = SPEED
 	var land: Land = world.get("land") if world else null
 	var r := maxf(land.reach if land else Land.HALF, 120.0) * 1.6
 	var side := _rng.randf() * TAU
@@ -130,15 +193,19 @@ func spawn(halfway := false) -> void:
 	_dir = (aim - _from).normalized()
 	_run = _from.distance_to(aim) * 2.0
 	_d = _run * 0.5 if halfway else 0.0
+	_launch()
+
+
+func _launch() -> void:
+	if _plane:
+		_plane.queue_free()
 	var mi := MeshInstance3D.new()
 	mi.mesh = _kinds[_rng.randi() % _kinds.size()]
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_plane = Node3D.new()
 	_plane.add_child(mi)
-	_plane.basis = Basis(Vector3.UP, atan2(_dir.x, _dir.y))
 	add_child(_plane)
-	var p := _from + _dir * _d
-	_plane.position = Vector3(p.x, HEIGHT, p.y)
+	_fly()
 
 
 ## How many triangles one airliner draws.
