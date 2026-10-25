@@ -814,7 +814,8 @@ const MAGIC_COST := 2.0
 ## The Magic brush: every house under it shoots up to the top level its
 ## plot allows (the painted Grow level), for a few coins a stage.
 func _magic_at(c: Vector2) -> void:
-	var r := _zone_radius()
+	# (the same reach as the shaping brushes, so the size button means one thing)
+	var r := brush_radius
 	var stages := town.magic(c, r, true)
 	if stages == 0:
 		return
@@ -1056,7 +1057,7 @@ func _ring_radius() -> float:
 			return Streets.KINDS.main.w + Streets.PAVE
 		"clear":
 			return brush_radius * 0.6
-		"grow", "green", "magic":
+		"grow", "green":
 			return _zone_radius()
 	return brush_radius
 
