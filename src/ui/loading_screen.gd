@@ -40,14 +40,14 @@ var _leaving := false
 
 func _ready() -> void:
 	layer = 100
-	var base: Font = load("res://assets/fonts/Nunito.ttf")
+	var base: Font = load("res://assets/fonts/Manrope.ttf")
 	var wght := TextServerManager.get_primary_interface().name_to_tag("wght")
 	var bold := FontVariation.new()
 	bold.base_font = base
-	bold.variation_opentype = {wght: 850}
+	bold.variation_opentype = {wght: 800}
 	var reg := FontVariation.new()
 	reg.base_font = base
-	reg.variation_opentype = {wght: 650}
+	reg.variation_opentype = {wght: 600}
 
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)

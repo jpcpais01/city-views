@@ -47,6 +47,8 @@ func _draw() -> void:
 	var P := func(x: float, y: float) -> Vector2: return o + Vector2(x, y) * s
 	var c := color
 	var a := accent
+	# windows and lenses cut out of a solid shape: light on a dark icon, dark on a light one
+	var cut := Color(0.08, 0.1, 0.14, 0.85) if c.get_luminance() > 0.6 else Color(1, 1, 1, 0.9)
 	match kind:
 		"road":
 			_rr(Rect2(P.call(0.3, 0.08), Vector2(0.4, 0.84) * s), 0.08 * s, Color(0.36, 0.38, 0.43))
@@ -407,19 +409,19 @@ func _draw() -> void:
 		"camera":
 			_rr(Rect2(P.call(0.36, 0.2), Vector2(0.28, 0.14) * s), 0.04 * s, c)
 			_rr(Rect2(P.call(0.12, 0.3), Vector2(0.76, 0.5) * s), 0.1 * s, c)
-			_circle(P.call(0.5, 0.55), 0.17 * s, Color(1, 1, 1, 0.9))
+			_circle(P.call(0.5, 0.55), 0.17 * s, cut)
 			_circle(P.call(0.5, 0.55), 0.11 * s, c)
 			_circle(P.call(0.76, 0.39), 0.035 * s, a)
 		"car":
 			# a little hatchback side on: body, cabin, wheels
 			_rr(Rect2(P.call(0.1, 0.46), Vector2(0.8, 0.24) * s), 0.09 * s, c)
 			_rr(Rect2(P.call(0.26, 0.28), Vector2(0.44, 0.26) * s), 0.09 * s, c)
-			_rr(Rect2(P.call(0.33, 0.34), Vector2(0.13, 0.12) * s), 0.03 * s, Color(1, 1, 1, 0.9))
-			_rr(Rect2(P.call(0.5, 0.34), Vector2(0.13, 0.12) * s), 0.03 * s, Color(1, 1, 1, 0.9))
+			_rr(Rect2(P.call(0.33, 0.34), Vector2(0.13, 0.12) * s), 0.03 * s, cut)
+			_rr(Rect2(P.call(0.5, 0.34), Vector2(0.13, 0.12) * s), 0.03 * s, cut)
 			_circle(P.call(0.82, 0.54), 0.04 * s, a)
 			for x in [0.3, 0.7]:
 				_circle(P.call(x, 0.72), 0.11 * s, c)
-				_circle(P.call(x, 0.72), 0.05 * s, Color(1, 1, 1, 0.9))
+				_circle(P.call(x, 0.72), 0.05 * s, cut)
 		"eye":
 			var pts := PackedVector2Array()
 			for i in 24:

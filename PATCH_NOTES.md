@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-25 00:15 UTC
+- The whole HUD wears the new look: dark smoked glass with crisp white type, so the city's colours stand out around it. The brush you hold lights up white, like the menu's chosen section.
+- A short card above the tools now says what the brush in hand does whenever you pick a brush, a road, a level or a district.
+- On PC the number keys 1 to 9 pick the brushes (each key shows its number) and [ and ] change the brush size. Hover any button for a tip.
+- New notices: goals and unlocks arrive as dark cards with a gold heading, new milestones as a big banner, and warnings as a slim red pill.
+- The top card shows the next milestone under the bar, the coins show what the city pays in taxes, and Pip, the graphs, Drive mode and the update card all match the new style.
+
 ## 2026-10-25 00:00 UTC
 - Graphs of your city's story: tap the population to open the stats, and the new Trends section draws how your residents and jobs (People) or your coins and income a minute (Money) have grown, over the whole life of your city.
 - New Drive mode: tap the car button and take a little car out on your own streets. Follow it with a close chase camera or switch to the driver's seat, roll over hills, kerbs and bridges, and bump into the buildings you grew. Touch pedals and a thumb wheel on phones, WASD or arrows on PC, with an engine that revs, headlights that light the road at night and a speedometer. The X button (or Back / Esc) takes you back to building.

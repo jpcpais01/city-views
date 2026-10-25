@@ -45,6 +45,8 @@ var _use_bar: Control
 var _help: Label
 var _island_name: LineEdit
 var _title_chip: Label
+var _next_line: Label
+var _income_label: Label
 var _locks := {}
 
 var font_bold: FontVariation
@@ -84,102 +86,51 @@ var drive: DriveMode
 var _driving := false
 var _drive_hidden: Array[Control] = []
 
-const INK := Color("2b3440")
-const SOFT := Color("6b7785")
-const CARD := Color(1, 1, 1, 0.9)
+# the HUD wears UiKit's smoked glass: white type on dark frosted panels
+const INK := Color("f5f7fb")
+const SOFT := Color(0.92, 0.94, 0.98, 0.66)
+const CARD := Color(0.085, 0.1, 0.135, 0.97)
 const ACCENT := Color("ff7a6b")
-const MINT := Color("3fae8c")
-const GLASS := Color(0.9, 0.93, 0.98)
-const GLASS_DARK := Color(0.1, 0.13, 0.18)
+const MINT := Color("4fd6a6")
+const GOLD := Color("ffcf6b")
+const GLASS := Color(0.075, 0.09, 0.125)
+const GLASS_DARK := Color(0.03, 0.04, 0.06)
+## a selected key: bright like the menu rail, with dark type
+const KEY_ON := Color(0.97, 0.98, 1.0)
+const ON_LIGHT := Color("161b24")
 
 
 # ------------------------------------------------------------------ theme
 
 func _glass_mat(tint: float) -> ShaderMaterial:
-	var m := ShaderMaterial.new()
-	m.shader = preload("res://src/ui/glass.gdshader")
-	m.set_shader_parameter("tint", tint)
-	return m
+	return UiKit.glass_mat(tint)
 
 
-## Frosted glass panel style: a soft tint, hairline white rim (brighter on top,
-## like light catching the edge) and a faint drop shadow.
-func _glass_box(tint := GLASS, radius := 24, pad := 14, rim := Color(1, 1, 1, 0.95), shadow := true) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = tint
-	sb.set_corner_radius_all(radius)
-	# 5 segments per corner already bend by under half a pixel at this radius
-	sb.corner_detail = 5
-	sb.content_margin_left = pad
-	sb.content_margin_right = pad
+## Smoked glass panel style (see UiKit.glass_box): `tint` is its colour, and
+## the rim is kept to a hairline whatever colour is asked for.
+func _glass_box(tint := GLASS, radius := 24, pad := 14, rim := Color(1, 1, 1, 0.16), shadow := true) -> StyleBoxFlat:
+	var sb := UiKit.glass_box(radius, pad, tint, 16 if shadow else 0)
 	sb.content_margin_top = pad * 0.7
 	sb.content_margin_bottom = pad * 0.7
-	sb.border_color = rim
-	sb.border_width_top = 2
-	sb.border_width_left = 1
-	sb.border_width_right = 1
-	sb.border_width_bottom = 1
-	sb.border_blend = true
-	sb.anti_aliasing = true
-	if shadow:
-		sb.shadow_color = Color(0.05, 0.1, 0.2, 0.14)
-		sb.shadow_size = 14
-		sb.shadow_offset = Vector2(0, 6)
+	sb.border_color = Color(rim.r, rim.g, rim.b, minf(rim.a, 0.22))
 	return sb
 
 
 func _glassify(c: Control, dark := false) -> void:
 	c.material = _glass_dark if dark else _glass_light
 	if c is PanelContainer:
-		c.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK if dark else GLASS, 24, 14, Color(1, 1, 1, 0.35) if dark else Color(1, 1, 1, 0.95)))
+		c.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK if dark else GLASS, 22, 14))
+
 
 func _box(bg: Color, radius := 22, pad := 14, shadow := true) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.set_corner_radius_all(radius)
-	sb.corner_detail = 5
-	sb.content_margin_left = pad
-	sb.content_margin_right = pad
+	var sb := UiKit.box(bg, radius, pad, Color(0, 0, 0, 0), 0, 8 if shadow else 0)
 	sb.content_margin_top = pad * 0.7
 	sb.content_margin_bottom = pad * 0.7
-	sb.anti_aliasing = true
-	if shadow:
-		sb.shadow_color = Color(0.1, 0.2, 0.3, 0.16)
-		sb.shadow_size = 10
-		sb.shadow_offset = Vector2(0, 4)
 	return sb
 
 
 func _make_theme() -> Theme:
-	var t := Theme.new()
-	t.default_font = font_reg
-	t.default_font_size = 20
-	t.set_color("font_color", "Label", INK)
-	t.set_stylebox("panel", "PanelContainer", _box(CARD))
-	var b := _box(Color(1, 1, 1, 0.96), 25, 16)
-	t.set_stylebox("normal", "Button", b)
-	var bh := _box(Color("fff6ee"), 25, 16)
-	t.set_stylebox("hover", "Button", bh)
-	var bp := _box(Color("ffe3d9"), 25, 16, false)
-	t.set_stylebox("pressed", "Button", bp)
-	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
-	t.set_stylebox("disabled", "Button", _box(Color(0.92, 0.92, 0.92, 0.9), 25, 16, false))
-	t.set_color("font_color", "Button", INK)
-	t.set_color("font_hover_color", "Button", INK)
-	t.set_color("font_pressed_color", "Button", INK)
-	t.set_font("font", "Button", font_bold)
-	var le := _box(Color("f3f5f7"), 14, 12, false)
-	t.set_stylebox("normal", "LineEdit", le)
-	t.set_stylebox("focus", "LineEdit", _box(Color("ffffff"), 14, 12, false))
-	t.set_color("font_color", "LineEdit", INK)
-	t.set_color("font_placeholder_color", "LineEdit", Color(0.6, 0.64, 0.7))
-	var pb_bg := _box(Color(0.85, 0.88, 0.9, 1.0), 6, 0, false)
-	var pb_fill := _box(MINT, 6, 0, false)
-	t.set_stylebox("background", "ProgressBar", pb_bg)
-	t.set_stylebox("fill", "ProgressBar", pb_fill)
-	t.set_color("font_color", "CheckButton", INK)
-	t.set_font("font", "CheckButton", font_bold)
-	return t
+	return UiKit.theme()
 
 
 func _label(text: String, size := 20, bold := false, col := INK) -> Label:
@@ -202,16 +153,11 @@ func _icon(kind: String, px := 30) -> UiIcon:
 
 func _ready() -> void:
 	layer = 5
-	var base: Font = load("res://assets/fonts/Nunito.ttf")
-	font_bold = FontVariation.new()
-	font_bold.base_font = base
-	font_bold.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 850}
-	font_reg = FontVariation.new()
-	font_reg.base_font = base
-	font_reg.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 650}
-	_glass_light = _glass_mat(0.5)
-	_glass_dark = _glass_mat(0.62)
-	_glass_accent = _glass_mat(0.72)
+	font_bold = UiKit.font(800)
+	font_reg = UiKit.font(600)
+	_glass_light = _glass_mat(0.62)
+	_glass_dark = _glass_mat(0.78)
+	_glass_accent = _glass_mat(0.84)
 	if not OS.has_feature("mobile"):
 		get_window().size_changed.connect(_fit_desktop_scale)
 	apply_ui_scale()
@@ -224,6 +170,7 @@ func _ready() -> void:
 	_apply_side_margins()
 	_build_island_top()
 	_build_brushes()
+	_build_hint()
 	_build_fps()
 	_build_toasts()
 	_build_info()
@@ -286,10 +233,13 @@ func _build_island_top() -> void:
 	_island_name = _name_field(26)
 	name_row.add_child(_island_name)
 	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", _box(Color("ffe9c7"), 12, 8, false))
+	var csb := UiKit.box(Color(GOLD, 0.16), 8, 9, Color(GOLD, 0.5), 1)
+	csb.content_margin_top = 2
+	csb.content_margin_bottom = 2
+	chip.add_theme_stylebox_override("panel", csb)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_title_chip = _label("Hamlet", 16, true, Color("b46a1f"))
+	_title_chip = _label("Hamlet", 13, true, GOLD)
 	chip.add_child(_title_chip)
 	name_row.add_child(chip)
 	_progress = ProgressBar.new()
@@ -298,7 +248,12 @@ func _build_island_top() -> void:
 	_progress.max_value = 1.0
 	_progress.step = 0.0
 	_progress.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_progress.add_theme_stylebox_override("fill", UiKit.box(GOLD, 4, 0))
+	_progress.add_theme_stylebox_override("background", UiKit.box(Color(1, 1, 1, 0.12), 4, 0))
 	v.add_child(_progress)
+	# the next milestone, in small type under the bar
+	_next_line = _label("", 12, false, Color(1, 1, 1, 0.5))
+	v.add_child(_next_line)
 	# brush hints still update, but no longer take room under the name
 	_help = _label("", 14, false, SOFT)
 	_help.visible = false
@@ -329,18 +284,22 @@ func _build_island_top() -> void:
 	pop_tap.pressed.connect(_toggle_stats)
 	_pop_label.get_parent().get_parent().add_child(pop_tap)
 	_coin_label = _pill(stats, "coin")
+	# what the city pays in taxes, small beside the coins
+	_income_label = _label("", 12, true, MINT)
+	_income_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_coin_label.get_parent().add_child(_income_label)
 	var photo_btn := _glass_button(58, "camera")
+	photo_btn.tooltip_text = "Photo mode  (H)"
 	photo_btn.pressed.connect(func(): set_photo(true))
 	photo_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	stats.add_child(photo_btn)
 	var drive_btn := _glass_button(58, "car")
+	drive_btn.tooltip_text = "Drive a car through your streets"
 	drive_btn.pressed.connect(func(): drive.set_active(true))
 	drive_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	stats.add_child(drive_btn)
-	var menu_btn := _glass_button(58)
-	var mi := _icon("menu", 30)
-	mi.set_anchors_preset(Control.PRESET_FULL_RECT)
-	menu_btn.add_child(mi)
+	var menu_btn := _glass_button(58, "menu")
+	menu_btn.tooltip_text = "Menu  (Esc)"
 	menu_btn.pressed.connect(_toggle_menu)
 	menu_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	stats.add_child(menu_btn)
@@ -359,9 +318,10 @@ func _name_field(px: int) -> LineEdit:
 	e.add_theme_font_size_override("font_size", px)
 	e.add_theme_color_override("font_color", INK)
 	e.add_theme_color_override("font_placeholder_color", INK)
+	e.add_theme_color_override("caret_color", ACCENT)
 	for st in ["normal", "read_only"]:
 		e.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-	e.add_theme_stylebox_override("focus", _box(Color(1, 1, 1, 0.85), 10, 6, false))
+	e.add_theme_stylebox_override("focus", UiKit.box(Color(0, 0, 0, 0.35), 10, 6, ACCENT, 1))
 	e.text_submitted.connect(func(t):
 		island.set_island_name(t)
 		e.release_focus())
@@ -379,7 +339,11 @@ func _refresh_stats() -> void:
 	var pr := island.progress
 	_pop_label.text = _short(pr.residents)
 	_title_chip.text = pr.title
-	_progress.value = pr.next_title()[1]
+	var nt := pr.next_title()
+	_progress.value = nt[1]
+	_next_line.text = "Next: %s at %s residents" % [nt[0], UiKit.short(nt[2])] if nt[0] != "" else "Every milestone reached"
+	var inc := pr.income()
+	_income_label.text = "+%s" % (str(int(inc)) if inc >= 10.0 else str(snappedf(inc, 0.1))) if inc > 0.0 else ""
 	_refresh_locks()
 
 
@@ -503,6 +467,13 @@ func _build_brushes() -> void:
 		var cl := _label(BRUSH_INFO[id][0], 13, true, INK)
 		cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		v.add_child(cl)
+		var n := IslandWorld.BRUSHES.find(id) + 1
+		b.tooltip_text = "%s  (%d)\n%s" % [BRUSH_INFO[id][0], n, BRUSH_INFO[id][1]] if n <= 9 else BRUSH_INFO[id][0]
+		if n <= 9 and not OS.has_feature("mobile"):
+			# the number key that picks it, small in the corner, as on a PC hotbar
+			var nk := _label(str(n), 10, true, Color(1, 1, 1, 0.45))
+			nk.position = Vector2(8, 4)
+			b.add_child(nk)
 		b.pressed.connect(func():
 			Sfx.play("click", 1.1, -4.0)
 			island.set_brush(id))
@@ -526,7 +497,15 @@ func _build_brushes() -> void:
 	_size_btn.add_theme_font_size_override("font_size", 24)
 	_size_btn.add_theme_color_override("font_color", INK)
 	_size_btn.add_theme_color_override("font_hover_color", INK)
-	_size_btn.add_theme_color_override("font_pressed_color", INK)
+	_size_btn.add_theme_color_override("font_pressed_color", ON_LIGHT)
+	_size_btn.add_theme_color_override("font_hover_pressed_color", ON_LIGHT)
+	_size_btn.tooltip_text = "Brush size  ([ and ])"
+	var cap := UiKit.eyebrow("Size", Color(1, 1, 1, 0.45), 9)
+	cap.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	cap.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	cap.offset_top = -22
+	cap.offset_bottom = -8
+	_size_btn.add_child(cap)
 	_size_btn.pressed.connect(func():
 		_size_i = (_size_i + 1) % SIZES.size()
 		Sfx.play("click", 0.9 + _size_i * 0.15, -4.0)
@@ -679,6 +658,7 @@ func _on_redo() -> void:
 func _refresh_brushes() -> void:
 	for id in _brush_keys:
 		_brush_keys[id].set_pressed_no_signal(id == island.brush)
+		_tint_key(_brush_keys[id], id == island.brush)
 	island.brush_radius = SIZES[_size_i][1]
 	_size_btn.text = SIZES[_size_i][0]
 	if _road_bar:
@@ -686,15 +666,18 @@ func _refresh_brushes() -> void:
 		for id: String in _road_keys:
 			var k: Button = _road_keys[id]
 			k.set_pressed_no_signal(island.street_kind == id)
+			_tint_key(k, island.street_kind == id)
 			k.modulate.a = 1.0 if island.progress.can_use(id) else 0.5
 	if _level_bar:
 		_level_bar.visible = island.brush == "grow" and not _photo
 		for i in _level_keys.size():
 			_level_keys[i].set_pressed_no_signal(island.grow_level == i + 1)
+			_tint_key(_level_keys[i], island.grow_level == i + 1)
 			_level_keys[i].modulate.a = 1.0 if island.progress.can_use("level%d" % (i + 1)) else 0.5
 		_use_bar.visible = _level_bar.visible
 		for i in _use_keys.size():
 			_use_keys[i].set_pressed_no_signal(island.grow_use == i)
+			_tint_key(_use_keys[i], island.grow_use == i)
 			_use_keys[i].modulate.a = 1.0 if island.progress.can_use(IslandProgress.USE_KEYS[i]) else 0.5
 	if island.brush != "":
 		_help.text = BRUSH_INFO[island.brush][1]
@@ -706,6 +689,78 @@ func _refresh_brushes() -> void:
 				_help.text = "Paint beside a street. %s industry: %s" % [LEVELS[island.grow_level - 1], USES[3][2]]
 	else:
 		_help.text = "Draw streets, or shape the land: pick a brush"
+	_flash_hint()
+
+
+
+# ------------------------------------------------------------------ brush hint
+
+var _hint: PanelContainer
+var _hint_title: Label
+var _hint_text: Label
+var _hint_tw: Tween
+var _hint_said := ""
+
+
+## A slim card just above the tools saying what the brush in hand does; it
+## shows when the brush (or its road, level or district) changes, then fades.
+func _build_hint() -> void:
+	var holder := CenterContainer.new()
+	holder.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	holder.offset_top = -170
+	holder.offset_bottom = -120
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(holder)
+	_hint = PanelContainer.new()
+	_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint.material = _glass_dark
+	_hint.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK, 14, 16, Color(1, 1, 1, 0.12), false))
+	holder.add_child(_hint)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint.add_child(h)
+	_hint_title = UiKit.eyebrow("", ACCENT, 11)
+	_hint_title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(_hint_title)
+	_hint_text = _label("", 14, false, INK)
+	_hint_text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(_hint_text)
+	_hint.visible = false
+
+
+func _flash_hint() -> void:
+	if _hint == null:
+		return
+	var say := "" if island.brush == "" else _help.text
+	if say == _hint_said:
+		return
+	_hint_said = say
+	if _hint_tw:
+		_hint_tw.kill()
+	if say == "" or _photo or _driving:
+		_hint.visible = false
+		return
+	_hint_title.text = BRUSH_INFO[island.brush][0].to_upper()
+	if island.brush == "street":
+		_hint_title.text = ROADS[island.street_kind][0].to_upper()
+	_hint_text.text = say
+	# sits just above whichever option bars are showing
+	var holder := _hint.get_parent() as Control
+	var top := -118.0
+	if _road_bar and _road_bar.visible:
+		top = -188.0
+	if _use_bar and _use_bar.visible:
+		top = -244.0
+	holder.offset_bottom = top - 4.0
+	holder.offset_top = top - 54.0
+	_hint.visible = true
+	_hint.modulate.a = 0.0
+	_hint_tw = create_tween()
+	_hint_tw.tween_property(_hint, "modulate:a", 1.0, 0.18)
+	_hint_tw.tween_interval(3.2)
+	_hint_tw.tween_property(_hint, "modulate:a", 0.0, 0.5)
+	_hint_tw.tween_callback(func(): _hint.visible = false)
 
 
 func _process(delta: float) -> void:
@@ -725,6 +780,19 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
+	# 1-9 pick the brushes in the order the bar shows them, [ and ] the brush size
+	if event is InputEventKey and event.pressed and not event.echo and not event.ctrl_pressed and not _driving and not _photo:
+		var n: int = event.keycode - KEY_1
+		if n >= 0 and n < mini(9, IslandWorld.BRUSHES.size()):
+			(_brush_keys[IslandWorld.BRUSHES[n]] as Button).pressed.emit()
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_BRACKETLEFT or event.keycode == KEY_BRACKETRIGHT:
+			_size_i = clampi(_size_i + (1 if event.keycode == KEY_BRACKETRIGHT else -1), 0, SIZES.size() - 1)
+			Sfx.play("click", 0.9 + _size_i * 0.15, -4.0)
+			_refresh_brushes()
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H and not event.ctrl_pressed:
 		set_photo(not _photo)
 		get_viewport().set_input_as_handled()
@@ -796,30 +864,58 @@ func _key(w: int, h: int) -> Button:
 	var b := Button.new()
 	b.custom_minimum_size = Vector2(w, h)
 	b.toggle_mode = true
+	b.focus_mode = Control.FOCUS_NONE
 	b.material = _glass_light
 	b.pivot_offset = Vector2(w, h) * 0.5
-	b.add_theme_stylebox_override("normal", _glass_box(GLASS, 26, 4))
-	b.add_theme_stylebox_override("hover", _glass_box(Color(0.97, 0.98, 1.0), 26, 4))
-	b.add_theme_stylebox_override("pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
-	b.add_theme_stylebox_override("hover_pressed", _glass_box(Color(1, 0.62, 0.55), 26, 4, Color.WHITE))
-	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, 26, 4))
+	b.add_theme_stylebox_override("normal", _glass_box(GLASS, 20, 4))
+	b.add_theme_stylebox_override("hover", _glass_box(GLASS.lightened(0.16), 20, 4))
+	# picked: lit white like the menu's chosen section, with dark type (see _tint_key)
+	var on := UiKit.box(KEY_ON, 20, 4, Color(0, 0, 0, 0), 0, 14)
+	on.content_margin_top = 2.8
+	on.content_margin_bottom = 2.8
+	b.add_theme_stylebox_override("pressed", on)
+	b.add_theme_stylebox_override("hover_pressed", on)
+	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, 20, 4))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	b.button_down.connect(func(): _squish(b, 0.92))
+	b.button_up.connect(func(): _squish(b, 1.0))
 	return b
+
+
+## Recolours a key's type and icons for picked (dark on white) or not (white on glass),
+## and drops the blur under a picked key so its white stays clean.
+func _tint_key(b: Button, on: bool) -> void:
+	if b.get_meta("on", null) == on:
+		return
+	b.set_meta("on", on)
+	b.material = null if on else _glass_light
+	for c in b.find_children("*", "", true, false):
+		if c is UiIcon:
+			c.color = ON_LIGHT if on else INK
+			c.queue_redraw()
+		elif c is Label and c.get_theme_font_size("font_size") > 10:
+			c.add_theme_color_override("font_color", ON_LIGHT if on else INK)
+		elif c is Label:
+			c.add_theme_color_override("font_color", Color(ON_LIGHT, 0.4) if on else Color(1, 1, 1, 0.45))
+	if on:
+		b.pivot_offset = b.size * 0.5
+		b.scale = Vector2(1.06, 1.06)
+		_squish(b, 1.0)
 
 
 ## A round glass key holding only an icon (menu, undo, redo).
 func _glass_button(px: int, icon := "menu") -> Button:
 	var b := Button.new()
 	b.custom_minimum_size = Vector2(px, px)
+	b.focus_mode = Control.FOCUS_NONE
 	b.material = _glass_light
 	var r := px / 2
 	b.add_theme_stylebox_override("normal", _glass_box(GLASS, r, 0))
-	b.add_theme_stylebox_override("hover", _glass_box(Color(0.97, 0.98, 1.0), r, 0))
-	b.add_theme_stylebox_override("pressed", _glass_box(Color(1, 0.88, 0.84), r, 0, Color.WHITE, false))
-	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, r, 0, Color(1, 1, 1, 0.4), false))
+	b.add_theme_stylebox_override("hover", _glass_box(GLASS.lightened(0.16), r, 0))
+	b.add_theme_stylebox_override("pressed", _glass_box(GLASS.lightened(0.3), r, 0, Color(1, 1, 1, 0.3), false))
+	b.add_theme_stylebox_override("disabled", _glass_box(GLASS, r, 0, Color(1, 1, 1, 0.08), false))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var ic := _icon(icon, int(px * 0.5))
+	var ic := _icon(icon, int(px * 0.46))
 	ic.set_anchors_preset(Control.PRESET_FULL_RECT)
 	b.add_child(ic)
 	b.pivot_offset = Vector2(px, px) * 0.5
@@ -861,7 +957,7 @@ func _build_info() -> void:
 	_info_title = _label("", 20, true, INK)
 	_info_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_info_title)
-	_info_lines = _label("", 14, false, INK)
+	_info_lines = _label("", 14, false, SOFT)
 	_info_lines.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_info_lines)
 	_info.visible = false
@@ -1009,46 +1105,62 @@ func _build_toasts() -> void:
 	_root.add_child(_toasts)
 
 
+## A notice under the top bar. "info" is a quiet glass line, "warn" a slim red
+## pill, "unlock" a dark card with a gold eyebrow and "title" a big accent banner
+## for a new milestone.
 func show_toast(text: String, kind := "info") -> void:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg := GLASS
-	var col := INK
-	var size := 19
-	p.material = _glass_light
-	if kind == "unlock":
-		bg = GLASS_DARK
-		col = Color("ffe9c7")
-		size = 24
-		p.material = _glass_dark
-	elif kind == "title":
-		bg = ACCENT
-		col = Color.WHITE
-		size = 26
-		p.material = _glass_accent
-	elif kind == "warn":
-		# warnings stay small: a slim red pill, not a banner
-		bg = Color(0.85, 0.3, 0.27)
-		col = Color.WHITE
-		size = 13
-		p.material = _glass_accent
-	var warn := kind == "warn"
-	p.add_theme_stylebox_override("panel", _glass_box(bg, 14 if warn else 24, 8 if warn else 18, Color(1, 1, 1, 0.5 if bg == GLASS_DARK else 0.95), not warn))
-	if warn:
-		p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var l := _label(text, size, true, col)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	p.add_child(l)
+	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 12)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(h)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var body := _label(text, 16, true, INK)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size.x = mini(text.length() * 9, 460)
+	match kind:
+		"warn":
+			# warnings stay small: a slim red pill, not a banner
+			p.material = _glass_accent
+			p.add_theme_stylebox_override("panel", _glass_box(Color(0.78, 0.22, 0.2), 14, 14, Color(1, 1, 1, 0.2), false))
+			body.add_theme_font_size_override("font_size", 13)
+			body.custom_minimum_size.x = mini(text.length() * 7, 420)
+		"unlock":
+			p.material = _glass_dark
+			p.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK, 18, 18, Color(GOLD, 0.5)))
+			var ic := _icon("star", 30)
+			ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			h.add_child(ic)
+			col.add_child(UiKit.eyebrow("Unlocked" if not text.begins_with("Goal") else "Goal complete", GOLD, 11))
+			body.text = text.trim_prefix("Goal complete: ")
+			body.add_theme_font_size_override("font_size", 19)
+		"title":
+			p.material = _glass_accent
+			p.add_theme_stylebox_override("panel", _glass_box(ACCENT.darkened(0.08), 22, 24, Color(1, 1, 1, 0.4)))
+			col.add_child(UiKit.eyebrow("New milestone", Color(1, 1, 1, 0.8), 12))
+			body.add_theme_font_size_override("font_size", 24)
+			body.custom_minimum_size.x = mini(text.length() * 13, 520)
+		_:
+			p.material = _glass_light
+			p.add_theme_stylebox_override("panel", _glass_box(GLASS, 16, 16, Color(1, 1, 1, 0.16), false))
+	col.add_child(body)
+	h.add_child(col)
 	_toasts.add_child(p)
-	p.pivot_offset = Vector2(260, 24)
-	p.scale = Vector2(0.6, 0.6)
+	if _toasts.get_child_count() > 4:
+		_toasts.get_child(0).queue_free()
 	p.modulate.a = 0.0
-	var tw := create_tween()
+	p.resized.connect(func(): p.pivot_offset = Vector2(p.size.x * 0.5, 0.0))
+	p.scale = Vector2(0.9, 0.9)
+	var tw := p.create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(p, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(p, "scale", Vector2.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.tween_property(p, "modulate:a", 1.0, 0.2)
-	tw.chain().tween_interval(3.2 if kind != "info" else 2.2)
-	tw.chain().tween_property(p, "modulate:a", 0.0, 0.5)
+	tw.chain().tween_interval(3.4 if kind != "info" else 2.4)
+	tw.chain().tween_property(p, "modulate:a", 0.0, 0.45)
 	tw.chain().tween_callback(p.queue_free)
 
 
