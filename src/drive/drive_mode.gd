@@ -54,6 +54,12 @@ const EYE := Vector3(0.0, 0.305, 0.15)
 ## how far the sun's shadows reach while driving: as far as when looking down
 ## on the town close up, so they never thin out at street level
 const SHADOW_REACH := 85.0
+## the busy streets (DriveCrowd) also fill the middle of the view whenever the
+## orbit camera is down this close over the town, the everyday traffic and
+## townsfolk covering it from further out (a little further to hand back)
+const LIFE_ON := 44.0
+const LIFE_OFF := 50.0
+var _life := false
 
 
 func _ready() -> void:
@@ -177,10 +183,7 @@ func _enter() -> void:
 		car.town = island.town
 		car.material = island.city_mat
 		island.add_child(car)
-		crowd = DriveCrowd.new()
-		crowd.island = island
-		crowd.player = car
-		island.add_child(crowd)
+		_make_crowd()
 		car.obstacle = crowd.hits
 	car.visible = true
 	car.process_mode = Node.PROCESS_MODE_INHERIT
@@ -202,9 +205,9 @@ func _enter() -> void:
 	_look_pitch = 0.0
 	_pad.reset()
 	# the town's everyday traffic and walkers make way for the busy streets round the car
-	for n: Node3D in [island.cars, island.folk]:
-		n.visible = false
-		n.process_mode = Node.PROCESS_MODE_DISABLED
+	_life = false
+	crowd.player = car
+	_everyday(false)
 	crowd.start()
 	_pad.visible = DisplayServer.is_touchscreen_available()
 	_catch.visible = true
@@ -229,11 +232,11 @@ func _leave() -> void:
 	_catch.visible = false
 	_ui.visible = false
 	_engine.stop()
+	# the busy streets stay on round where the car stopped, as the camera is
+	# still down close (see _street_life)
 	if crowd:
-		crowd.stop()
-	for n: Node3D in [island.cars, island.folk]:
-		n.visible = true
-		n.process_mode = Node.PROCESS_MODE_INHERIT
+		crowd.player = null
+	_life = true
 	if car:
 		car.visible = false
 		car.process_mode = Node.PROCESS_MODE_DISABLED
@@ -274,6 +277,7 @@ func set_view(i: int) -> void:
 
 func _process(delta: float) -> void:
 	if not active:
+		_street_life()
 		return
 	_keyboard()
 	_steer_camera(delta)
@@ -298,6 +302,40 @@ func _process(delta: float) -> void:
 	var k := clampf(World.SHADOW_NEAR_REACH / SHADOW_REACH, 0.3, 1.0)
 	island.sun.shadow_blur = World.SHADOW_BLUR * k
 	island.sun.shadow_normal_bias = World.SHADOW_NORMAL_BIAS * maxf(k, 0.5)
+
+
+func _make_crowd() -> void:
+	if crowd:
+		return
+	crowd = DriveCrowd.new()
+	crowd.island = island
+	island.add_child(crowd)
+
+
+## The town's own traffic and walkers, shown (or making way for the crowd).
+func _everyday(on: bool) -> void:
+	for n: Node3D in [island.cars, island.folk]:
+		if n:
+			n.visible = on
+			n.process_mode = Node.PROCESS_MODE_INHERIT if on else Node.PROCESS_MODE_DISABLED
+
+
+## Out of the car: busy streets round the middle of the view when the camera
+## is down close, the everyday traffic when it is further out.
+func _street_life() -> void:
+	if island == null or island.rig == null or island.streets == null:
+		return
+	var d := island.rig.dist
+	var want := island.is_visible_in_tree() and (d <= LIFE_ON or (_life and d <= LIFE_OFF))
+	if want == _life:
+		return
+	_life = want
+	_make_crowd()
+	_everyday(not want)
+	if want:
+		crowd.start()
+	else:
+		crowd.stop()
 
 
 ## Drags turn the camera round the car and tilt it, pinches and the wheel
