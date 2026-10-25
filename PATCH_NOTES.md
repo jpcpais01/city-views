@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-25 01:00 UTC
+- The Coast map is much bigger, 672 m across instead of 384: all the land you can see is yours to build on, and it ends in a natural shore of beaches and coves on three sides, with the open sea on the fourth.
+- Streets the town grows through parks and green areas are now paved walks for people only, with no cars, and where three or more walks meet there is a little square with a fountain.
+- Highways look the part: a concrete crash barrier down the middle, steel guardrails on posts along both edges, and every so often a gantry of green direction signs over both carriageways.
+- Overpasses: a street you draw across a highway no longer meets it at a crossroads. It rises on ramps and crosses over on a concrete deck with a pier on the median, so the highway runs on underneath. Draw a highway across your streets and they lift over it; rub it out and they come back down.
+
 ## 2026-10-25 00:15 UTC
 - The whole HUD wears the new look: dark smoked glass with crisp white type, so the city's colours stand out around it. The brush you hold lights up white, like the menu's chosen section.
 - A short card above the tools now says what the brush in hand does whenever you pick a brush, a road, a level or a district.
