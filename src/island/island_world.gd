@@ -40,6 +40,9 @@ var grow_level := 2
 var grow_use := 0
 ## what the Street brush lays: "main", "avenue" or "highway" (Streets.DRAWN)
 var street_kind := "main"
+## the Street brush changes roads already there to street_kind instead of
+## laying new ones: drag along them (or tap one) to raise or lower them
+var street_change := false
 var island_seed := 0
 ## what the player calls this island (empty: the default name)
 var island_name := ""
@@ -78,6 +81,12 @@ var _mouse_buttons := 0
 var _undo: Array = []
 var _redo: Array = []
 var _stroke_did := false
+## Change mode: the roads the finger went along, street id -> [Street, from, to]
+## samples, and what changing them would do: [[Street, a, b]], net coins
+var _change_hits := {}
+var change_plan: Array = []
+var change_cost := 0.0
+var _change_hover := Vector2(INF, INF)
 ## a glow over the building last tapped, while its card shows
 var _picked: MeshInstance3D
 var _picked_tw: Tween
@@ -576,6 +585,8 @@ func _process(delta: float) -> void:
 			_extend_path(_ring_at)
 		else:
 			_apply_brush(_ring_at, delta)
+	elif brush == "street" and street_change and not _stroke:
+		_hover_change()
 	advance_time(delta)
 	_update_sky()
 	# the lighthouse beam shines in the air only: no light patches swept over the ground and sea
@@ -768,7 +779,9 @@ func _make_ring() -> void:
 func _draw_ring() -> void:
 	_ring_mesh.clear_surfaces()
 	var w := 0.12 + rig.dist * 0.004
-	if brush == "street" and _path.size() >= 2:
+	if brush == "street" and street_change:
+		_draw_change()
+	elif brush == "street" and _path.size() >= 2:
 		# the line being drawn, as a soft ribbon the width of the street
 		var hw: float = Streets.KINDS[street_kind].w
 		_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
@@ -782,6 +795,8 @@ func _draw_ring() -> void:
 		_ring_mesh.surface_end()
 	if brush == "" or _ring_at == null:
 		return
+	if brush == "street" and street_change and _stroke:
+		return
 	var at: Vector3 = _ring_at
 	# Grow and Green show green where the town can spread, amber where no
 	# street is near enough to grow from
@@ -790,6 +805,8 @@ func _draw_ring() -> void:
 		tint = Color(0.55, 1.0, 0.6, 0.9) if can_grow_at(Vector2(at.x, at.z)) else Color(1.0, 0.72, 0.35, 0.9)
 	elif brush == "magic":
 		tint = Color(1.0, 0.85, 0.4, 0.95)
+	elif brush == "street" and street_change:
+		tint = _change_tint()
 	(_ring.material_override as StandardMaterial3D).albedo_color = tint
 	var segs := 48
 	var radius := _ring_radius()
@@ -888,6 +905,7 @@ func _begin_stroke(screen: Vector2) -> void:
 	_stroke_lo = Vector2(INF, INF)
 	_stroke_hi = Vector2(-INF, -INF)
 	_path = PackedVector2Array()
+	_change_hits.clear()
 	if brush == "street":
 		_extend_path(_ring_at)
 	elif brush == "grow" or brush == "green":
@@ -902,7 +920,12 @@ func _end_stroke() -> void:
 	if not _stroke:
 		return
 	_stroke = false
-	if brush == "street":
+	if brush == "street" and street_change:
+		_stroke_did = _apply_change()
+		_path = PackedVector2Array()
+		_change_hits.clear()
+		_change_hover = Vector2(INF, INF)
+	elif brush == "street":
 		var cost := _path_length(_path) * IslandProgress.STREET_COST * float(Streets.DRAWN[street_kind])
 		if progress.coins < cost:
 			note.emit("Not enough coins for that %s (%d)" % ["street" if street_kind == "main" else street_kind, ceili(cost)], "warn")
@@ -1004,6 +1027,159 @@ func _extend_path(at: Vector3) -> void:
 	var p := Vector2(at.x, at.z)
 	if _path.is_empty() or _path[_path.size() - 1].distance_to(p) > 0.4:
 		_path.append(p)
+		if street_change:
+			_touch_change(_path.size() - 1)
+			_plan_change()
+
+
+# ------------------------------------------------------------------ changing roads
+
+## what a metre of each kind costs, compared with a street (Streets.DRAWN);
+## lowering a road gives back half of what raising it cost
+const GRADE_COST := {"side": 0.6, "main": 1.0, "avenue": 2.5, "highway": 4.0}
+const REFUND := 0.5
+
+
+## Marks the road under path point i. Dragging, only a road running the way
+## the finger goes counts, so crossing a junction leaves the cross street be.
+func _touch_change(i: int) -> void:
+	var p := _path[i]
+	var dir := Vector2.ZERO
+	if i > 0:
+		dir = (p - _path[maxi(i - 3, 0)]).normalized()
+	var best: Streets.Street = null
+	var bd := INF
+	var bf := 0.0
+	for st: Streets.Street in streets.streets:
+		if not Streets.gradable(st) or not st.near_box(p, st.reach() + 0.8):
+			continue
+		var c: Vector3 = st.closest(p)
+		if c.x > st.reach() + 0.8 or c.x >= bd:
+			continue
+		if dir != Vector2.ZERO:
+			var k := clampi(int(c.z), 0, st.pts.size() - 2)
+			if absf((st.pts[k + 1] - st.pts[k]).normalized().dot(dir)) < 0.6:
+				continue
+		bd = c.x
+		best = st
+		bf = c.z
+	if best == null:
+		return
+	var h: Array = _change_hits.get(best.id, [best, bf, bf])
+	h[1] = minf(h[1], bf)
+	h[2] = maxf(h[2], bf)
+	_change_hits[best.id] = h
+
+
+## What changing the marked roads to street_kind would do, and cost.
+func _plan_change() -> void:
+	change_plan = []
+	change_cost = 0.0
+	for id in _change_hits:
+		var h: Array = _change_hits[id]
+		var st: Streets.Street = h[0]
+		if not st in streets.streets or st.kind == street_kind:
+			continue
+		var r := streets.stretch(st, h[1], h[2])
+		change_plan.append([st, r.x, r.y])
+		var d: float = GRADE_COST[street_kind] - GRADE_COST[st.kind]
+		var cost := (r.y - r.x) * Streets.SAMPLE * IslandProgress.STREET_COST * d
+		change_cost += cost if d > 0.0 else cost * REFUND
+
+
+## With a mouse, the road under the pointer shows what a click would change.
+func _hover_change() -> void:
+	if _ring_at == null:
+		if not change_plan.is_empty():
+			change_plan = []
+			change_cost = 0.0
+		return
+	var p := Vector2(_ring_at.x, _ring_at.z)
+	if p.distance_to(_change_hover) < 0.3:
+		return
+	_change_hover = p
+	_change_hits.clear()
+	_path = PackedVector2Array([p])
+	_touch_change(0)
+	_plan_change()
+	_path = PackedVector2Array()
+	_change_hits.clear()
+
+
+## Green where a road goes up, amber where it comes down, red if the coins
+## don't stretch to it.
+func _change_tint() -> Color:
+	if change_cost > progress.coins:
+		return Color(1.0, 0.45, 0.4, 0.9)
+	return Color(0.55, 1.0, 0.6, 0.9) if change_raises() else Color(1.0, 0.75, 0.4, 0.9)
+
+
+## Whether the planned change raises some road (rather than only lowering).
+func change_raises() -> bool:
+	for c: Array in change_plan:
+		if Streets.GRADES.find(street_kind) > Streets.GRADES.find(c[0].kind):
+			return true
+	return change_plan.is_empty()
+
+
+## The stretches about to change, as ribbons the width of the new road.
+func _draw_change() -> void:
+	if change_plan.is_empty():
+		return
+	(_ring.material_override as StandardMaterial3D).albedo_color = _change_tint()
+	var hw: float = Streets.KINDS[street_kind].w + Streets.PAVE * 0.5
+	for c: Array in change_plan:
+		var st: Streets.Street = c[0]
+		var a := int(c[1])
+		var b := mini(int(ceil(c[2])), st.pts.size() - 1)
+		if b - a < 1:
+			continue
+		_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+		for i in range(a, b + 1):
+			var t := (st.pts[mini(i + 1, b)] - st.pts[maxi(i - 1, a)]).normalized()
+			var side := Vector2(-t.y, t.x) * hw
+			for q in [st.pts[i] - side, st.pts[i] + side]:
+				_ring_mesh.surface_add_vertex(Vector3(q.x, st.ys[i] + 0.14, q.y))
+		_ring_mesh.surface_end()
+
+
+## Changes the roads the stroke went along. Whether any changed.
+func _apply_change() -> bool:
+	if _path.is_empty():
+		return false
+	_plan_change()
+	if change_plan.is_empty():
+		return false
+	var name := _kind_name(street_kind)
+	if change_cost > progress.coins:
+		note.emit("Not enough coins to make that a %s (%d)" % [name, ceili(change_cost)], "warn")
+		Sfx.play("error", 1.0, -6.0)
+		return false
+	var done := false
+	var up := change_raises()
+	for c: Array in change_plan:
+		var st: Streets.Street = c[0]
+		# (a road changed before it may have taken this one's end off)
+		if not st in streets.streets:
+			continue
+		if not streets.rekind(st, street_kind, c[1], c[2]).is_empty():
+			done = true
+	if not done:
+		return false
+	if change_cost >= 0.0:
+		progress.spend(change_cost)
+	else:
+		progress.add_coins(-change_cost)
+	Sfx.play("unlock" if up else "road", 1.2 if up else 0.85, -6.0, 0.05)
+	Sfx.play("road", 1.0, -4.0)
+	change_plan = []
+	change_cost = 0.0
+	_save_timer = 1.0
+	return true
+
+
+static func _kind_name(kind: String) -> String:
+	return {"side": "lane", "main": "street"}.get(kind, kind)
 
 
 func _unhandled_input(event: InputEvent) -> void:

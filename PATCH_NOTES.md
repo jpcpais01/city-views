@@ -1,5 +1,11 @@
 # City Views patch notes
 
+## 2026-10-25 03:00 UTC
+- Change roads you already built: with the Street brush, tap Change, pick Lane, Street, Avenue or Highway, then drag along a road or tap it. The stretch between the junctions either side lights up with what it will cost, and lets go into the new road as you lift your finger.
+- Raising a road costs only the difference, and lowering one gives half of that back. Avenues and highways still unlock at 150 and 400 residents.
+- Everything follows the new road: houses along it stay where there is room, bridges, quays, street lights and traffic lanes change with it, a street made a highway lifts the streets crossing it onto overpasses (with interchanges for main streets and avenues), and back streets pull back from it. Make a highway a street again and the crossings come back down to meet it.
+- Undo, saves and co-op all keep up with changed roads.
+
 ## 2026-10-25 02:00 UTC
 - Interchanges: draw a main street or an avenue across a highway and a diamond interchange builds itself, with a slip road in each corner leaving the highway alongside its outer lane and climbing to a crossroads on the street either side of the bridge. Cars use them to get on and off the highway.
 - Where two highways cross, one now flies over the other, and a full cloverleaf appears: a loop in each corner and a sweeping ramp round the outside of it, linking every direction.

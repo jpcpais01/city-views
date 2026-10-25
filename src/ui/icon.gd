@@ -75,6 +75,22 @@ func _draw() -> void:
 					draw_rect(Rect2(P.call(x, 0.4 + i * 0.2), Vector2(0.035, 0.1) * s), Color(1, 1, 1, 0.85))
 			_rr(Rect2(P.call(0.14, 0.12), Vector2(0.72, 0.2) * s), 0.04 * s, Color("2f6fb5"))
 			draw_rect(Rect2(P.call(0.24, 0.19), Vector2(0.52, 0.05) * s), Color(1, 1, 1, 0.9))
+		"road_side":
+			# a narrow lane, no lines down it, a lamp beside
+			_rr(Rect2(P.call(0.34, 0.08), Vector2(0.32, 0.84) * s), 0.08 * s, Color(0.4, 0.42, 0.46))
+			_rr(Rect2(P.call(0.24, 0.08), Vector2(0.08, 0.84) * s), 0.04 * s, Color("cfc4b2"))
+			_rr(Rect2(P.call(0.68, 0.08), Vector2(0.08, 0.84) * s), 0.04 * s, Color("cfc4b2"))
+			_circle(P.call(0.86, 0.26), 0.06 * s, Color("ffd36e"))
+			draw_rect(Rect2(P.call(0.845, 0.31), Vector2(0.03, 0.55) * s), Color("4a4f57"))
+		"road_change":
+			# a road with arrows up and down beside it
+			_rr(Rect2(P.call(0.08, 0.08), Vector2(0.36, 0.84) * s), 0.08 * s, Color(0.36, 0.38, 0.43))
+			for i in 3:
+				draw_rect(Rect2(P.call(0.235, 0.16 + i * 0.27), Vector2(0.05, 0.15) * s), Color(1, 0.95, 0.8))
+			draw_colored_polygon(PackedVector2Array([P.call(0.72, 0.08), P.call(0.92, 0.32), P.call(0.52, 0.32)]), a)
+			draw_rect(Rect2(P.call(0.67, 0.3), Vector2(0.1, 0.16) * s), a)
+			draw_colored_polygon(PackedVector2Array([P.call(0.72, 0.92), P.call(0.92, 0.68), P.call(0.52, 0.68)]), c)
+			draw_rect(Rect2(P.call(0.67, 0.54), Vector2(0.1, 0.16) * s), c)
 		"house":
 			draw_colored_polygon(PackedVector2Array([P.call(0.12, 0.5), P.call(0.5, 0.14), P.call(0.88, 0.5)]), Color("e0684f"))
 			_rr(Rect2(P.call(0.22, 0.48), Vector2(0.56, 0.4) * s), 0.06 * s, Color("fbefd9"))

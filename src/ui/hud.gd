@@ -21,6 +21,8 @@ const ICONS := {"street": "road", "grow": "house", "green": "park", "clear": "bu
 const SIZES := [["S", 1.5], ["M", 3.33], ["L", 8.5]]
 ## what the Street brush can lay: id -> [name, help]
 const ROADS := {
+	# (only in Change mode: a back street like the ones the town grows itself)
+	"side": ["Lane", "Drag along roads to calm them into quiet lanes, like the town's own back streets"],
 	"main": ["Street", "Draw a line: the street lays itself over the land"],
 	"avenue": ["Avenue", "A wide boulevard with a planted middle: side streets branch off it and shops line it"],
 	"highway": ["Highway", "Four fast lanes across the country: no houses along it, no side streets off it"],
@@ -39,6 +41,10 @@ var _size_i := 1
 var _level_bar: Control
 var _road_bar: Control
 var _road_keys := {}
+var _change_key: Button
+## what the Change mode's stroke would cost, floating over the road
+var _change_tag: PanelContainer
+var _change_label: Label
 var _level_keys: Array[Button] = []
 var _use_keys: Array[Button] = []
 var _use_bar: Control
@@ -556,6 +562,69 @@ func _build_roads() -> void:
 		row.add_child(b)
 		_road_keys[id] = b
 		i += 1
+	# Change: raise or lower roads already there to the kind picked
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(6, 0)
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(gap)
+	_change_key = _key(116, 50)
+	var ch := HBoxContainer.new()
+	ch.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ch.alignment = BoxContainer.ALIGNMENT_CENTER
+	ch.add_theme_constant_override("separation", 4)
+	ch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_change_key.add_child(ch)
+	var ci := _icon("road_change", 34)
+	ci.custom_minimum_size = Vector2(34, 34)
+	ch.add_child(ci)
+	ch.add_child(_label("Change", 14, true, INK))
+	_change_key.pressed.connect(func():
+		island.street_change = not island.street_change
+		if not island.street_change and island.street_kind == "side":
+			island.street_kind = "main"
+		island.change_plan = []
+		Sfx.play("click", 1.3 if island.street_change else 1.0, -4.0)
+		_refresh_brushes())
+	row.add_child(_change_key)
+	_build_change_tag()
+
+
+## The cost of a Change stroke, in a little glass tag over the road.
+func _build_change_tag() -> void:
+	_change_tag = PanelContainer.new()
+	_change_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_change_tag.material = _glass_dark
+	_change_tag.add_theme_stylebox_override("panel", _glass_box(GLASS_DARK, 12, 12, Color(1, 1, 1, 0.12), false))
+	_change_label = _label("", 14, true, INK)
+	_change_tag.add_child(_change_label)
+	_change_tag.visible = false
+	_root.add_child(_change_tag)
+
+
+func _tick_change_tag() -> void:
+	var show := island.brush == "street" and island.street_change and not island.change_plan.is_empty() \
+		and island._ring_at != null and not _photo and not _driving
+	_change_tag.visible = show
+	if not show:
+		return
+	var cost := island.change_cost
+	var what: String = ROADS[island.street_kind][0]
+	if cost > island.progress.coins:
+		_change_label.text = "%s  ·  need %d coins" % [what, ceili(cost)]
+		_change_label.add_theme_color_override("font_color", ACCENT)
+	elif cost >= 0.0:
+		_change_label.text = "%s  ·  %d coins" % [what, ceili(cost)]
+		_change_label.add_theme_color_override("font_color", INK)
+	else:
+		_change_label.text = "%s  ·  +%d back" % [what, floori(-cost)]
+		_change_label.add_theme_color_override("font_color", MINT)
+	_change_tag.reset_size()
+	var at: Vector3 = island._ring_at
+	var cam := island.rig.cam
+	if cam.is_position_behind(at):
+		_change_tag.visible = false
+		return
+	_change_tag.global_position = cam.unproject_position(at) - Vector2(_change_tag.size.x * 0.5, _change_tag.size.y + 64.0)
 
 
 ## While the Grow brush is in hand: how far the town may grow up where it is
@@ -668,6 +737,10 @@ func _refresh_brushes() -> void:
 			k.set_pressed_no_signal(island.street_kind == id)
 			_tint_key(k, island.street_kind == id)
 			k.modulate.a = 1.0 if island.progress.can_use(id) else 0.5
+			if id == "side":
+				k.visible = island.street_change
+		_change_key.set_pressed_no_signal(island.street_change)
+		_tint_key(_change_key, island.street_change)
 	if _level_bar:
 		_level_bar.visible = island.brush == "grow" and not _photo
 		for i in _level_keys.size():
@@ -683,6 +756,8 @@ func _refresh_brushes() -> void:
 		_help.text = BRUSH_INFO[island.brush][1]
 		if island.brush == "street":
 			_help.text = ROADS[island.street_kind][1]
+			if island.street_change and island.street_kind != "side":
+				_help.text = "Drag along roads, or tap one, to make them %s: between junctions, paying the difference" % ("streets" if island.street_kind == "main" else island.street_kind + "s")
 		if island.brush == "grow":
 			_help.text = "Paint beside a street. %s %s: %s" % [LEVELS[island.grow_level - 1], USES[island.grow_use][0].to_lower(), LEVEL_INFO[island.grow_level - 1]]
 			if island.grow_use == 3:
@@ -744,6 +819,8 @@ func _flash_hint() -> void:
 	_hint_title.text = BRUSH_INFO[island.brush][0].to_upper()
 	if island.brush == "street":
 		_hint_title.text = ROADS[island.street_kind][0].to_upper()
+		if island.street_change:
+			_hint_title.text = "CHANGE TO " + _hint_title.text
 	_hint_text.text = say
 	# sits just above whichever option bars are showing
 	var holder := _hint.get_parent() as Control
@@ -771,6 +848,8 @@ func _process(delta: float) -> void:
 	_coin_label.text = _short(_coins_shown)
 	if _goals.visible and _goals_open:
 		_tick_goals()
+	if _change_tag:
+		_tick_change_tag()
 	if _fps_label.visible:
 		_fps_time += delta
 		if _fps_time >= 0.5:
