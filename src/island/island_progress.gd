@@ -18,7 +18,7 @@ const TITLES := [[0, "Hamlet", 0], [150, "Village", 60], [600, "Town", 150], [15
 	[100000, "Global City", 6000]]
 ## residents needed before a brush, road, district or Grow level can be used
 const UNLOCK := {"green": 60, "smooth": 150, "flatten": 300, "shops": 300, "industry": 600, "magic": 600, "avenue": 750,
-	"entertainment": 1200, "offices": 1500, "highway": 2000, "level5": 2500, "level6": 5000, "level7": 20000}
+	"entertainment": 1200, "offices": 1500, "level5": 2500, "level6": 5000, "level7": 20000}
 ## the districts, in Land.USES order, and what unlocks each (homes always open)
 const USE_KEYS := ["homes", "shops", "offices", "industry", "entertainment"]
 const START_COINS := 300.0

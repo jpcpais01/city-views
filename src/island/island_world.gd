@@ -38,12 +38,18 @@ var brush_radius := 5.0
 var grow_level := 2
 ## the district the Grow brush paints (Land.USES): homes, shops, offices or industry
 var grow_use := 0
-## what the Street brush lays: "main", "avenue" or "highway" (Streets.DRAWN)
+## what the Street brush lays: "main" or "avenue" (highways come with the
+## map, see plan_highways)
 var street_kind := "main"
 ## the Street brush changes roads already there to street_kind instead of
 ## laying new ones: drag along them (or tap one) to raise or lower them
 var street_change := false
 var island_seed := 0
+## the seed the map's highway network was planned from (see HighwayPlan); 0
+## where it wasn't (islands saved with highways the player drew themselves)
+var highway_seed := 0
+## whether a new map comes with its highways (tests that lay their own turn it off)
+static var auto_highways := true
 ## what the player calls this island (empty: the default name)
 var island_name := ""
 const NAME_MAX := 24
@@ -212,7 +218,12 @@ func new_island(s: int, map_kind := "river") -> void:
 	_use_size(Land.size_for(map_kind))
 	town.clear()
 	town.keep_stages({})
-	land.generate(s, map_kind)
+	land.generate(s, map_kind, false)
+	if auto_highways:
+		plan_highways(default_highway_seed())
+	else:
+		highway_seed = 0
+	land.finish()
 	_update_maps()
 	cars.clear()
 	folk.clear()
@@ -250,6 +261,47 @@ func _use_size(metres: int) -> void:
 		rig.limit = Land.HALF - 8.0
 
 
+## The map's own highway network, the first one it comes with: the same for
+## everyone on the same map (co-op builders work out the same one).
+func default_highway_seed() -> int:
+	return posmod(island_seed * 7919 + 104729, 999983) + 1
+
+
+## Plans the map's highway network from a seed and lays it, in place of the
+## highways there were. Returns how many highways it has.
+func plan_highways(seed_value: int) -> int:
+	streets.clear_highways()
+	highway_seed = seed_value
+	var keep: Array = []
+	for st: Streets.Street in streets.streets:
+		if not st.auto and st.kind != "highway":
+			keep.append(st.pts)
+	var lines := HighwayPlan.make(land, seed_value, keep)
+	for k in lines.size():
+		streets.lay_highway(lines[k], "hw%d_%d" % [seed_value, k])
+	_shore_dirty = true
+	_coast_dirty = true
+	return lines.size()
+
+
+## Rolls a new highway network for the map (the Road tool's Reroll key), as
+## many times as the player likes; undo brings the last one back.
+func reroll_highways() -> int:
+	if _stroke:
+		return 0
+	_undo.append(snapshot())
+	if _undo.size() > HISTORY:
+		_undo.pop_front()
+	_redo.clear()
+	var seed_value := highway_seed
+	while seed_value == highway_seed:
+		seed_value = randi() % 999983 + 1
+	var count := plan_highways(seed_value)
+	history_changed.emit()
+	_save_timer = 1.0
+	return count
+
+
 ## Your own island again (after leaving a co-op room).
 func load_own() -> void:
 	sync.end()
@@ -259,7 +311,7 @@ func load_own() -> void:
 func to_dict() -> Dictionary:
 	return {"v": SAVE_VERSION, "map": land.kind, "size": int(Land.SIZE), "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
 		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(), "level": land.level_edits(),
-		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name}
+		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name, "hw": highway_seed}
 
 
 func _apply_save(data: Dictionary) -> void:
@@ -301,6 +353,13 @@ func _apply_save(data: Dictionary) -> void:
 	land.apply_green(gn if gn is Dictionary else {})
 	var lv: Variant = data.get("level", {})
 	land.apply_level(lv if lv is Dictionary else {})
+	highway_seed = int(data.get("hw", -1))
+	if highway_seed < 0:
+		# saved before highways came with the map (or a co-op room's island):
+		# its network, unless it has highways of its own already
+		highway_seed = 0
+		if auto_highways and not streets.streets.any(func(o): return o.kind == "highway"):
+			plan_highways(default_highway_seed())
 	land.finish()
 	var mk: Variant = data.get("marks", {})
 	landmarks.from_dict(mk if mk is Dictionary else {})
@@ -641,7 +700,8 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 		"clear":
 			BrushMask.clear(land, c, r * 0.6)
 			town.zone_changed(c, r * 0.6)
-			if streets.erase_at(c, r * 0.6):
+			# (the map's highways stay: the Road tool's Reroll plans new ones)
+			if streets.erase_at(c, r * 0.6, true):
 				Sfx.play("bulldoze", 1.0, -8.0, 0.1)
 			_save_timer = 1.0
 			return
@@ -1177,7 +1237,8 @@ func _touch_change(i: int) -> void:
 	var bd := INF
 	var bf := 0.0
 	for st: Streets.Street in streets.streets:
-		if not Streets.gradable(st) or not st.near_box(p, st.reach() + 0.8):
+		# (the map's highways stay as they were planned)
+		if not Streets.gradable(st) or st.kind == "highway" or not st.near_box(p, st.reach() + 0.8):
 			continue
 		var c: Vector3 = st.closest(p)
 		if c.x > st.reach() + 0.8 or c.x >= bd:

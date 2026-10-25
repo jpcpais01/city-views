@@ -210,6 +210,58 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	var s := _new_street()
 	s.kind = kind
 	s.pts = pts
+	return _lay(s)
+
+
+## Lays a highway of the map's network (see HighwayPlan) along exactly the
+## line given, already smooth, named `key`. The back streets and walks in its
+## way stop short of it, as they would of any highway.
+func lay_highway(line: PackedVector2Array, key: String) -> Street:
+	var pts := _resample(line, SAMPLE)
+	if pts.size() < 3:
+		return null
+	var s := _new_street()
+	s.key = key
+	s.kind = "highway"
+	s.pts = pts
+	_lay(s)
+	_clear_off(s)
+	return s
+
+
+## Takes up every highway (and their interchanges), easing the ground they
+## were cut and banked into back to how the land lay, for a new network. The
+## streets that flew over them come back down.
+func clear_highways() -> void:
+	var gone: Array = streets.filter(func(o): return o.kind == "highway")
+	if gone.is_empty():
+		return
+	var flew := {}
+	for h: Street in gone:
+		for o: Street in _touching(h):
+			if o.kind != "highway" and not o.auto and _flies(o, h):
+				flew[o] = true
+	for h: Street in gone:
+		land.renature(h.pts, h.w() + PAVE + 3.0)
+	for r: Street in streets:
+		if r.kind == "ramp":
+			land.renature(r.pts, r.w() + PAVE + 5.0)
+	for h: Street in gone:
+		_take_up(h)
+	_refresh_ramps()
+	for o: Street in flew:
+		if o in streets:
+			_grade(o)
+			_conform(o)
+			_reconform_near(o)
+			_build_later(o)
+	_junctions_dirty = true
+	changed.emit()
+
+
+## Lays a new street along its points: graded, the ground shaped to it, and
+## everything round it made to fit.
+func _lay(s: Street) -> Street:
 	s.update_bounds()
 	_grade(s)
 	streets.append(s)
@@ -236,12 +288,13 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	return s
 
 
-## Removes street within `radius` of p, splitting streets that pass through.
-func erase_at(p: Vector2, radius: float) -> bool:
+## Removes street within `radius` of p, splitting streets that pass through
+## (but for the map's highways, with `spare_highways`).
+func erase_at(p: Vector2, radius: float, spare_highways := false) -> bool:
 	var hit := false
 	for s in streets.duplicate():
 		# an interchange's ramps go with the street that has them
-		if s.auto or not s.near_box(p, radius + s.reach()):
+		if s.auto or not s.near_box(p, radius + s.reach()) or (spare_highways and s.kind == "highway"):
 			continue
 		var pieces: Array = []
 		var cur := PackedVector2Array()
@@ -393,12 +446,16 @@ func _grade(s: Street) -> void:
 			continue
 		var best := Vector3(INF, 0, 0)
 		var bi := -1
+		var meet: float = o.w() + 0.2 + (s.w() + 0.1 if _merges(s, o) else 0.0)
 		for i in n:
+			# (only samples close enough to meet it can, and most are far)
+			if not o.within(s.pts[i], meet):
+				continue
 			var c: Vector3 = o.closest(s.pts[i])
 			if c.x < best.x:
 				best = c
 				bi = i
-		if bi < 0 or best.x > o.w() + 0.2 + (s.w() + 0.1 if _merges(s, o) else 0.0):
+		if bi < 0 or best.x > meet:
 			continue
 		var shift: float = best.y - ys[bi]
 		for i in n:
@@ -589,16 +646,35 @@ func _touching(s: Street) -> Array:
 
 func _reconform_near(s: Street) -> void:
 	for o in _touching(s):
+		# only the stretch of it near s (a long highway's far end is as it was)
+		# (as far as the banks of s can reach, its ramps' eased out widest)
+		var r: float = s.reach() + o.reach() + 4.5 + Land.STEP + 6.0
+		var a := -1
+		var b := -1
+		for i in o.pts.size():
+			if s.near_box(o.pts[i], r):
+				if a < 0:
+					a = i
+				b = i
+		if a < 0:
+			continue
+		a = maxi(a - 1, 0)
+		b = mini(b + 1, o.pts.size() - 1)
+		if b - a < 1:
+			continue
 		# a grid step past the pavement too, so the ground can't rise over its edge in between
-		_lower_onto(o)
+		_lower_onto(o, a, b)
 
 
 ## Takes the ground down to a street wherever it rises over its edges (as a
 ## neighbour's banks can), except over its tunnels.
-func _lower_onto(s: Street) -> void:
-	var start := 0
-	var n := s.pts.size()
+## Only samples a to b, when given.
+func _lower_onto(s: Street, a := 0, b := -1) -> void:
+	var start := a
+	var n := s.pts.size() if b < 0 else b + 1
 	for t in s.tunnels + PackedVector2Array([Vector2(n, n)]):
+		if t.y <= start:
+			continue
 		var stop := mini(int(t.x), n - 1)
 		if stop - start >= 1:
 			land.conform(s.pts.slice(start, stop + 1), s.ys.slice(start, stop + 1), s.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
@@ -1070,6 +1146,8 @@ func _build(s: Street) -> void:
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
 	if verge and not _laying.has(s.id):
 		_highway_kit(s, buf, upto, skip + s.tunnels)
+		if s.kind == "highway":
+			_beyond(s, buf)
 		for t in s.tunnels:
 			if t.x <= upto:
 				_portal(s, buf, t.x, 1.0)
@@ -1604,6 +1682,60 @@ func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 
 ## A highway's guardrail posts, and now and then a gantry of direction signs
 ## over both carriageways.
+## how far a highway leaving the map runs on into the country beyond it
+const BEYOND := 300.0
+const BEYOND_STEP := 8.0
+
+
+## A highway that leaves the map runs on into the country past its edge (the
+## horizon's land) instead of stopping short: both carriageways, the planted
+## strip between them and the verges, rising and falling with the far land,
+## on piers where it carries on over the sea, out until the haze takes it.
+func _beyond(s: Street, buf: MeshBuf) -> void:
+	var n := s.pts.size()
+	var w := s.w()
+	var median: float = KINDS[s.kind].median
+	var asphalt := Palette.ASPHALT.darkened(0.05)
+	var kerb := Palette.SIDEWALK.darkened(0.12)
+	var reach := minf(BEYOND, Land.FAR - BEYOND_STEP)
+	for e: int in [0, n - 1]:
+		var p := s.pts[e]
+		if maxf(absf(p.x), absf(p.y)) < Land.HALF - 2.0:
+			continue
+		var dir := (p - s.pts[1 if e == 0 else n - 2]).normalized()
+		var nrm := Vector2(-dir.y, dir.x)
+		var y := s.ys[e] + 0.03
+		var along := (n - 1) * SAMPLE if e == n - 1 else 0.0
+		var t := 0.0
+		while t < reach:
+			var t1 := t + BEYOND_STEP
+			var p0 := p + dir * t
+			var p1 := p + dir * t1
+			var g := land.natural_at(p1)
+			# on the far land just over it; over the sea on a deck, as on the map
+			var want := g + 0.15 if g > 0.05 else DECK + 0.03
+			var y1 := clampf(want, y - KINDS.highway.grade * BEYOND_STEP, y + KINDS.highway.grade * BEYOND_STEP)
+			var s0 := along + t
+			var s1 := along + t1
+			for side: float in [-1.0, 1.0]:
+				var a := p0 + nrm * side * w
+				var b := p0 + nrm * side * median
+				var c := p1 + nrm * side * median
+				var d := p1 + nrm * side * w
+				buf.road(Vector3(a.x, y, a.y), Vector3(b.x, y, b.y), Vector3(c.x, y1, c.y), Vector3(d.x, y1, d.y), asphalt, MeshKit.ASPHALT_HIGHWAY, s0, s1)
+				# the verge, and its edge well down into the ground
+				var o3 := Vector3(nrm.x, 0.0, nrm.y) * side
+				_band(buf, p0, nrm, y, p1, nrm, y1, side * w, 0.0, side * (w + 0.3), 0.0, kerb, 0.0, Vector3.UP)
+				_band(buf, p0, nrm, y, p1, nrm, y1, side * (w + 0.3), 0.0, side * (w + 0.5), -1.2, kerb.darkened(0.1), 0.0, o3 + Vector3.UP)
+			_band(buf, p0, nrm, y, p1, nrm, y1, -median, CURB, median, CURB, Palette.VERGE, MeshKit.MOWN_X, Vector3.UP)
+			if g <= 0.05 and fmod(t1, BEYOND_STEP * 3.0) < 0.01:
+				# a pier under the deck, down into the water
+				var top := y1 - DECK_DEPTH
+				buf.box(Vector3(p1.x, (top + Land.LOW) * 0.5, p1.y), Vector3(0.5, top - Land.LOW, w * 1.6), Vector3(dir.x, 0.0, dir.y), Vector3(nrm.x, 0.0, nrm.y), CONCRETE.darkened(0.1))
+			y = y1
+			t = t1
+
+
 func _highway_kit(s: Street, buf: MeshBuf, upto: float, skip: PackedVector2Array) -> void:
 	var w := s.w()
 	var f := 1.0
