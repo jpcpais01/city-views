@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-25 03:00 UTC
+- Sharper district painting: Grow and Green now paint crisp, solid areas at full strength the moment you touch, with clean edges and a fine outline instead of a soft, fading spray.
+- Smart edges: a stroke keeps to its own side of a street and stops right at the border of other districts and parks, so neighbouring colours meet in neat lines. Start a stroke on a district to repaint it.
+- Block fill: when a stroke covers most of a street block, the rest of that block fills in by itself.
+- The brush preview now shows exactly what will be painted: the area is washed in the district's colour inside an outline that hugs the streets and colours it stops at.
+- Clear rubs out painting in a crisp circle too.
+
 ## 2026-10-25 02:00 UTC
 - Interchanges: draw a main street or an avenue across a highway and a diamond interchange builds itself, with a slip road in each corner leaving the highway alongside its outer lane and climbing to a crossroads on the street either side of the bridge. Cars use them to get on and off the highway.
 - Where two highways cross, one now flies over the other, and a full cloverleaf appears: a loop in each corner and a sweeping ramp round the outside of it, linking every direction.

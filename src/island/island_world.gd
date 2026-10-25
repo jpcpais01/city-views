@@ -78,6 +78,14 @@ var _mouse_buttons := 0
 var _undo: Array = []
 var _redo: Array = []
 var _stroke_did := false
+# the Grow and Green brushes: what the stroke began on (it may paint over
+# that colour), where it last dabbed, how much it newly painted, and the dab
+# under the finger as the ring shows it
+var _stroke_over := BrushMask.EMPTY
+var _last_dab: Variant = null
+var _stroke_claimed := 0
+var _mask: BrushMask
+var _mask_key := 0
 ## a glow over the building last tapped, while its card shows
 var _picked: MeshInstance3D
 var _picked_tw: Tween
@@ -611,13 +619,16 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 			land.flatten(at, r, _stroke_level, 5.0 * delta)
 		"grow", "green":
 			_paint_town(at, 4.0 * delta)
+			# _apply_brush grew the box by the shaping radius; the dabs reach further
+			var zr := _zone_radius()
+			_stroke_lo = _stroke_lo.min(c - Vector2(zr, zr))
+			_stroke_hi = _stroke_hi.max(c + Vector2(zr, zr))
 			return
 		"magic":
 			_magic_at(c)
 			return
 		"clear":
-			land.paint_zone(at, r * 0.6, -4.0 * delta)
-			land.paint_green(at, r * 0.6, -4.0 * delta)
+			BrushMask.clear(land, c, r * 0.6)
 			town.zone_changed(c, r * 0.6)
 			if streets.erase_at(c, r * 0.6):
 				Sfx.play("bulldoze", 1.0, -8.0, 0.1)
@@ -638,18 +649,53 @@ func _zone_radius() -> float:
 
 
 ## Paint where the town should grow (Green: as parks and gardens, which are
-## still town, its streets running through them).
-func _paint_town(at: Vector3, amount: float) -> void:
+## still town, its streets running through them). Each dab paints at full
+## strength at once, in a crisp disc that keeps to its side of the streets
+## and stops at other colours (see BrushMask); a quick drag lays dabs all
+## along the way so the stroke has no gaps.
+func _paint_town(at: Vector3, _amount: float) -> void:
 	var r := _zone_radius()
 	var c := Vector2(at.x, at.z)
-	land.paint_zone(at, r, amount)
-	land.paint_green(at, r, amount if brush == "green" else -amount)
-	if brush == "grow":
-		land.paint_level(at, r, grow_level, amount * 2.0, grow_use)
+	var from: Vector2 = _last_dab if _last_dab != null else c
+	var gap := from.distance_to(c)
+	if _last_dab != null and gap < 0.5:
+		return
+	_last_dab = c
+	var n := clampi(ceili(gap / maxf(r * 0.35, 0.5)), 1, 4)
+	for k in n:
+		var p := from.lerp(c, float(k + 1) / n)
+		_stroke_claimed += _dab_mask(p, _stroke_over).apply(land, brush, grow_use, float(grow_level))
 	# keep the town growing towards the brush without restarting its search
 	growth.nudge(c)
-	town.zone_changed(c, r)
+	town.zone_changed(from.lerp(c, 0.5), r + gap * 0.5)
 	_save_timer = 1.0
+
+
+## What the brush in hand paints as (BrushMask classes).
+func _own_class() -> int:
+	return BrushMask.PARK if brush == "green" else grow_use
+
+
+## The dab at c, kept while the brush hovers in the same place.
+func _dab_mask(c: Vector2, over: int) -> BrushMask:
+	var r := _zone_radius()
+	var key := hash([Vector2i((c * 4.0).round()), r, _own_class(), over, streets.streets.size(), streets._next_id, land.revision])
+	if _mask == null or key != _mask_key:
+		_mask = BrushMask.new()
+		_mask.compute(land, streets, c, r, _own_class(), over)
+		_mask_key = key
+	return _mask
+
+
+## The rest of the blocks a stroke mostly painted fill in.
+func _fill_blocks() -> void:
+	var b := BrushMask.fill_blocks(land, streets, _stroke_lo, _stroke_hi, _own_class(), _stroke_over, brush, grow_use, float(grow_level), _stroke_claimed)
+	_mask = null
+	if b.count <= 0:
+		return
+	var mid := Vector2(b.i0 + b.w * 0.5, b.j0 + b.h * 0.5) * Land.STEP - Vector2.ONE * Land.HALF
+	town.zone_changed(mid, Vector2(b.w, b.h).length() * 0.5)
+	Sfx.play("place", 1.25, -8.0)
 
 
 ## coins per stage the Magic brush skips
@@ -755,7 +801,7 @@ func _make_ring() -> void:
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.albedo_color = Color(1, 1, 1, 0.8)
+	m.vertex_color_use_as_albedo = true
 	m.no_depth_test = true
 	m.render_priority = 3
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -772,6 +818,7 @@ func _draw_ring() -> void:
 		# the line being drawn, as a soft ribbon the width of the street
 		var hw: float = Streets.KINDS[street_kind].w
 		_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+		_ring_mesh.surface_set_color(Color(1, 1, 1, 0.8))
 		for i in _path.size():
 			var a := _path[maxi(i - 1, 0)]
 			var b := _path[mini(i + 1, _path.size() - 1)]
@@ -787,13 +834,14 @@ func _draw_ring() -> void:
 	# street is near enough to grow from
 	var tint := Color(1, 1, 1, 0.8)
 	if brush == "grow" or brush == "green":
-		tint = Color(0.55, 1.0, 0.6, 0.9) if can_grow_at(Vector2(at.x, at.z)) else Color(1.0, 0.72, 0.35, 0.9)
+		_draw_dab(at, w)
+		return
 	elif brush == "magic":
 		tint = Color(1.0, 0.85, 0.4, 0.95)
-	(_ring.material_override as StandardMaterial3D).albedo_color = tint
 	var segs := 48
 	var radius := _ring_radius()
 	_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+	_ring_mesh.surface_set_color(tint)
 	for k in segs + 1:
 		var a := TAU * k / segs
 		var dir := Vector3(cos(a), 0, sin(a))
@@ -801,6 +849,76 @@ func _draw_ring() -> void:
 			var p: Vector3 = at + dir * rr
 			p.y = maxf(land.height_at(p.x, p.z), 0.0) + 0.06
 			_ring_mesh.surface_add_vertex(p)
+	_ring_mesh.surface_end()
+
+
+## The Grow and Green brushes show exactly what the dab will paint: its
+## ground washed in the colour it paints, inside a crisp outline that follows
+## the streets and the other colours it stops at. The outline turns amber where
+## there is no street near enough to grow from, and a faint grey circle means
+## the ground under the finger is another colour this stroke leaves alone.
+func _draw_dab(at: Vector3, w: float) -> void:
+	var c := Vector2(at.x, at.z)
+	var over := _stroke_over if _stroke else BrushMask.class_at(land, c)
+	var mask := _dab_mask(c, over)
+	var radius := _zone_radius()
+	var col: Color = Land.PARK_TINT if brush == "green" else Land.USE_TINTS[clampi(grow_use, 0, Land.USE_TINTS.size() - 1)]
+	var edge := col.lightened(0.35) if can_grow_at(c) else Color(1.0, 0.72, 0.35)
+	var segs := 64
+	var reach := PackedFloat32Array()
+	reach.resize(segs)
+	var none := true
+	for k in segs:
+		var dir := Vector2.from_angle(TAU * k / segs)
+		var t := 0.0
+		while t < radius + 0.5 and mask.covers(c + dir * (t + 0.5)):
+			t += 0.5
+		reach[k] = minf(t + 0.25, radius) if t > 0.0 else 0.0
+		none = none and t <= 0.0
+	if none:
+		_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+		_ring_mesh.surface_set_color(Color(0.8, 0.8, 0.8, 0.45))
+		for k in segs + 1:
+			var dir := Vector3(cos(TAU * k / segs), 0, sin(TAU * k / segs))
+			for rr in [radius - w * 0.5, radius + w * 0.5]:
+				var p: Vector3 = at + dir * rr
+				p.y = maxf(land.height_at(p.x, p.z), 0.0) + 0.06
+				_ring_mesh.surface_add_vertex(p)
+		_ring_mesh.surface_end()
+		return
+	var pts: Array[Vector3] = []
+	pts.resize(segs * 3)
+	for k in segs:
+		var dir := Vector3(cos(TAU * k / segs), 0, sin(TAU * k / segs))
+		for s in 3:
+			var p: Vector3 = at + dir * reach[k] * (s + 1) / 3.0
+			p.y = maxf(land.height_at(p.x, p.z), 0.0) + 0.06
+			pts[k * 3 + s] = p
+	var mid := Vector3(at.x, maxf(land.height_at(at.x, at.z), 0.0) + 0.06, at.z)
+	# the wash, in three rings so it lies along the hills
+	_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	_ring_mesh.surface_set_color(Color(col, 0.22))
+	for k in segs:
+		var n := (k + 1) % segs
+		_ring_mesh.surface_add_vertex(mid)
+		_ring_mesh.surface_add_vertex(pts[k * 3])
+		_ring_mesh.surface_add_vertex(pts[n * 3])
+		for s in 2:
+			var a: Vector3 = pts[k * 3 + s]
+			var b: Vector3 = pts[n * 3 + s]
+			var a2: Vector3 = pts[k * 3 + s + 1]
+			var b2: Vector3 = pts[n * 3 + s + 1]
+			for v in [a, a2, b2, a, b2, b]:
+				_ring_mesh.surface_add_vertex(v)
+	_ring_mesh.surface_end()
+	# the outline, crisp and bright
+	_ring_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+	_ring_mesh.surface_set_color(Color(edge, 0.95))
+	for k in segs + 1:
+		var q: Vector3 = pts[(k % segs) * 3 + 2]
+		var out := Vector3(q.x - at.x, 0, q.z - at.z).normalized() * w * 0.5
+		for o in [-out, out]:
+			_ring_mesh.surface_add_vertex(q + o)
 	_ring_mesh.surface_end()
 
 
@@ -893,8 +1011,13 @@ func _begin_stroke(screen: Vector2) -> void:
 	elif brush == "grow" or brush == "green":
 		# a single tap already marks the spot clearly enough to build on
 		_stroke_did = true
-		_stroke_lo = Vector2(_ring_at.x, _ring_at.z)
-		_stroke_hi = _stroke_lo
+		var c := Vector2(_ring_at.x, _ring_at.z)
+		var zr := _zone_radius()
+		_stroke_lo = c - Vector2(zr, zr)
+		_stroke_hi = c + Vector2(zr, zr)
+		_stroke_over = BrushMask.class_at(land, c)
+		_last_dab = null
+		_stroke_claimed = 0
 		_paint_town(_ring_at, 0.55)
 
 
@@ -915,6 +1038,9 @@ func _end_stroke() -> void:
 	elif brush in SHAPE and _stroke_lo.x < _stroke_hi.x:
 		streets.regrade_in(_stroke_lo, _stroke_hi)
 	elif (brush == "grow" or brush == "green") and _stroke_lo.x <= _stroke_hi.x:
+		_fill_blocks()
+		_last_dab = null
+		_stroke_over = BrushMask.EMPTY
 		var c := (_stroke_lo + _stroke_hi) * 0.5
 		if _ring_at != null:
 			c = Vector2(_ring_at.x, _ring_at.z)

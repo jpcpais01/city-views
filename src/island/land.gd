@@ -788,6 +788,13 @@ func green_at(x: float, z: float) -> float:
 	return _sample(green, x, z)
 
 
+## Tells the ground, its tint and everything built on it that the painting
+## changed in samples (i0, j0)..(i1, j1) (see BrushMask).
+func mark_painted(i0: int, j0: int, i1: int, j1: int) -> void:
+	farm_rev += 1
+	_mark(i0, j0, i1, j1)
+
+
 # ------------------------------------------------------------------ farmland
 
 ## Fields out in the country: a patchwork of crops in a grid turned by
@@ -1379,6 +1386,10 @@ func _sample_colour(gi: int, gj: int) -> Color:
 	return col
 
 
+## parks' tint while painting
+const PARK_TINT := Color("2fd35a")
+
+
 ## Brings the tint map up to date where the painting changed; false when
 ## nothing did. While growing, the painted ground shows its district and
 ## level: its district's colour, deeper where it may grow taller, and parks
@@ -1404,13 +1415,13 @@ func update_tint() -> bool:
 				var u := _use_of(raw) if raw >= 0.5 else 0
 				var lv := raw - u * USE_STRIDE if raw >= 0.5 else LEVEL_DEFAULT
 				col = USE_TINTS[u].lerp(USE_TINTS[u].darkened(0.45), clampf((lv - 1.0) / (LEVEL_MAX - 1.0), 0.0, 1.0))
-				col.a = minf(zn * 1.4, 1.0) * 0.82
+				# A is how much of the sample is painted: the shader draws the
+				# painted area's edge where it crosses a half, crisp
+				col.a = zn
 			if gn > 0.0:
-				var g := minf(gn * 1.4, 1.0) * 0.82
-				var a := col.a
-				col = col.lerp(Color("2fd35a"), g / maxf(1.0 - (1.0 - g) * (1.0 - a), 0.001) if a > 0.0 else 1.0)
-				col.a = 1.0 - (1.0 - a) * (1.0 - g)
-			tint_img.set_pixel(i, j, col)
+				col = Color(PARK_TINT, maxf(col.a, gn)) if gn >= 0.5 or col.a <= 0.0 else col
+			# premultiplied, so the shader can take the blend at an edge apart
+			tint_img.set_pixel(i, j, Color(col.r * col.a, col.g * col.a, col.b * col.a, col.a))
 	_tint_lo = Vector2i(1 << 20, 1 << 20)
 	_tint_hi = Vector2i(-1, -1)
 	return true

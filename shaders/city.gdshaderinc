@@ -360,8 +360,23 @@ void fragment() {
 #ifdef GROUND
 	if (show_zone) {
 		vec2 side = vec2(textureSize(tint_tex, 0));
-		vec4 tint = texture(tint_tex, ((v_world.xz / grid_size + 0.5) * (side - 1.0) + 0.5) / side);
-		base = mix(base, tint.rgb, tint.a);
+		// sample positions in texels; easing the blend between neighbours
+		// sharpens the borders between districts to a few centimetres
+		vec2 tc = (v_world.xz / grid_size + 0.5) * (side - 1.0);
+		vec2 tf = fract(tc);
+		tf = mix(tf, smoothstep(0.2, 0.8, tf), 0.7);
+		vec4 tint = texture(tint_tex, (floor(tc) + tf + 0.5) / side);
+		// unpainted samples are clear black: undo their pull towards it
+		vec3 tcol = min(tint.rgb / max(tint.a, 0.02), vec3(1.0));
+		// the painted area ends in a crisp edge where it is half covered (from
+		// the plain blend, whose half-way line runs smooth, not in steps), with
+		// a fine darker line just inside it, as on a map
+		float ta = texture(tint_tex, (tc + 0.5) / side).a;
+		float te = max(fwidth(ta), 0.015);
+		float inside = smoothstep(0.5 - te, 0.5 + te, ta);
+		float line = inside * (1.0 - smoothstep(0.5 + te * 2.0, 0.5 + te * 2.0 + 0.12, ta));
+		tcol *= 1.0 - line * 0.35;
+		base = mix(base, tcol, inside * 0.78);
 	}
 #endif
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
