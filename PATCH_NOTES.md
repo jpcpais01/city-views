@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-25 08:00 UTC
+- Industry comes in five kinds now, not one. Workshops still start as factories, then grow into warehouses with a row of loading docks and lorries backed up to them, grain mills and food works with rows of tall silos under a headhouse, chemical works with spherical tanks, a pipe rack and a burning flare stack, and, at the higher levels, clean white tech plants with glass fronts and solar panels across the roof.
+- Tap a works to see which kind it is, from a Warehouse to a Distribution centre or Logistics hub, a Refinery, a Food processing complex or a Tech campus.
+
 ## 2026-10-25 06:00 UTC
 - Car parks: offices, shops, venues and works now get car parks beside them, tarmac with painted bays and a lamp, mostly full of white, silver, grey and black cars with the odd red or blue one. Big stores, venues and works get double-row lots, and so do the open patches inside busy districts. Tall apartment blocks sometimes get one too.
 

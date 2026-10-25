@@ -392,6 +392,8 @@ func describe(l: Lot) -> Dictionary:
 	var joined := l.group.size() > 1
 	if l.use == "industry":
 		title = ["Workshop", "Workshop", "Warehouse", "Factory", "Factory", "Works", "Works", "Industrial complex"][clampi(l.stage, 0, 7)]
+		if HouseGen.WORKS_NAMES.has(l.trade) and l.stage >= 1:
+			title = HouseGen.WORKS_NAMES[l.trade][0 if l.stage < 5 else 1 if l.stage < 7 else 2]
 	elif l.use == "office":
 		title = ("Office supertall" if l.stage >= 7 else "Office tower" if l.stage >= 6 else "Office block") if joined or l.stage >= 7 else "Offices"
 	elif l.use == "retail":
