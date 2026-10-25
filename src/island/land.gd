@@ -61,14 +61,15 @@ const LEVEL_DEFAULT := 2.0
 ## what each district grows, painted with the Grow brush along with its level:
 ## the level layer holds district * USE_STRIDE + level (so saves and co-op
 ## carry both in one number)
-const USES := ["homes", "shops", "offices", "industry"]
+const USES := ["homes", "shops", "offices", "industry", "entertainment"]
 const USE_STRIDE := 10.0
-const LEVEL_MAX := 6.0
+const LEVEL_MAX := 7.0
 ## the light stone of downtown plazas and the ground between its buildings
 const PAVED := Color(0.77, 0.74, 0.69)
 ## the painted ground's tint while growing, by district (homes green, shops
-## blue, offices teal, industry amber, as city builders colour their zones)
-const USE_TINTS := [Color("59d24a"), Color("3f8cff"), Color("22c7c7"), Color("ffb51f")]
+## blue, offices teal, industry amber, entertainment pink, as city builders
+## colour their zones)
+const USE_TINTS := [Color("59d24a"), Color("3f8cff"), Color("22c7c7"), Color("ffb51f"), Color("e35fd2")]
 # tint the painted area strongly (while the Grow brush is in hand): the ground
 # shader lays the tint map over the land, so it shows the instant it is painted
 # and switching it on or off redraws nothing
@@ -750,17 +751,18 @@ static func _use_of(v: float) -> int:
 
 
 ## How much of the ground at sample (gi, gj) is paved, 0..1: none up to the
-## third level, all of it from the fifth (a level sooner for shops and offices).
+## third level, all of it from the fifth (a level sooner for shops, offices
+## and entertainment).
 func paved(gi: int, gj: int) -> float:
 	var raw := level[gj * SIDE + gi]
 	var u := _use_of(raw) if raw >= 0.5 else 0
 	var lv := raw - u * USE_STRIDE if raw >= 0.5 else LEVEL_DEFAULT
-	if u == 1 or u == 2:
+	if u == 1 or u == 2 or u == 4:
 		lv += 1.0
 	return smoothstep(2.6, 4.6, lv) * minf(zone[gj * SIDE + gi] * 1.6, 1.0)
 
 
-## The level the town may grow to here, 1..6 (from the nearest sample).
+## The level the town may grow to here, 1..7 (from the nearest sample).
 func level_at(x: float, z: float) -> float:
 	var fx := (x + HALF) / STEP
 	var fz := (z + HALF) / STEP

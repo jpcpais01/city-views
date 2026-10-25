@@ -13,13 +13,14 @@ signal unlocked(brush: String)
 signal title_changed(title: String)
 
 ## milestones: residents, title, and the coins the city is given on reaching it
-const TITLES := [[0, "Hamlet", 0], [30, "Village", 60], [120, "Town", 150], [300, "Small City", 300], [600, "City", 500],
-	[1200, "Big City", 900], [2500, "Large City", 1500], [5000, "Metropolis", 2500], [10000, "Megalopolis", 4000]]
+const TITLES := [[0, "Hamlet", 0], [150, "Village", 60], [600, "Town", 150], [1500, "Small City", 300], [3000, "City", 500],
+	[6000, "Big City", 900], [12500, "Large City", 1500], [25000, "Metropolis", 2500], [50000, "Megalopolis", 4000],
+	[100000, "Global City", 6000]]
 ## residents needed before a brush, road, district or Grow level can be used
-const UNLOCK := {"green": 12, "smooth": 30, "flatten": 60, "shops": 60, "industry": 120, "magic": 120, "avenue": 150,
-	"offices": 300, "highway": 400, "level5": 600, "level6": 1200}
+const UNLOCK := {"green": 60, "smooth": 150, "flatten": 300, "shops": 300, "industry": 600, "magic": 600, "avenue": 750,
+	"entertainment": 1200, "offices": 1500, "highway": 2000, "level5": 2500, "level6": 5000, "level7": 20000}
 ## the districts, in Land.USES order, and what unlocks each (homes always open)
-const USE_KEYS := ["homes", "shops", "offices", "industry"]
+const USE_KEYS := ["homes", "shops", "offices", "industry", "entertainment"]
 const START_COINS := 300.0
 const STREET_COST := 0.5 # per metre
 const SHAPE_COST := 4.0 # per second of sculpting
@@ -31,9 +32,11 @@ var residents := 0
 ## workplaces: offices and industry
 var jobs := 0
 var office_jobs := 0
+## jobs at bars, theatres, cinemas and arenas
+var fun_jobs := 0
 var works := 0
 ## how much the city wants more of each district (Land.USES order), 0..1
-var demand: Array[float] = [0.6, 0.4, 0.0, 0.0]
+var demand: Array[float] = [0.6, 0.4, 0.0, 0.0, 0.0]
 var homes := 0
 var shops := 0
 var parks := 0
@@ -76,7 +79,7 @@ func _process(delta: float) -> void:
 
 ## Coins the town pays every few seconds.
 func income() -> float:
-	return snappedf(residents * 0.02 + jobs * 0.03 + shops * 0.15, 0.1)
+	return snappedf(residents * 0.004 + jobs * 0.006 + shops * 0.15, 0.1)
 
 
 func add_coins(amount: float) -> void:
@@ -112,6 +115,7 @@ func recount(silent: bool) -> void:
 	var r := 0
 	var j := 0
 	var oj := 0
+	var fj := 0
 	var wk := 0
 	var h := 0
 	var sh := 0
@@ -124,15 +128,18 @@ func recount(silent: bool) -> void:
 		match l.type:
 			"house":
 				h += 1
-				# offices and industry bring jobs rather than residents
-				if l.use == "office" or l.use == "industry" or l.use == "retail":
-					j += Town.workers(l)
+				# offices, industry, stores and venues bring jobs rather than residents
+				if l.use != "home":
+					var w := Town.workers(l)
+					j += w
 					if l.use == "office":
-						oj += Town.workers(l)
+						oj += w
+					elif l.use == "fun":
+						fj += w
 					elif l.use == "industry":
 						wk += 1
 				else:
-					r += maxi(1, l.floors * 2 - int(l.shop))
+					r += Town.residents(l)
 				sh += int(l.shop)
 				kits[l.kit] = true
 				hb += int(l.kit == HouseGen.HARBOUR)
@@ -146,6 +153,7 @@ func recount(silent: bool) -> void:
 	residents = r
 	jobs = j
 	office_jobs = oj
+	fun_jobs = fj
 	works = wk
 	homes = h
 	shops = sh
@@ -181,14 +189,18 @@ func recount(silent: bool) -> void:
 ## demand grows faster (Town._delay).
 func _work_out_demand() -> void:
 	var workers := residents * 0.55
-	var ind_jobs := jobs - office_jobs
-	demand[0] = clampf(0.45 + (jobs - workers) / maxf(workers, 30.0), 0.1, 1.0)
-	var want_shops := residents * 0.06
+	var ind_jobs := jobs - office_jobs - fun_jobs
+	demand[0] = clampf(0.45 + (jobs - workers) / maxf(workers, 150.0), 0.1, 1.0)
+	# about a shop front for every eighty residents
+	var want_shops := residents * 0.012
 	demand[1] = clampf(0.3 + (want_shops - shops) / maxf(want_shops, 4.0), 0.0, 1.0) if can_use("shops") else 0.0
 	var want_off := workers * 0.45
-	demand[2] = clampf(0.25 + (want_off - office_jobs) / maxf(want_off, 15.0), 0.0, 1.0) if can_use("offices") else 0.0
+	demand[2] = clampf(0.25 + (want_off - office_jobs) / maxf(want_off, 75.0), 0.0, 1.0) if can_use("offices") else 0.0
 	var want_ind := workers * 0.35
-	demand[3] = clampf(0.25 + (want_ind - ind_jobs) / maxf(want_ind, 15.0), 0.0, 1.0) if can_use("industry") else 0.0
+	demand[3] = clampf(0.25 + (want_ind - ind_jobs) / maxf(want_ind, 75.0), 0.0, 1.0) if can_use("industry") else 0.0
+	# somewhere to go out: a venue's staff for every thirty-odd residents
+	var want_fun := residents * 0.03
+	demand[4] = clampf(0.2 + (want_fun - fun_jobs) / maxf(want_fun, 40.0), 0.0, 1.0) if can_use("entertainment") else 0.0
 	if world and world.town:
 		world.town.demand = demand
 
@@ -259,9 +271,9 @@ func _make_goal() -> Dictionary:
 	var taken := {}
 	for g in goals:
 		taken[str(g.type)] = true
-	var pay := 25.0 + best * 0.6
+	var pay := 25.0 + best * 0.12
 	var opts: Array = []
-	var r := Game._nice(maxf(residents + 10, residents * 1.35))
+	var r := Game._nice(maxf(residents + 50, residents * 1.35))
 	opts.append([3.0, {"type": "residents", "target": r, "icon": "people", "text": "Grow to %d residents" % r, "reward": Game._nice(pay * 1.6)}])
 	var h := 3 + mini(goals_done, 12) * 2
 	opts.append([2.0, {"type": "homes", "base": homes, "target": homes + h, "icon": "house", "text": "Build %d more homes" % h, "reward": Game._nice(pay * 1.2)}])

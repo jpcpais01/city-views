@@ -27,12 +27,13 @@ const ROADS := {
 	"avenue": ["Avenue", "A wide boulevard with a planted middle: side streets branch off it and shops line it"],
 	"highway": ["Highway", "Four fast lanes across the country: no houses along it, no side streets off it"],
 }
-const LEVELS := ["Village", "Town", "City", "Centre", "Downtown", "Skyline"]
+const LEVELS := ["Village", "Town", "City", "Centre", "Downtown", "Skyline", "Mega"]
 const LEVEL_INFO := ["cottages and small houses", "houses and low terraces", "terraces with shops", "tall terraces and blocks, shops everywhere",
-	"apartment blocks and offices", "towers over a busy podium"]
+	"apartment blocks and offices", "towers over a busy podium", "supertall towers, mega malls, arenas and industrial complexes"]
 ## the districts the Grow brush paints: [name, icon, help]
 const USES := [["Homes", "house", "homes"], ["Shops", "shop", "shops on every ground floor"],
-	["Offices", "office", "offices and jobs"], ["Industry", "factory", "workshops and factories, jobs but no homes"]]
+	["Offices", "office", "offices and jobs"], ["Industry", "factory", "workshops and factories, jobs but no homes"],
+	["Entertainment", "ferris", "bars, clubs, theatres, cinemas and arenas: jobs and nights out"]]
 
 var island: IslandWorld
 var _brush_keys := {}
@@ -678,7 +679,7 @@ func _build_levels() -> void:
 	urow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	uh.add_child(urow)
 	for i in USES.size():
-		var b := _key(110, 44)
+		var b := _key(150 if USES[i][0].length() > 9 else 110, 44)
 		var h := HBoxContainer.new()
 		h.set_anchors_preset(Control.PRESET_FULL_RECT)
 		h.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -760,8 +761,8 @@ func _refresh_brushes() -> void:
 				_help.text = "Drag along roads, or tap one, to make them %s: between junctions, paying the difference" % ("streets" if island.street_kind == "main" else island.street_kind + "s")
 		if island.brush == "grow":
 			_help.text = "Paint beside a street. %s %s: %s" % [LEVELS[island.grow_level - 1], USES[island.grow_use][0].to_lower(), LEVEL_INFO[island.grow_level - 1]]
-			if island.grow_use == 3:
-				_help.text = "Paint beside a street. %s industry: %s" % [LEVELS[island.grow_level - 1], USES[3][2]]
+			if island.grow_use >= 3:
+				_help.text = "Paint beside a street. %s %s: %s" % [LEVELS[island.grow_level - 1], USES[island.grow_use][0].to_lower(), USES[island.grow_use][2]]
 	else:
 		_help.text = "Draw streets, or shape the land: pick a brush"
 	_flash_hint()
@@ -964,7 +965,7 @@ func _key(w: int, h: int) -> Button:
 ## Recolours a key's type and icons for picked (dark on white) or not (white on glass),
 ## and drops the blur under a picked key so its white stays clean.
 func _tint_key(b: Button, on: bool) -> void:
-	if b.get_meta("on", null) == on:
+	if b.has_meta("on") and b.get_meta("on") == on:
 		return
 	b.set_meta("on", on)
 	b.material = null if on else _glass_light
@@ -1073,7 +1074,7 @@ func _hide_info() -> void:
 
 # ------------------------------------------------------------------ city stats
 
-const DEMAND_COLS := [Color("59b84a"), Color("3f8cff"), Color("22b5b5"), Color("e8a21a")]
+const DEMAND_COLS := [Color("59b84a"), Color("3f8cff"), Color("22b5b5"), Color("e8a21a"), Color("d94fc8")]
 var _stats_panel: PanelContainer
 var _stats_title: Label
 var _stats_next: Label

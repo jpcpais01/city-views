@@ -112,7 +112,10 @@ func _ready() -> void:
 			var top := float(OS.get_environment("CV_DLEVEL")) if OS.get_environment("CV_DLEVEL") != "" else 0.0
 			if top > 0.0:
 				island.land.paint_level(Vector3(f.x, 0, f.z), r, top, 9.0, HouseGen.HOMES)
-			island.land.paint_level(Vector3(f.x - r * 0.6, 0, f.z), r * 0.4, 4.0, 9.0, HouseGen.INDUSTRY)
+			island.land.paint_level(Vector3(f.x - r * 0.6, 0, f.z), r * 0.4, maxf(4.0, top), 9.0, HouseGen.INDUSTRY)
+			if top >= 4.0:
+				# and a night-out quarter opposite the shops
+				island.land.paint_level(Vector3(f.x, 0, f.z - r * 0.6), r * 0.35, top, 9.0, HouseGen.FUN)
 			island.land.paint_level(Vector3(f.x + r * 0.6, 0, f.z), r * 0.4, maxf(5.0, top), 9.0, HouseGen.OFFICES)
 			island.land.paint_level(Vector3(f.x, 0, f.z + r * 0.6), r * 0.35, maxf(3.0, top), 9.0, HouseGen.SHOPS)
 		if OS.get_environment("CV_GREEN") != "":
