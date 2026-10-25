@@ -208,7 +208,7 @@ func clear() -> void:
 	_front.fill(0)
 	_front_d.fill(INF)
 	for key in _reserved:
-		_mark_reserved(_reserved[key][0], _reserved[key][1], true)
+		_mark_reserved_entry(_reserved[key], true)
 	_todo.clear()
 	_job = {}
 	_new_streets.clear()
@@ -221,23 +221,42 @@ func reserve(key: String, p: Vector2, r: float) -> void:
 	_mark_reserved(p, r, true)
 
 
+## Keeps a rectangle `half` wide each way round p, turned by yaw, clear
+## (an airport's runway and terminal).
+func reserve_box(key: String, p: Vector2, half: Vector2, yaw: float) -> void:
+	_reserved[key] = [p, half.length(), half, yaw]
+	_mark_reserved(p, half.length(), true, half, yaw)
+
+
 func unreserve(key: String) -> void:
 	if not _reserved.has(key):
 		return
 	var e: Array = _reserved[key]
 	_reserved.erase(key)
-	_mark_reserved(e[0], e[1], false)
+	_mark_reserved_entry(e, false)
 	for k in _reserved:
-		_mark_reserved(_reserved[k][0], _reserved[k][1], true)
+		_mark_reserved_entry(_reserved[k], true)
 
 
-func _mark_reserved(p: Vector2, r: float, on: bool) -> void:
+func _mark_reserved_entry(e: Array, on: bool) -> void:
+	if e.size() >= 4:
+		_mark_reserved(e[0], e[1], on, e[2], e[3])
+	else:
+		_mark_reserved(e[0], e[1], on)
+
+
+func _mark_reserved(p: Vector2, r: float, on: bool, half := Vector2.ZERO, yaw := 0.0) -> void:
 	var c0 := _cell(p - Vector2(r, r))
 	var c1 := _cell(p + Vector2(r, r))
+	var right := Vector2(cos(yaw), -sin(yaw))
+	var fwd := Vector2(sin(yaw), cos(yaw))
 	for cz in range(maxi(c0.y, 0), mini(c1.y + 1, RES)):
 		for cx in range(maxi(c0.x, 0), mini(c1.x + 1, RES)):
 			var q := Vector2((cx + 0.5) * CELL - Land.HALF, (cz + 0.5) * CELL - Land.HALF)
-			if q.distance_to(p) > r:
+			if half != Vector2.ZERO:
+				if absf((q - p).dot(right)) > half.x or absf((q - p).dot(fwd)) > half.y:
+					continue
+			elif q.distance_to(p) > r:
 				continue
 			var k := cz * RES + cx
 			if on and _occ[k] == 0:

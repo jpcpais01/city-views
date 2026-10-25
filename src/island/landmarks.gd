@@ -8,11 +8,23 @@ extends Node3D
 ## land itself; once standing, the town leaves room around each one.
 ## A big shopping district at the top levels brings its own attractions: a
 ## Ferris wheel turning beside the stores, and a stadium under floodlights.
+## A city of a few thousand gets an airport out in open country: a runway
+## with lights, a taxiway, a terminal with airliners at its gates, a control
+## tower and a hangar. Airliners take off from it and land on it (see Planes).
 
-const NEED := {"windmill": 150, "pier": 275, "lighthouse": 450, "wheel": 0, "stadium": 0}
+const NEED := {"windmill": 150, "pier": 275, "lighthouse": 450, "wheel": 0, "stadium": 0, "airport": 4000}
 const NAMES := {"windmill": "A windmill now turns on the hilltop", "pier": "A pier now reaches out from the harbour", "lighthouse": "A lighthouse now guards the headland",
-	"wheel": "A Ferris wheel now turns by the shops", "stadium": "A stadium now stands by the shopping district"}
-const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0, "wheel": 2.4, "stadium": 6.6}
+	"wheel": "A Ferris wheel now turns by the shops", "stadium": "A stadium now stands by the shopping district",
+	"airport": "The city's airport is open: watch for planes taking off"}
+const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0, "wheel": 2.4, "stadium": 6.6, "airport": 24.0}
+## the airport's ground, half its width and half its length (the runway runs
+## along its length), and where on it the runway lies across
+const AIRPORT := Vector2(8.5, 24.0)
+const RUNWAY_X := -5.5
+const RUNWAY_HALF := 23.0
+const TARMAC := Color(0.32, 0.33, 0.35)
+const APRON := Color(0.68, 0.68, 0.66)
+const FIELD := Color(0.56, 0.69, 0.38)
 ## how many stores, malls, cinemas and venues a shopping or entertainment
 ## district needs for each attraction
 const RETAIL := {"wheel": 3, "stadium": 6}
@@ -38,6 +50,8 @@ var _check := 1.0
 var _looked := {}
 var _next_look := {}
 var _searches: Array[Dictionary] = []
+## which way the airport's runway points (its local +Z), once it stands
+var airport_yaw := 0.0
 
 
 func _process(delta: float) -> void:
@@ -54,7 +68,7 @@ func _process(delta: float) -> void:
 	_check = 2.0
 	for kind in NEED:
 		var want := _wants(kind)
-		if spots.has(kind) and (not want or not _fits(kind, spots[kind], true)):
+		if spots.has(kind) and (not want or not (_airport_fits(spots[kind], airport_yaw, true) if kind == "airport" else _fits(kind, spots[kind], true))):
 			_remove(kind)
 		if want and not spots.has(kind):
 			# look again only once the town has changed since the last look
@@ -79,6 +93,8 @@ func _step_searches() -> void:
 		var done: Dictionary = _searches.pop_front()
 		var kind: String = done.kind
 		if done.at != null and not spots.has(kind) and _wants(kind):
+			if kind == "airport":
+				airport_yaw = done.yaw
 			_place(kind, done.at)
 			if world.progress._hush <= 0.0:
 				world.note.emit(NAMES[kind], "title")
@@ -133,6 +149,8 @@ func to_dict() -> Dictionary:
 	for kind in spots:
 		var p: Vector2 = spots[kind]
 		out[kind] = [snappedf(p.x, 0.01), snappedf(p.y, 0.01)]
+		if kind == "airport":
+			out[kind].append(snappedf(airport_yaw, 0.0001))
 	return out
 
 
@@ -141,7 +159,11 @@ func from_dict(d: Dictionary) -> void:
 	reset()
 	for kind in d:
 		var v: Variant = d[kind]
-		if NEED.has(kind) and v is Array and v.size() == 2:
+		if NEED.has(kind) and v is Array and v.size() >= 2:
+			if kind == "airport":
+				if v.size() < 3:
+					continue
+				airport_yaw = float(v[2])
 			_place(kind, Vector2(float(v[0]), float(v[1])))
 
 
@@ -188,6 +210,61 @@ func _fits(kind: String, p: Vector2, standing := false) -> bool:
 		if s.near_box(p, r + 2.0) and s.closest(p).x < r + s.reach() + 0.4:
 			return false
 	return true
+
+
+## Whether the airport fits at p with its runway along yaw: dry, nearly
+## level ground all over it, nothing built on it, no street across it.
+func _airport_fits(p: Vector2, yaw: float, standing: bool) -> bool:
+	var land := world.land
+	var right := Vector2(cos(yaw), -sin(yaw))
+	var fwd := Vector2(sin(yaw), cos(yaw))
+	var lo := INF
+	var hi := -INF
+	# the corners and the middle first, then the whole of it
+	for pass_i in 2:
+		var step := Vector2(AIRPORT.x, AIRPORT.y) if pass_i == 0 else Vector2(AIRPORT.x / 3.0, AIRPORT.y / 8.0)
+		var gx := -AIRPORT.x
+		while gx <= AIRPORT.x + 0.01:
+			var gz := -AIRPORT.y
+			while gz <= AIRPORT.y + 0.01:
+				var q := p + right * gx + fwd * gz
+				if absf(q.x) > Land.HALF - 2.0 or absf(q.y) > Land.HALF - 2.0:
+					return false
+				var g := land.height_at(q.x, q.y)
+				lo = minf(lo, g)
+				hi = maxf(hi, g)
+				if lo < 0.25 or hi - lo > 1.6:
+					return false
+				if not standing and world.town.is_built(q):
+					return false
+				gz += step.y
+			gx += step.x
+	# no street through it (or along its edge)
+	for s: Streets.Street in world.streets.streets:
+		if not s.near_box(p, AIRPORT.y + 2.0):
+			continue
+		var reach := s.reach() + 1.0
+		for k in range(0, s.pts.size(), 2):
+			var d := s.pts[k] - p
+			if absf(d.dot(right)) < AIRPORT.x + reach and absf(d.dot(fwd)) < AIRPORT.y + reach:
+				return false
+	return true
+
+
+## The two ends of the runway, on the ground (for the airliners), or an
+## empty array when there is no airport.
+func runway() -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if not spots.has("airport") or not _nodes.has("airport"):
+		return out
+	var p: Vector2 = spots.airport
+	var y: float = _nodes.airport.position.y
+	var right := Vector2(cos(airport_yaw), -sin(airport_yaw))
+	var fwd := Vector2(sin(airport_yaw), cos(airport_yaw))
+	for e: float in [-1.0, 1.0]:
+		var q := p + right * RUNWAY_X + fwd * e * (RUNWAY_HALF - 1.5)
+		out.append(Vector3(q.x, y, q.y))
+	return out
 
 
 ## Which way is out to sea from a spot on the shore (zero if none is).
@@ -278,6 +355,28 @@ func _search_start(kind: String) -> Dictionary:
 		for gx in range(-20, 21):
 			for gz in range(-20, 21):
 				pts.append(origin + Vector2(gx, gz) * 2.0)
+	elif kind == "airport":
+		# out in the country round the town, on a coarser grid
+		var lo := Vector2(INF, INF)
+		var hi := Vector2(-INF, -INF)
+		var n := 0
+		for l: Town.Lot in world.town.lots.values():
+			lo = lo.min(l.origin)
+			hi = hi.max(l.origin)
+			origin += l.origin
+			n += 1
+		if n == 0:
+			return {}
+		origin /= n
+		lo = (lo - Vector2(70, 70)).max(Vector2(-Land.HALF + 26.0, -Land.HALF + 26.0))
+		hi = (hi + Vector2(70, 70)).min(Vector2(Land.HALF - 26.0, Land.HALF - 26.0))
+		var x := snappedf(lo.x, 4.0)
+		while x < hi.x:
+			var z := snappedf(lo.y, 4.0)
+			while z < hi.y:
+				pts.append(Vector2(x, z))
+				z += 4.0
+			x += 4.0
 	else:
 		# only round the town: the map is far bigger than anyone would walk
 		var lo := Vector2(INF, INF)
@@ -296,7 +395,7 @@ func _search_start(kind: String) -> Dictionary:
 				pts.append(Vector2(x, z))
 				z += 2.0
 			x += 2.0
-	return {"kind": kind, "pts": pts, "i": 0, "origin": origin, "best": -INF, "at": null}
+	return {"kind": kind, "pts": pts, "i": 0, "origin": origin, "best": -INF, "at": null, "yaw": 0.0}
 
 
 ## Tries the search's next spots for up to `budget_us` (all of them if < 0).
@@ -309,7 +408,17 @@ func _search_step(search: Dictionary, budget_us: int) -> bool:
 		var p := pts[search.i]
 		search.i += 1
 		var score := _score(kind, p, search.origin)
-		if score > search.best and (_pier_fits(p, false) if kind == "pier" else _fits(kind, p)):
+		if kind == "airport":
+			# the runway may point four ways
+			if score > search.best:
+				for k in 4:
+					var yaw: float = (search.origin as Vector2).angle_to_point(p) + k * PI * 0.25
+					if _airport_fits(p, yaw, false):
+						search.best = score
+						search.at = p
+						search.yaw = yaw
+						break
+		elif score > search.best and (_pier_fits(p, false) if kind == "pier" else _fits(kind, p)):
 			search.best = score
 			search.at = p
 		if budget_us >= 0 and Time.get_ticks_usec() - start > budget_us:
@@ -333,6 +442,12 @@ func _score(kind: String, p: Vector2, origin: Vector2) -> float:
 			if p.distance_to(spots[other]) < float(ROOM[kind]) + float(ROOM[other]) + 2.0:
 				return -INF
 		return -p.distance_to(origin)
+	if kind == "airport":
+		# out of town, but not too far out: about 45 m from its middle
+		for other in spots:
+			if other != "airport" and p.distance_to(spots[other]) < float(ROOM[other]) + 26.0:
+				return -INF
+		return -absf(p.distance_to(origin) - 45.0)
 	var h := land.height_at(p.x, p.y)
 	if kind == "lighthouse" and h > 0.3 and h < 6.0:
 		# how much of the view all round is open sea
@@ -365,8 +480,12 @@ func _remove(kind: String) -> void:
 
 func _place(kind: String, p: Vector2) -> void:
 	spots[kind] = p
-	world.town.reserve(kind, p, float(ROOM[kind]) + 0.6)
 	var land := world.land
+	if kind == "airport":
+		world.town.reserve_box(kind, p, AIRPORT + Vector2(0.6, 0.6), airport_yaw)
+		_place_airport(p)
+		return
+	world.town.reserve(kind, p, float(ROOM[kind]) + 0.6)
 	if kind == "pier":
 		_place_pier(p)
 		return
@@ -399,6 +518,142 @@ func _place(kind: String, p: Vector2) -> void:
 		sh.mesh = sm
 		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 		root.add_child(sh)
+
+
+## The airport, stood on a level field raised over the highest ground under
+## it (its sides hide the slope), runway along local +Z.
+func _place_airport(p: Vector2) -> void:
+	var land := world.land
+	var right := Vector2(cos(airport_yaw), -sin(airport_yaw))
+	var fwd := Vector2(sin(airport_yaw), cos(airport_yaw))
+	var lo := INF
+	var hi := -INF
+	var gx := -AIRPORT.x
+	while gx <= AIRPORT.x + 0.01:
+		var gz := -AIRPORT.y
+		while gz <= AIRPORT.y + 0.01:
+			var q := p + right * gx + fwd * gz
+			lo = minf(lo, land.height_at(q.x, q.y))
+			hi = maxf(hi, land.height_at(q.x, q.y))
+			gz += 2.0
+		gx += 2.0
+	var root := Node3D.new()
+	root.position = Vector3(p.x, hi + 0.05, p.y)
+	root.rotation.y = airport_yaw
+	add_child(root)
+	_nodes["airport"] = root
+	var mk := MeshKit.new(hash("airport"))
+	_airport(mk, lo - hi - 0.15, hash(p))
+	var body := MeshInstance3D.new()
+	body.mesh = mk.commit(world.city_mat)
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(body)
+	var sm := mk.commit_shadow(Palette.shadow_material())
+	if sm:
+		var sh := MeshInstance3D.new()
+		sh.mesh = sm
+		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		root.add_child(sh)
+	# an airliner at one of the gates, nose to the terminal (one: the view
+	# from all the way out is near its triangle budget)
+	var planes: Planes = world.planes
+	if planes and not planes._kinds.is_empty():
+		for k in 1:
+			var mi := MeshInstance3D.new()
+			mi.mesh = planes._kinds[(hash(p) + k) % planes._kinds.size()]
+			# like the ones in the air, they cast no shadow (the airliner is
+			# fine and costly to shadow)
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.position = Vector3(1.6, Planes.GROUND, -5.0 + (hash(p) % 2) * 10.0)
+			mi.rotation.y = PI * 0.5
+			root.add_child(mi)
+
+
+## The airport's buildings and paving, in its own frame: the field, the
+## runway with its markings and lights, the taxiway, the apron, the terminal
+## with its jet bridges, the control tower and a hangar. `drop` is how far
+## down the field's sides reach.
+func _airport(mk: MeshKit, drop: float, seed_value: int) -> void:
+	var hx := AIRPORT.x
+	var hz := AIRPORT.y
+	# the field itself, its sides down to the ground
+	mk.shadow = false
+	mk.box(Vector3(0, drop * 0.5, 0), Vector3(hx * 2.0, -drop, hz * 2.0), FIELD.darkened(0.3), FIELD)
+	var top := 0.0
+	# the runway, its centre line, thresholds and numbers, and edge lights
+	var rx := RUNWAY_X
+	_flat(mk, rx, 0.0, 1.3, RUNWAY_HALF, top + 0.02, TARMAC)
+	var z := -RUNWAY_HALF + 4.0
+	while z < RUNWAY_HALF - 4.0:
+		_flat(mk, rx, z + 0.6, 0.05, 0.6, top + 0.03, WHITE)
+		z += 2.4
+	for e: float in [-1.0, 1.0]:
+		for k in 6:
+			var x := rx - 1.0 + k * 0.4 + (0.2 if k >= 3 else 0.0)
+			_flat(mk, x, e * (RUNWAY_HALF - 1.0), 0.1, 0.7, top + 0.03, WHITE)
+		# the touchdown zone
+		for sx: float in [-0.6, 0.6]:
+			_flat(mk, rx + sx, e * (RUNWAY_HALF - 6.0), 0.12, 0.9, top + 0.03, WHITE)
+	# the lights: flush with the tarmac, a lit square each, edges white,
+	# ends green and red
+	z = -RUNWAY_HALF + 0.5
+	while z <= RUNWAY_HALF - 0.4:
+		for sx: float in [-1.4, 1.4]:
+			mk.box_faces(Vector3(rx + sx, top + 0.04, z), Vector3(0.09, 0.02, 0.09), Color(1.0, 0.95, 0.75), MeshKit.TOP, 2.0)
+		z += 3.0
+	for e: float in [-1.0, 1.0]:
+		for sx in 5:
+			mk.box_faces(Vector3(rx - 1.0 + sx * 0.5, top + 0.04, e * (RUNWAY_HALF - 0.15)), Vector3(0.09, 0.02, 0.09), Color(0.35, 1.0, 0.45) if e < 0.0 else Color(1.0, 0.25, 0.2), MeshKit.TOP, 2.0)
+	# the taxiway beside it, joined to each end, and the apron
+	_flat(mk, -1.6, 0.0, 0.6, RUNWAY_HALF - 3.0, top + 0.02, TARMAC)
+	for e: float in [-1.0, 1.0]:
+		_flat(mk, (rx + 1.3 - 1.0) * 0.5, e * (RUNWAY_HALF - 3.6), (-1.0 - rx - 1.3) * 0.5 + 0.1, 0.6, top + 0.021, TARMAC)
+	for e: float in [-1.0, 1.0]:
+		_flat(mk, -0.6, e * 5.0, 0.5, 0.5, top + 0.021, TARMAC)
+	_flat(mk, 2.5, 0.0, 2.6, 11.0, top + 0.02, APRON)
+	# a yellow line out to each gate
+	for k in 2:
+		_flat(mk, 1.8, -5.0 + k * 10.0, 2.0, 0.04, top + 0.03, Color("e3b53a"))
+	mk.shadow = true
+	# the terminal: a long low hall, glass along the airside, a wavy roof
+	var tw := 2.8
+	var tx := 5.1 + tw * 0.5
+	var th := 1.5
+	mk.box(Vector3(tx, top + th * 0.5, 0), Vector3(tw, th, 20.0), Color(0.88, 0.89, 0.9), Color(0.75, 0.78, 0.8))
+	mk.box_faces(Vector3(tx - tw * 0.5 - 0.006, top + th * 0.55, 0), Vector3(0.012, th * 0.7, 19.4), Color(0.36, 0.5, 0.6), MeshKit.LEFT, 1.0)
+	mk.box_faces(Vector3(tx + tw * 0.5 + 0.006, top + th * 0.4, 0), Vector3(0.012, th * 0.5, 19.0), Color(0.42, 0.55, 0.62), MeshKit.RIGHT, 2.0)
+	mk.box(Vector3(tx, top + th + 0.08, 0), Vector3(tw + 0.5, 0.12, 20.6), Color(0.95, 0.95, 0.94))
+	# a canopy over the kerb on the landside
+	mk.box(Vector3(tx + tw * 0.5 + 0.35, top + 0.62, 0), Vector3(0.7, 0.05, 14.0), Color(0.95, 0.95, 0.94))
+	# the jet bridges out to the gates
+	for k in 2:
+		var gz := -5.0 + k * 10.0
+		mk.box(Vector3(4.1, top + 0.55, gz), Vector3(2.0, 0.28, 0.32), Color(0.8, 0.82, 0.84))
+		mk.pole(Vector3(3.3, top, gz), 0.04, 0.42, 4, Color(0.4, 0.42, 0.45))
+	# the name along the roof, lit at night
+	mk.box(Vector3(tx + tw * 0.5 + 0.04, top + th - 0.25, 0), Vector3(0.06, 0.28, 5.0), Color(0.25, 0.5, 0.9), null, false, 2.7)
+	# the control tower beyond the terminal's end
+	var c := Vector3(5.6, top, 13.5)
+	mk.cylinder(c, 0.38, 4.6, 8, Color(0.9, 0.9, 0.88), false)
+	mk.cylinder(c + Vector3(0, 4.6, 0), 0.75, 0.12, 8, Color(0.85, 0.86, 0.87), true)
+	mk.cylinder(c + Vector3(0, 4.72, 0), 0.68, 0.55, 8, Color(0.3, 0.42, 0.5), false, null, 0.74, 1.0)
+	mk.cylinder(c + Vector3(0, 5.27, 0), 0.8, 0.12, 8, Color(0.85, 0.86, 0.87), true, Color(0.7, 0.72, 0.74))
+	mk.pole(c + Vector3(0, 5.39, 0), 0.03, 0.7, 4, Color(0.8, 0.8, 0.8))
+	mk.box(c + Vector3(0, 6.1, 0), Vector3(0.1, 0.1, 0.1), Color(1.0, 0.15, 0.1), null, false, 2.7)
+	# a hangar with its doors open to the apron, a plane's tail inside
+	var hz0 := -15.5
+	mk.box(Vector3(3.2, top + 1.0, hz0), Vector3(4.6, 2.0, 5.0), Color(0.72, 0.74, 0.76), null, false, MeshKit.SIDING)
+	mk.gable_roof(Vector3(3.2, top + 2.0, hz0), 5.0, 4.6, 0.6, 0.1, Color(0.52, 0.56, 0.6), Color(0.72, 0.74, 0.76), 0.06)
+	mk.box_faces(Vector3(0.89, top + 0.85, hz0), Vector3(0.02, 1.6, 4.0), Color(0.15, 0.17, 0.2), MeshKit.LEFT)
+	# a windsock by the runway
+	var wsx := rx + 2.6
+	mk.pole(Vector3(wsx, top, 6.0), 0.025, 0.9, 4, Color(0.8, 0.8, 0.8))
+	mk.cone(Vector3(wsx, top + 0.85, 6.15), 0.08, 0.35, 6, Color("f07a2e"))
+
+
+## A flat rectangle on the field, `w` and `d` half its width and length.
+func _flat(mk: MeshKit, x: float, z: float, w: float, d: float, y: float, col: Color) -> void:
+	mk.quad(Vector3(x - w, y, z + d), Vector3(x + w, y, z + d), Vector3(x + w, y, z - d), Vector3(x - w, y, z - d), Vector3.UP, col)
 
 
 func _place_pier(p: Vector2) -> void:
