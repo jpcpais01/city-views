@@ -19,6 +19,8 @@ const SAVE_PATH := "user://island.json"
 const SAVE_VERSION := 2
 const BRUSHES := ["street", "grow", "green", "magic", "clear", "raise", "lower", "smooth", "flatten"]
 const SHAPE := ["raise", "lower", "smooth", "flatten"]
+# how often the Clear brush cuts the streets it has gone over (seconds)
+const ERASE_EVERY := 0.2
 const HISTORY := 25
 
 var land: Land
@@ -92,6 +94,9 @@ var _mouse_buttons := 0
 var _undo: Array = []
 var _redo: Array = []
 var _stroke_did := false
+# where the Clear brush went since it last cut the streets (x, y, radius)
+var _erase_discs: Array = []
+var _erase_wait := 0.0
 # the Grow and Green brushes: what the stroke began on (it may paint over
 # that colour), where it last dabbed, how much it newly painted, and the dab
 # under the finger as the ring shows it
@@ -734,9 +739,14 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 		"clear":
 			BrushMask.clear(land, c, r * 0.6)
 			town.zone_changed(c, r * 0.6)
-			# (the map's highways stay: the Road tool's Reroll plans new ones)
-			if streets.erase_at(c, r * 0.6, true):
-				Sfx.play("bulldoze", 1.0, -8.0, 0.1)
+			# the streets under the brush are cut a few times a second, all the
+			# ground it went over since in one go, not on every frame
+			var disc := Vector3(c.x, c.y, r * 0.6)
+			if _erase_discs.is_empty() or _erase_discs[-1] != disc:
+				_erase_discs.append(disc)
+			_erase_wait -= delta
+			if _erase_wait <= 0.0:
+				_erase_streets()
 			_save_timer = 1.0
 			return
 	_shore_dirty = true
@@ -748,6 +758,17 @@ func _apply_brush(at: Vector3, delta: float) -> void:
 	if _sculpt_sound <= 0.0:
 		_sculpt_sound = 0.16
 		Sfx.play("road" if brush == "smooth" or brush == "flatten" else "place", 0.7 if brush == "lower" else 1.0, -12.0, 0.15)
+
+
+## Cuts the streets where the Clear brush went since the last cut.
+func _erase_streets() -> void:
+	_erase_wait = ERASE_EVERY
+	if _erase_discs.is_empty():
+		return
+	# (the map's highways stay: the Road tool's Reroll plans new ones)
+	if streets.erase_discs(_erase_discs, true):
+		Sfx.play("bulldoze", 1.0, -8.0, 0.1)
+	_erase_discs.clear()
 
 
 ## The Grow and Green brushes cover more ground than the shaping ones: enough
@@ -1162,6 +1183,8 @@ func _end_stroke() -> void:
 	if not _stroke:
 		return
 	_stroke = false
+	_erase_streets()
+	_erase_wait = 0.0
 	if brush == "street" and street_change:
 		_stroke_did = _apply_change()
 		_path = PackedVector2Array()

@@ -96,7 +96,41 @@ func _process(delta: float) -> void:
 		print("-- growing on its own")
 	elif frames == 1300:
 		_dump("idle")
+		print("-- erasing a district across the city")
+		_erase_from(Vector2(-50, -40))
+	elif frames < 1480:
+		var p := Vector2(-50, -40).lerp(Vector2(40, 30), (frames - 1300) / 180.0)
+		island._ring_at = Vector3(p.x, island.land.height_at(p.x, p.y), p.y)
+	elif frames == 1480:
+		island._end_stroke()
+	elif frames == 1700:
+		_dump("erase a district, and what follows")
+		print("-- erasing along the main street")
+		_erase_from(Vector2(-80, 4))
+	elif frames < 1880:
+		var p := Vector2(-80, 4).lerp(Vector2(80, 2), (frames - 1700) / 180.0)
+		island._ring_at = Vector3(p.x, island.land.height_at(p.x, p.y), p.y)
+	elif frames == 1880:
+		island._end_stroke()
+	elif frames == 2100:
+		_dump("erase along a street, and what follows")
 		get_tree().quit()
+
+
+func _erase_from(p: Vector2) -> void:
+	island.set_brush("clear")
+	var at := Vector3(p.x, island.land.height_at(p.x, p.y), p.y)
+	island._begin_stroke(island.rig.cam.unproject_position(at))
+	if not island._stroke:
+		var t := Time.get_ticks_usec()
+		island._undo.append(island.snapshot())
+		print("  (undo snapshot %.1f ms)" % ((Time.get_ticks_usec() - t) / 1000.0))
+		island._ring_at = at
+		island._stroke = true
+		island._stroke_did = false
+		island._stroke_lo = p - Vector2.ONE * 20.0
+		island._stroke_hi = p + Vector2.ONE * 20.0
+	island._ring_at = at
 
 
 func _note(k: String, t0: int) -> void:

@@ -547,9 +547,10 @@ func _on_removed(s: Streets.Street) -> void:
 			if _front[k] == s.id:
 				_front[k] = 0
 				_front_d[k] = INF
-	# streets that crossed it may have lost cells they share with it, and gain room
+	# streets that crossed it may have lost cells they share with it, and gain
+	# room (only where they come near it: the rest of them is as it was)
 	for o in streets._touching(s):
-		_mark_street(o)
+		_mark_street(o, s)
 		_todo[o.id] = o
 
 
@@ -564,7 +565,10 @@ func _on_rekinded(old: Streets.Street, pieces: Array) -> void:
 		var best: Streets.Street = null
 		var bd := INF
 		for p: Streets.Street in pieces:
-			var d: float = p.closest(l.origin).x
+			# (a lot stands within its depth of its street: look round there first)
+			var d: float = p.closest_near(l.origin, MAX_DEPTH + 4.0).x
+			if d == INF:
+				d = p.closest(l.origin).x
 			if d < bd:
 				bd = d
 				best = p
@@ -584,6 +588,31 @@ func _on_rekinded(old: Streets.Street, pieces: Array) -> void:
 			if _front[k] == old.id:
 				_front[k] = 0
 				_front_d[k] = INF
+	# the pieces take back its cells as they are marked, but for where it was
+	# cut away (Streets.erase_discs): streets crossing there may have shared
+	# cells with it, so they mark those again
+	var gone := PackedVector2Array()
+	var glo := Vector2(INF, INF)
+	var ghi := Vector2(-INF, -INF)
+	for q in old.pts:
+		var kept := false
+		for p: Streets.Street in pieces:
+			if p.near_box(q, 0.01) and p.within(q, 0.01):
+				kept = true
+				break
+		if not kept:
+			gone.append(q)
+			glo = glo.min(q)
+			ghi = ghi.max(q)
+	if not gone.is_empty():
+		var reach := old.reach() + FRONTAGE + 1.0
+		for o: Streets.Street in streets.streets:
+			if o in pieces or o.hi.x < glo.x - reach - o.reach() - FRONTAGE or o.hi.y < glo.y - reach - o.reach() - FRONTAGE:
+				continue
+			if o.lo.x > ghi.x + reach + o.reach() + FRONTAGE or o.lo.y > ghi.y + reach + o.reach() + FRONTAGE:
+				continue
+			_mark_street(o, null, gone, reach, Rect2(glo, ghi - glo).grow(reach))
+			_todo[o.id] = o
 	for p: Streets.Street in pieces:
 		_new_streets.append(p)
 
@@ -655,8 +684,13 @@ static func _cell(p: Vector2) -> Vector2i:
 
 
 ## Marks the street's carriageway and pavements on the town map, and the
-## strip beside them its houses front onto.
-func _mark_street(s: Streets.Street) -> void:
+## strip beside them its houses front onto (with `near`, only the stretches
+## of it that come close to that street; with `near_pts`, only those within
+## `near_r` of one of those points).
+func _mark_street(s: Streets.Street, near: Streets.Street = null, near_pts := PackedVector2Array(), near_r := 0.0, clip := Rect2()) -> void:
+	# (with `clip`, only the cells in it)
+	var k0 := _cell(clip.position)
+	var k1 := _cell(clip.end)
 	var r := s.reach() + FRONT_GAP - 0.02
 	var rf := s.reach() + FRONTAGE
 	const STEP := CELL * 0.7
@@ -667,6 +701,25 @@ func _mark_street(s: Streets.Street) -> void:
 		# the band of cells beside a short run of the street, a little past each
 		# end so bends leave no gaps; distances are to the street itself
 		var j := mini(i + RUN, n - 1)
+		if near != null or not near_pts.is_empty():
+			var blo := s.pts[i].min(s.pts[j])
+			var bhi := s.pts[i].max(s.pts[j])
+			for m in range(i + 1, j):
+				blo = blo.min(s.pts[m])
+				bhi = bhi.max(s.pts[m])
+			var close := false
+			if near != null:
+				var pad := Vector2.ONE * (rf + near.reach() + FRONTAGE + 1.0)
+				close = not near.segments_near(blo - pad, bhi + pad).is_empty()
+			else:
+				var box := Rect2(blo, bhi - blo).grow(rf + near_r)
+				for q in near_pts:
+					if box.has_point(q):
+						close = true
+						break
+			if not close:
+				i = j
+				continue
 		var a := s.pts[i]
 		var t := (s.pts[j] - a).normalized()
 		var nrm := Vector2(-t.y, t.x)
@@ -679,6 +732,8 @@ func _mark_street(s: Streets.Street) -> void:
 				var c := _cell(a + t * u + nrm * v)
 				v += STEP
 				if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
+					continue
+				if clip.size.x > 0.0 and (c.x < k0.x or c.y < k0.y or c.x > k1.x or c.y > k1.y):
 					continue
 				var k := c.y * RES + c.x
 				if _marked[k] == _run:

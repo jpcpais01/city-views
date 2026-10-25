@@ -370,20 +370,47 @@ func _lay(s: Street) -> Street:
 ## Removes street within `radius` of p, splitting streets that pass through
 ## (but for the map's highways, with `spare_highways`).
 func erase_at(p: Vector2, radius: float, spare_highways := false) -> bool:
+	return erase_discs([Vector3(p.x, p.y, radius)], spare_highways)
+
+
+## Removes street within any of the discs (x, y: centre, z: radius) in one
+## go, so a stroke of the eraser cuts each street once, not on every frame.
+func erase_discs(discs: Array, spare_highways := false) -> bool:
+	if discs.is_empty():
+		return false
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for d: Vector3 in discs:
+		lo = lo.min(Vector2(d.x - d.z, d.y - d.z))
+		hi = hi.max(Vector2(d.x + d.z, d.y + d.z))
 	var hit := false
-	for s in streets.duplicate():
+	for s: Street in streets.duplicate():
 		# an interchange's ramps go with the street that has them
-		if s.auto or not s.near_box(p, radius + s.reach()) or (spare_highways and s.kind == "highway"):
+		if s.auto or (spare_highways and s.kind == "highway"):
+			continue
+		var pad := s.reach()
+		if s.hi.x < lo.x - pad or s.hi.y < lo.y - pad or s.lo.x > hi.x + pad or s.lo.y > hi.y + pad:
+			continue
+		var near: Array = []
+		for d: Vector3 in discs:
+			if s.near_box(Vector2(d.x, d.y), d.z + pad):
+				near.append(d)
+		if near.is_empty():
 			continue
 		var pieces: Array = []
 		var cur := PackedVector2Array()
 		var cy := PackedFloat32Array()
 		var cut := false
 		for i in s.pts.size():
-			if s.pts[i].distance_to(p) < radius:
+			var gone := false
+			for d: Vector3 in near:
+				if s.pts[i].distance_to(Vector2(d.x, d.y)) < d.z:
+					gone = true
+					break
+			if gone:
 				cut = true
 				if cur.size() >= 3:
-					pieces.append([cur, cy])
+					pieces.append([cur, cy, i - cur.size()])
 				cur = PackedVector2Array()
 				cy = PackedFloat32Array()
 			else:
@@ -393,12 +420,37 @@ func erase_at(p: Vector2, radius: float, spare_highways := false) -> bool:
 			continue
 		hit = true
 		if cur.size() >= 3:
-			pieces.append([cur, cy])
+			pieces.append([cur, cy, s.pts.size() - cur.size()])
+		# the piece still flying over a highway (else the longest) keeps the
+		# street's key, so the slip roads there, named after it, stay as they are
+		var heir := -1
+		for k in pieces.size():
+			var a: int = pieces[k][2]
+			var b: int = a + pieces[k][0].size() - 1
+			for o in s.overs:
+				if o.x <= b and o.y >= a:
+					heir = k
+		if heir < 0:
+			for k in pieces.size():
+				if heir < 0 or pieces[k][0].size() > pieces[heir][0].size():
+					heir = k
 		var touching := _touching(s)
-		var flew := touching.filter(func(o): return _flies(o, s))
-		_remove(s)
-		for pc in pieces:
+		# streets that flew over it may come down where it was cut (one it
+		# flew over stays as it is)
+		var flew := touching.filter(func(o): return _flies(o, s) and _low(o, s) == s)
+		# what is left of a street is the same street in pieces: the town keeps
+		# the houses along them (see Town._on_rekinded). Its mesh stays up
+		# until the pieces have theirs, built over the next frames
+		var mi: MeshInstance3D = _meshes.get(s.id)
+		if mi and not pieces.is_empty():
+			_meshes.erase(s.id)
+		_remove(s, not pieces.is_empty())
+		var made: Array = []
+		for k in pieces.size():
+			var pc: Array = pieces[k]
 			var ns := _new_street()
+			if k == heir:
+				ns.key = s.key
 			ns.kind = s.kind
 			ns.pts = pc[0]
 			ns.ys = pc[1]
@@ -406,9 +458,13 @@ func erase_at(p: Vector2, radius: float, spare_highways := false) -> bool:
 			ns.spans = _bridges(ns)
 			ns.quay = _quays(ns)
 			streets.append(ns)
-			_junctions_dirty = true
-			_build(ns)
-			added.emit(ns)
+			made.append(ns)
+			_build_later(ns)
+		_junctions_dirty = true
+		if not made.is_empty():
+			if mi:
+				_stale.append([mi, made])
+			rekinded.emit(s, made)
 		for o in flew:
 			if o in streets:
 				_grade(o)
@@ -485,6 +541,7 @@ func _touched() -> void:
 func clear() -> void:
 	for s in streets.duplicate():
 		_remove(s)
+	_drop_stale(true)
 	_next_id = 1
 
 
@@ -959,6 +1016,21 @@ func _process(delta: float) -> void:
 		_pending.erase(id)
 		if s in streets:
 			_build(s)
+	_drop_stale()
+
+
+# [the mesh of a street cut into pieces, the pieces], until they have theirs
+var _stale: Array = []
+
+
+func _drop_stale(all := false) -> void:
+	for k in range(_stale.size() - 1, -1, -1):
+		var ready := true
+		for p: Street in _stale[k][1]:
+			ready = ready and (_meshes.has(p.id) or not p in streets)
+		if ready or all:
+			_stale[k][0].queue_free()
+			_stale.remove_at(k)
 
 
 # [street, the streets round it still to settle onto it]
@@ -993,6 +1065,7 @@ func flush() -> void:
 	for st in streets:
 		if st.cuts.is_empty():
 			_build(st)
+	_drop_stale(true)
 
 
 ## Whether the street is still being laid out or waiting for its mesh.
@@ -1495,15 +1568,20 @@ func _meetings(s: Street, o: Street) -> PackedVector2Array:
 ## own instead of meeting it at a junction (of two highways, the one with the
 ## later key goes over).
 func _flies(a: Street, b: Street) -> bool:
-	var ha := a.kind == "highway"
-	var hb := b.kind == "highway"
-	if not ha and not hb:
+	if a.kind != "highway" and b.kind != "highway":
 		return false
-	var low := a if ha else b
-	if ha and hb:
-		low = b if a.key > b.key else a
+	var low := _low(a, b)
 	var high := b if low == a else a
 	return _crossing(high, low).x >= 0.0
+
+
+## Of two streets where one flies over the other (see _flies), the one below.
+func _low(a: Street, b: Street) -> Street:
+	var ha := a.kind == "highway"
+	var hb := b.kind == "highway"
+	if ha and hb:
+		return b if a.key > b.key else a
+	return a if ha else b
 
 
 ## Whether one is a ramp and the other a highway it runs alongside.

@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-25 15:00 UTC
+- Erasing is smooth again. The Clear brush no longer freezes the game for up to a second and a half on every stroke through a big city: it now cuts the streets under it a few times a second instead of on every frame, the streets either side of a cut are remade over the next few frames (the old road stays drawn until they are ready), and only the bits of the town map right by the cut are worked out again.
+- Cutting a gap in a street with the Clear brush keeps the houses along the rest of it. Before, every house on the whole street was knocked down and had to grow back, even far from the brush; now only the ones you actually brush over go. The slip roads at a highway interchange also stay put when you erase part of the street they lead to.
+
 ## 2026-10-25 14:00 UTC
 - Opening a saved city is now a little show: once the town is laid out, its buildings rise district by district, homes first, then shops, offices, entertainment and industry, each from its lowest level up to its tallest, spreading out from the middle of town.
 - The Magic brush now reaches twice as far as the other brushes at each size (S, M, L), so one sweep tops out a whole neighbourhood, and its golden ring shows exactly the houses it will reach.
