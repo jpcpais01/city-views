@@ -31,6 +31,11 @@ func _ready() -> void:
 		island._stroke = true
 		await get_tree().create_timer(1.2).timeout
 		island._stroke = false
+	if OS.get_environment("CV_HILL") != "":
+		# a steep round hill: x,z,radius,metres
+		var hp := OS.get_environment("CV_HILL").split(",")
+		for k in int(hp[3]):
+			island.land.sculpt(Vector3(float(hp[0]), 0, float(hp[1])), float(hp[2]) - k, 1.0)
 	if OS.get_environment("CV_STREETS") != "":
 		# a gently curving main street, one crossing it and one ending on it
 		var lines := [[], [], []]
