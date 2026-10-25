@@ -1206,6 +1206,28 @@ func _districts() -> void:
 			krng.seed = k
 			kinds["%d %s" % [stage, HouseGen.works_kind(probe, krng)]] = true
 	check(kinds.size() == 6 and kinds.has("0 factory"), "workshops start as factories, and grow into warehouses, mills, chemical works and tech plants (%s)" % str(kinds.keys()))
+	# enough works open a cargo port on the nearest shore with deep water:
+	# its quay over the water's edge, a freighter alongside, cheap to draw
+	var lm := island.landmarks
+	print("  works: %d" % lm._works().size())
+	check(lm._wants("port") == (lm._works().size() >= Landmarks.WORKS), "a port waits for %d works" % Landmarks.WORKS)
+	lm._looked.clear()
+	lm.settle()
+	check(lm.spots.has("port"), "an industrial district gets a cargo port (%s)" % str(lm.spots.keys()))
+	if lm.spots.has("port"):
+		var pp: Vector2 = lm.spots.port
+		var pd := lm._port_dir(pp)
+		var berth := pp + pd * Landmarks.BERTH
+		check(island.land.height_at(pp.x, pp.y) > 0.0 and island.land.height_at(berth.x, berth.y) < -0.6, "the port's quay stands on the shore, the freighter in deep water")
+		check(island.town.is_built(pp - pd * 2.0) and island.town.is_built(pp + Vector2(pd.y, -pd.x) * 8.0), "the town keeps off the port's quay")
+		var port_tris := 0
+		for mi: MeshInstance3D in lm._nodes.port.find_children("*", "MeshInstance3D", true, false):
+			if mi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY:
+				port_tris += _tris(mi.mesh)
+		check(port_tris < 4000, "the port is cheap to draw (%d tris)" % port_tris)
+		var marks := lm.to_dict()
+		lm.from_dict(JSON.parse_string(JSON.stringify(marks)))
+		check(lm.spots.has("port") and lm.spots.port.distance_to(pp) < 0.05, "the port comes back from a save")
 	check(shops >= 2 and shops_all, "a shops district puts a shop under every house (%d)" % shops)
 	check(offices >= 2, "an office district grows offices (%d)" % offices)
 	check(tall >= 1 and homes_office == 0, "homes grow into residential towers, never offices (%d tall, %d not homes)" % [tall, homes_office])

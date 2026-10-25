@@ -11,12 +11,15 @@ extends Node3D
 ## A city of a few thousand gets an airport out in open country: a runway
 ## with lights, a taxiway, a terminal with airliners at its gates, a control
 ## tower and a hangar. Airliners take off from it and land on it (see Planes).
+## An industrial district with enough works on a sea shore gets a cargo port:
+## a concrete quay with a container yard, two ship-to-shore cranes reaching
+## out over the water and a freighter tied up alongside.
 
-const NEED := {"windmill": 150, "pier": 275, "lighthouse": 450, "wheel": 0, "stadium": 0, "airport": 4000}
+const NEED := {"windmill": 150, "pier": 275, "lighthouse": 450, "wheel": 0, "stadium": 0, "airport": 4000, "port": 0}
 const NAMES := {"windmill": "A windmill now turns on the hilltop", "pier": "A pier now reaches out from the harbour", "lighthouse": "A lighthouse now guards the headland",
 	"wheel": "A Ferris wheel now turns by the shops", "stadium": "A stadium now stands by the shopping district",
-	"airport": "The city's airport is open: watch for planes taking off"}
-const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0, "wheel": 2.4, "stadium": 6.6, "airport": 24.0}
+	"airport": "The city's airport is open: watch for planes taking off", "port": "A cargo port now opens on the shore by the works"}
+const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0, "wheel": 2.4, "stadium": 6.6, "airport": 24.0, "port": 11.0}
 ## the airport's ground, half its width and half its length (the runway runs
 ## along its length), and where on it the runway lies across
 const AIRPORT := Vector2(8.5, 24.0)
@@ -35,6 +38,17 @@ const STONE := Color(0.72, 0.7, 0.66)
 const TIMBER := Color(0.45, 0.33, 0.24)
 const PLANK := Color(0.72, 0.56, 0.38)
 const PIER_LEN := 7.0
+## how many works an industrial district needs before its port opens
+const WORKS := 6
+## the port's quay, half its length along the shore, how far it reaches
+## inland and out over the water, and where the freighter lies
+const QUAY_HALF := 10.5
+const QUAY_BACK := 4.5
+const QUAY_OUT := 3.8
+const BERTH := 5.3
+const CONCRETE := Color(0.64, 0.63, 0.6)
+const CRANE := [Color("3d6fa8"), Color("c8553d")]
+const BOXES := [Color("c8553d"), Color("2f8f83"), Color("e3a33b"), Color("3d5f8f"), Color("8c5aa8"), Color("d9d4c7"), Color("5e8f4a")]
 # how far beyond the town's streets a landmark may stand
 const SEARCH := 60.0
 
@@ -116,6 +130,8 @@ func settle() -> void:
 func _wants(kind: String) -> bool:
 	if RETAIL.has(kind):
 		return _retail().size() >= int(RETAIL[kind])
+	if kind == "port":
+		return _works().size() >= WORKS
 	return world.progress.residents >= int(NEED[kind])
 
 
@@ -124,6 +140,15 @@ func _retail() -> PackedVector2Array:
 	var out := PackedVector2Array()
 	for l: Town.Lot in world.town.lots.values():
 		if (l.use == "retail" or (l.use == "fun" and l.stage >= 4)) and l.host == 0:
+			out.append(l.origin)
+	return out
+
+
+## Where the works stand (factories, warehouses, mills, chemical and tech works).
+func _works() -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for l: Town.Lot in world.town.lots.values():
+		if l.type == "house" and l.use == "industry" and l.host == 0 and not l.arrays.is_empty():
 			out.append(l.origin)
 	return out
 
@@ -176,6 +201,8 @@ func _fits(kind: String, p: Vector2, standing := false) -> bool:
 	var h := land.height_at(p.x, p.y)
 	if kind == "pier":
 		return _pier_fits(p, standing)
+	if kind == "port":
+		return _port_fits(p, standing)
 	if kind == "lighthouse" and (h < 0.3 or h > 6.0):
 		return false
 	if kind == "windmill" and h < 1.2:
@@ -309,6 +336,67 @@ func _pier_fits(p: Vector2, standing: bool) -> bool:
 	return true
 
 
+## Which way is straight out to sea from a stretch of shore: wider than
+## _seaward(), so a quay lies along the coast and not across a cove.
+func _port_dir(p: Vector2) -> Vector2:
+	var d := Vector2.ZERO
+	for k in 24:
+		var dir := Vector2.from_angle(k * TAU / 24.0)
+		for r: float in [6.0, 10.0]:
+			var q := p + dir * r
+			if world.land.height_at(q.x, q.y) < -0.6:
+				d += dir
+	return d.normalized()
+
+
+## A cargo port's quay lies along the shore just above the water, with water
+## deep enough for a freighter all along its seaward edge, nothing built on
+## its ground and no street across it.
+func _port_fits(p: Vector2, standing: bool) -> bool:
+	var land := world.land
+	var h := land.height_at(p.x, p.y)
+	if h < 0.02 or h > 1.2:
+		return false
+	var d := _port_dir(p)
+	if d == Vector2.ZERO:
+		return false
+	var right := Vector2(d.y, -d.x)
+	# deep water where the freighter lies (the quick test, first)
+	for x: float in [0.0, -9.0, 9.0, -4.5, 4.5]:
+		for z: float in [BERTH, BERTH + 1.6, QUAY_OUT + 0.4]:
+			var q := p + right * x + d * z
+			if land.height_at(q.x, q.y) > (-0.6 if z < BERTH else -0.9):
+				return false
+	# land at its back, and no hill rising over the deck
+	for x: float in [-QUAY_HALF + 1.0, 0.0, QUAY_HALF - 1.0]:
+		var q := p + right * x - d * (QUAY_BACK - 0.5)
+		if land.height_at(q.x, q.y) < 0.02:
+			return false
+	var x0 := -QUAY_HALF
+	while x0 <= QUAY_HALF + 0.01:
+		var z0 := -QUAY_BACK
+		while z0 <= QUAY_OUT:
+			var q := p + right * x0 + d * z0
+			if land.height_at(q.x, q.y) > h + 1.0:
+				return false
+			if not standing and z0 < 0.5 and world.town.is_built(q):
+				return false
+			z0 += 1.5
+		x0 += 1.5
+	# no street over the quay, or out where the freighter lies (a bridge)
+	for s: Streets.Street in world.streets.streets:
+		if not s.near_box(p, QUAY_HALF + 8.0):
+			continue
+		var reach := s.reach() + 0.6
+		for k in range(0, s.pts.size(), 2):
+			var v := s.pts[k] - p
+			var along := v.dot(right)
+			var out := v.dot(d)
+			if absf(along) < QUAY_HALF + reach and out > -QUAY_BACK - reach and out < BERTH + 2.0 + reach:
+				return false
+	return true
+
+
 ## The middle of the harbour quarter (or of the whole town), where the pier should be near.
 func _harbour_centre() -> Variant:
 	for pass_i in 2:
@@ -345,6 +433,17 @@ func _search_start(kind: String) -> Dictionary:
 		for gx in range(-30, 31):
 			for gz in range(-30, 31):
 				pts.append(origin + Vector2(gx, gz))
+	elif kind == "port":
+		# along the shore nearest the works
+		var works := _works()
+		if works.is_empty():
+			return {}
+		for q in works:
+			origin += q
+		origin /= works.size()
+		for gx in range(-44, 45):
+			for gz in range(-44, 45):
+				pts.append(origin + Vector2(gx, gz) * 2.5)
 	elif RETAIL.has(kind):
 		var shops := _retail()
 		if shops.is_empty():
@@ -435,6 +534,16 @@ func _score(kind: String, p: Vector2, origin: Vector2) -> float:
 		if absf(p.x) > Land.HALF - 8.0 or absf(p.y) > Land.HALF - 8.0:
 			return -INF
 		return -p.distance_to(origin)
+	if kind == "port":
+		if absf(p.x) > Land.HALF - 20.0 or absf(p.y) > Land.HALF - 20.0:
+			return -INF
+		var h := land.height_at(p.x, p.y)
+		if h < 0.02 or h > 1.2:
+			return -INF
+		for other in spots:
+			if p.distance_to(spots[other]) < float(ROOM[other]) + 14.0:
+				return -INF
+		return -p.distance_to(origin)
 	if RETAIL.has(kind):
 		if absf(p.x) > Land.HALF - 10.0 or absf(p.y) > Land.HALF - 10.0:
 			return -INF
@@ -484,6 +593,12 @@ func _place(kind: String, p: Vector2) -> void:
 	if kind == "airport":
 		world.town.reserve_box(kind, p, AIRPORT + Vector2(0.6, 0.6), airport_yaw)
 		_place_airport(p)
+		return
+	if kind == "port":
+		var d := _port_dir(p)
+		var yaw := atan2(d.x, d.y)
+		world.town.reserve_box(kind, p - d * (QUAY_BACK - QUAY_OUT) * 0.5, Vector2(QUAY_HALF + 0.6, (QUAY_BACK + QUAY_OUT) * 0.5 + 0.6), yaw)
+		_place_port(p, d)
 		return
 	world.town.reserve(kind, p, float(ROOM[kind]) + 0.6)
 	if kind == "pier":
@@ -716,6 +831,116 @@ func _place_pier(p: Vector2) -> void:
 		sh.mesh = sm
 		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 		root.add_child(sh)
+
+
+## The cargo port, in its own frame (local +Z out to sea, X along the shore):
+## the quay, its sides down into the water, the container yard behind, two
+## ship-to-shore cranes on their rails with booms out over a freighter tied
+## up alongside, and floodlight masts.
+func _place_port(p: Vector2, d: Vector2) -> void:
+	var land := world.land
+	var right := Vector2(d.y, -d.x)
+	# the deck a little over the highest ground under it
+	var top := 0.0
+	var x0 := -QUAY_HALF
+	while x0 <= QUAY_HALF + 0.01:
+		var z0 := -QUAY_BACK
+		while z0 <= QUAY_OUT:
+			var q := p + right * x0 + d * z0
+			top = maxf(top, land.height_at(q.x, q.y))
+			z0 += 1.5
+		x0 += 1.5
+	var deck := top + 0.12
+	var root := Node3D.new()
+	root.position = Vector3(p.x, deck, p.y)
+	root.rotation.y = atan2(d.x, d.y)
+	add_child(root)
+	_nodes["port"] = root
+	var mk := MeshKit.new(hash("port"))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(p)
+	# the quay, its sides down to the sea bed, edged in yellow at the water
+	var low := -1.6 - deck
+	mk.shadow = false
+	mk.box(Vector3(0, low * 0.5, (QUAY_OUT - QUAY_BACK) * 0.5), Vector3(QUAY_HALF * 2.0, -low, QUAY_OUT + QUAY_BACK), CONCRETE.darkened(0.12), CONCRETE)
+	mk.quad(Vector3(-QUAY_HALF, 0.004, QUAY_OUT - 0.08), Vector3(QUAY_HALF, 0.004, QUAY_OUT - 0.08), Vector3(QUAY_HALF, 0.004, QUAY_OUT - 0.2), Vector3(-QUAY_HALF, 0.004, QUAY_OUT - 0.2), Vector3.UP, Color("e3b13b"))
+	# the cranes' rails
+	for z: float in [1.1, 3.1]:
+		mk.quad(Vector3(-QUAY_HALF + 0.3, 0.005, z + 0.03), Vector3(QUAY_HALF - 0.3, 0.005, z + 0.03), Vector3(QUAY_HALF - 0.3, 0.005, z - 0.03), Vector3(-QUAY_HALF + 0.3, 0.005, z - 0.03), Vector3.UP, Color(0.3, 0.3, 0.32))
+	mk.shadow = true
+	# black fenders on the quay's face, bollards along its edge
+	var x := -QUAY_HALF + 1.2
+	while x < QUAY_HALF - 0.6:
+		mk.box_faces(Vector3(x, -0.28, QUAY_OUT + 0.04), Vector3(0.3, 0.4, 0.08), Color(0.12, 0.12, 0.13), MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT)
+		mk.box_faces(Vector3(x + 1.0, 0.06, QUAY_OUT - 0.32), Vector3(0.12, 0.12, 0.12), Color(0.16, 0.17, 0.19), MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+		x += 2.6
+	# the container yard: stacks in two blocks, a lane between them
+	for row: float in [-3.6, -2.95, -1.75, -1.1]:
+		x = -QUAY_HALF + 1.2
+		while x < QUAY_HALF - 1.0:
+			if rng.randf() < 0.85:
+				var tiers := 1 + rng.randi() % 3
+				var c: Color = BOXES[rng.randi() % BOXES.size()]
+				mk.box_faces(Vector3(x, tiers * 0.15, row), Vector3(1.05, tiers * 0.3, 0.58), c, MeshKit.TOP | MeshKit.FRONT | MeshKit.BACK | MeshKit.LEFT | MeshKit.RIGHT)
+			x += 1.18
+	# the freighter alongside, in the same mesh (it does not move)
+	mk.push_at(Vector3(rng.randf_range(-1.5, 1.5), -0.05 - deck, BERTH))
+	if world.ships:
+		world.ships._freighter(mk)
+	mk.pop()
+	# the two cranes, one in each colour, out over the ship
+	for k in 2:
+		_crane(mk, Vector3(-4.2 + k * 8.4 + rng.randf_range(-0.6, 0.6), 0.0, 0.0), CRANE[k], rng)
+	# floodlight masts at the yard's corners, lit at night
+	for sx: float in [-1.0, 1.0]:
+		var at := Vector3(sx * (QUAY_HALF - 0.5), 0.0, -2.35)
+		mk.pole(at, 0.05, 3.0, 5, Color(0.55, 0.56, 0.58))
+		mk.box(at + Vector3(0, 3.05, 0), Vector3(0.4, 0.12, 0.2), Color(0.3, 0.3, 0.32), Color(1, 0.95, 0.8), false, 2.75)
+	var body := MeshInstance3D.new()
+	body.mesh = mk.commit(world.city_mat)
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(body)
+	var sm := mk.commit_shadow(Palette.shadow_material())
+	if sm:
+		var sh := MeshInstance3D.new()
+		sh.mesh = sm
+		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		root.add_child(sh)
+
+
+## One ship-to-shore crane standing at `at` on the quay's rails: a portal of
+## four legs, the boom reaching out over the water and back over the yard,
+## the A-frame above with its stays, the machinery house and a trolley
+## lowering a container.
+func _crane(mk: MeshKit, at: Vector3, col: Color, rng: RandomNumberGenerator) -> void:
+	var h := 3.6
+	for sx: float in [-0.8, 0.8]:
+		for z: float in [1.1, 3.1]:
+			mk.box(at + Vector3(sx, h * 0.5, z), Vector3(0.16, h, 0.16), col)
+		# the sill beam along each side of the portal, and the boom girders
+		mk.box(at + Vector3(sx, 0.55, 2.1), Vector3(0.12, 0.14, 2.0), col)
+		mk.box(at + Vector3(sx * 0.55, h + 0.12, 2.6), Vector3(0.14, 0.24, 11.8), col)
+	for z: float in [1.1, 3.1]:
+		mk.box(at + Vector3(0, h - 0.1, z), Vector3(1.76, 0.2, 0.18), col)
+	# the machinery house at the back, the cab under the boom
+	mk.box(at + Vector3(0, h + 0.42, -2.3), Vector3(1.4, 0.6, 1.6), WHITE, CONCRETE)
+	mk.box(at + Vector3(0.55, h - 0.25, 3.8), Vector3(0.36, 0.3, 0.36), WHITE)
+	mk.window(at + Vector3(0.55, h - 0.25, 3.99), Vector3.BACK, 0.28, 0.16, Palette.GLASS_LIGHT, Color(0, 0, 0, 0), true)
+	# the A-frame over the legs and the stays out to the boom's tip
+	var apex := at + Vector3(0, h + 2.0, 2.1)
+	for sx: float in [-0.6, 0.6]:
+		BoatKit.line(mk, at + Vector3(sx, h + 0.2, 1.1), apex + Vector3(sx * 0.3, 0, 0), 0.1, col)
+		BoatKit.line(mk, at + Vector3(sx, h + 0.2, 3.1), apex + Vector3(sx * 0.3, 0, 0), 0.1, col)
+		BoatKit.line(mk, apex + Vector3(sx * 0.3, 0, 0), at + Vector3(sx * 0.55, h + 0.24, 8.4), 0.05, Color(0.25, 0.25, 0.27))
+		BoatKit.line(mk, apex + Vector3(sx * 0.3, 0, 0), at + Vector3(sx * 0.55, h + 0.24, -3.2), 0.05, Color(0.25, 0.25, 0.27))
+	mk.box(apex, Vector3(0.9, 0.16, 0.16), col)
+	# the trolley out over the ship, a container hanging from it
+	var tz := rng.randf_range(4.5, 6.5)
+	var drop := rng.randf_range(1.2, 2.2)
+	mk.box(at + Vector3(0, h - 0.05, tz), Vector3(1.0, 0.18, 0.5), Color(0.25, 0.25, 0.27))
+	for sx: float in [-0.25, 0.25]:
+		mk.box(at + Vector3(sx, h - 0.1 - drop * 0.5, tz), Vector3(0.02, drop, 0.02), Color(0.15, 0.15, 0.16))
+	mk.box(at + Vector3(0, h - 0.1 - drop - 0.17, tz), Vector3(1.05, 0.3, 0.58), BOXES[rng.randi() % BOXES.size()])
 
 
 ## A little figure sitting on the deck edge at `at`, legs over the water
