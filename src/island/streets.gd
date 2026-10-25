@@ -30,7 +30,9 @@ const KINDS := {
 	"main": {"w": 0.78, "dash": true, "median": 0.0, "verge": false},
 	"side": {"w": 0.56, "dash": false, "median": 0.0, "verge": false},
 	"avenue": {"w": 1.5, "dash": true, "median": 0.3, "verge": false},
-	"highway": {"w": 1.95, "dash": true, "median": 0.3, "verge": true},
+	# grade: a highway keeps to gentle slopes, cutting and banking the land
+	# and tunnelling through the hills it can't climb
+	"highway": {"w": 1.95, "dash": true, "median": 0.3, "verge": true, "grade": 0.06},
 	# a paved walk through a park or green: no cars, only people (see Growth)
 	"walk": {"w": 0.7, "dash": false, "median": 0.0, "verge": false},
 	# a slip road between a highway and the street flying over it, laid by
@@ -48,6 +50,14 @@ const GUARDRAIL := Color(0.72, 0.75, 0.78)
 const POST_EVERY := 5.0
 const GANTRY_EVERY := 150.0
 const SIGN_GREEN := Color(0.12, 0.45, 0.3)
+## a highway tunnels where the land stands this far over it (starting where
+## there is at least TUNNEL_EDGE over it), for at least TUNNEL_MIN samples
+const TUNNEL_COVER := 2.2
+const TUNNEL_EDGE := 0.9
+const TUNNEL_MIN := 24
+## how far a highway's height profile is smoothed either side (samples)
+const HIGHWAY_SMOOTH := 24
+const TUNNEL_DARK := Color(0.05, 0.05, 0.06)
 ## a walk's paving, warmer and lighter than a pavement
 const PAVING := Color(0.86, 0.8, 0.7)
 ## the kinds a player can draw, with what a metre costs compared with a street
@@ -113,6 +123,9 @@ class Street:
 	## where it flies over a highway it crosses without joining it: (from, to)
 	## sample ranges, the deck from abutment to abutment (see _flyovers)
 	var overs := PackedVector2Array()
+	## where a highway runs through a hill in a tunnel: (from, to) sample
+	## ranges, portal to portal (see _tunnels)
+	var tunnels := PackedVector2Array()
 	## per sample, which sides run along the water on a stone quay (1 left, 2 right)
 	var quay := PackedByteArray()
 	## its bus stops: (sample index, side), set once it is built (see BusStops)
@@ -210,7 +223,7 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 				_grade(o)
 				_conform(o)
 		# and the banks their ramps stand on stop at its shoulders
-		land.conform(s.pts, s.ys, s.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
+		_lower_onto(s)
 	_reconform_near(s)
 	_conform_junctions(s)
 	_laying[s.id] = 0.0
@@ -344,7 +357,12 @@ func _grade(s: Street) -> void:
 		var src := ys.duplicate()
 		for i in range(1, n - 1):
 			ys[i] = src[i - 1] * 0.25 + src[i] * 0.5 + src[i + 1] * 0.25
-	_limit(s.pts, ys, {})
+	var grade: float = KINDS[s.kind].get("grade", MAX_GRADE)
+	if KINDS[s.kind].has("grade"):
+		# a highway evens out the hills and dips over a long stretch
+		for pass_i in 3:
+			ys = _smoothed(ys, HIGHWAY_SMOOTH)
+	_limit(s.pts, ys, {}, grade)
 	# over water a bridge: its deck level from bank to bank, arching a little
 	# over a long crossing, the ramps up to it graded like any street
 	s.spans = _bridges(s)
@@ -368,7 +386,7 @@ func _grade(s: Street) -> void:
 			ys[i] = deck
 			pins[i] = deck
 	if not pins.is_empty():
-		_limit(s.pts, ys, pins)
+		_limit(s.pts, ys, pins, grade)
 	# meet other streets at their height, easing the change in over a few metres
 	for o in streets:
 		if o == s or not _boxes_overlap(s, o) or _flies(s, o):
@@ -388,8 +406,62 @@ func _grade(s: Street) -> void:
 			ys[i] += shift * clampf(1.0 - d / 9.0, 0.0, 1.0)
 		pins[bi] = best.y
 	if not pins.is_empty():
-		_limit(s.pts, ys, pins)
+		_limit(s.pts, ys, pins, grade)
 	s.ys = ys
+	s.tunnels = _tunnels(s) if s.kind == "highway" else PackedVector2Array()
+
+
+## A running mean of ys over r samples either side (the ends held).
+static func _smoothed(ys: PackedFloat32Array, r: int) -> PackedFloat32Array:
+	var n := ys.size()
+	var sum := PackedFloat64Array()
+	sum.resize(n + 1)
+	for i in n:
+		sum[i + 1] = sum[i] + ys[i]
+	var out := ys.duplicate()
+	for i in range(1, n - 1):
+		var k := mini(r, mini(i, n - 1 - i))
+		out[i] = (sum[i + k + 1] - sum[i - k]) / float(2 * k + 1)
+	return out
+
+
+## Where a highway runs under a hill: each run of samples with the land at
+## least TUNNEL_EDGE over the road that somewhere has TUNNEL_COVER over it,
+## long enough to be worth a tunnel, off bridges and decks and clear of the
+## ends. A tunnel it already has stays while the hill over it does (its
+## mouths are cut back to the road, which mustn't shorten it).
+func _tunnels(s: Street) -> PackedVector2Array:
+	var n := s.pts.size()
+	var cover := PackedFloat32Array()
+	cover.resize(n)
+	for i in n:
+		cover[i] = land.height_at(s.pts[i].x, s.pts[i].y) - s.ys[i]
+	var keep := PackedByteArray()
+	keep.resize(n)
+	for t in s.tunnels:
+		var m := clampi(int((t.x + t.y) * 0.5), 0, n - 1)
+		if t.y < n and cover[m] > TUNNEL_EDGE:
+			for i in range(int(t.x), int(t.y) + 1):
+				keep[i] = 1
+	var out := PackedVector2Array()
+	var i := 4
+	while i < n - 4:
+		if cover[i] <= TUNNEL_EDGE and not keep[i]:
+			i += 1
+			continue
+		var j := i
+		var deep := false
+		while j + 1 < n - 4 and (cover[j + 1] > TUNNEL_EDGE or keep[j + 1]):
+			j += 1
+		for k in range(i, j + 1):
+			deep = deep or cover[k] > TUNNEL_COVER or keep[k]
+		var clear := true
+		for c in s.spans + s.overs:
+			clear = clear and (c.y < i or c.x > j)
+		if deep and clear and j - i >= TUNNEL_MIN:
+			out.append(Vector2(i, j))
+		i = j + 1
+	return out
 
 
 ## Where a street crosses water: each run of samples over water, carried on
@@ -424,6 +496,7 @@ func _conform(s: Street) -> void:
 	var n := s.pts.size()
 	var ends := s.spans.duplicate()
 	ends.append_array(s.overs)
+	ends.append_array(s.tunnels)
 	var by_start := Array(ends)
 	by_start.sort_custom(func(a: Vector2, b: Vector2): return a.x < b.x)
 	ends = PackedVector2Array(by_start)
@@ -484,7 +557,7 @@ func _quays(s: Street) -> PackedByteArray:
 
 
 ## Keeps every step within MAX_GRADE, holding pinned samples at their height.
-static func _limit(pts: PackedVector2Array, ys: PackedFloat32Array, pins: Dictionary) -> void:
+static func _limit(pts: PackedVector2Array, ys: PackedFloat32Array, pins: Dictionary, grade := MAX_GRADE) -> void:
 	var n := pts.size()
 	for it in 4:
 		for i in pins:
@@ -492,12 +565,12 @@ static func _limit(pts: PackedVector2Array, ys: PackedFloat32Array, pins: Dictio
 		for i in range(1, n):
 			if pins.has(i):
 				continue
-			var step := MAX_GRADE * pts[i].distance_to(pts[i - 1])
+			var step := grade * pts[i].distance_to(pts[i - 1])
 			ys[i] = clampf(ys[i], ys[i - 1] - step, ys[i - 1] + step)
 		for i in range(n - 2, -1, -1):
 			if pins.has(i):
 				continue
-			var step := MAX_GRADE * pts[i].distance_to(pts[i + 1])
+			var step := grade * pts[i].distance_to(pts[i + 1])
 			ys[i] = clampf(ys[i], ys[i + 1] - step, ys[i + 1] + step)
 
 
@@ -517,7 +590,19 @@ func _touching(s: Street) -> Array:
 func _reconform_near(s: Street) -> void:
 	for o in _touching(s):
 		# a grid step past the pavement too, so the ground can't rise over its edge in between
-		land.conform(o.pts, o.ys, o.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
+		_lower_onto(o)
+
+
+## Takes the ground down to a street wherever it rises over its edges (as a
+## neighbour's banks can), except over its tunnels.
+func _lower_onto(s: Street) -> void:
+	var start := 0
+	var n := s.pts.size()
+	for t in s.tunnels + PackedVector2Array([Vector2(n, n)]):
+		var stop := mini(int(t.x), n - 1)
+		if stop - start >= 1:
+			land.conform(s.pts.slice(start, stop + 1), s.ys.slice(start, stop + 1), s.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
+		start = maxi(start, int(t.y))
 
 
 ## how far short of another street a stroke may start or end and still join it
@@ -825,7 +910,7 @@ func _build(s: Street) -> void:
 	for i in range(1, mini(s.quay.size(), last_i + 1)):
 		if s.quay[i] != s.quay[i - 1]:
 			rows[float(i)] = true
-	for list in [cuts[-1.0], cuts[1.0], skip, s.spans, s.overs]:
+	for list in [cuts[-1.0], cuts[1.0], skip, s.spans, s.overs, s.tunnels]:
 		for c in list:
 			for f in [c.x, c.y]:
 				if f > 0.0 and f < upto:
@@ -856,6 +941,9 @@ func _build(s: Street) -> void:
 		if f1 - f0 < 0.01:
 			continue
 		var fm := (f0 + f1) * 0.5
+		if _in_cuts(s.tunnels, fm):
+			# under the hill: nothing to see
+			continue
 		var p0 := rp[r]
 		var p1 := rp[r + 1]
 		var n0 := rn[r]
@@ -981,11 +1069,16 @@ func _build(s: Street) -> void:
 				continue
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
 	if verge and not _laying.has(s.id):
-		_highway_kit(s, buf, upto, skip)
+		_highway_kit(s, buf, upto, skip + s.tunnels)
+		for t in s.tunnels:
+			if t.x <= upto:
+				_portal(s, buf, t.x, 1.0)
+			if t.y <= upto:
+				_portal(s, buf, t.y, -1.0)
 	# a dead end rounds off in a half circle, like a turning head
 	if not _laying.has(s.id):
 		for f: float in [0.0, upto]:
-			if _dead_end(s, int(f)) and not _in_cuts(s.spans, f) and not _in_cuts(s.overs, f) and not _in_cuts(skip, f):
+			if _dead_end(s, int(f)) and not _in_cuts(s.spans, f) and not _in_cuts(s.overs, f) and not _in_cuts(skip, f) and not _in_cuts(s.tunnels, f):
 				_build_cap(s, buf, f, asphalt, pave, kerb)
 	# bus stops, once the street is laid out and knows its junctions
 	if not _laying.has(s.id):
@@ -1216,7 +1309,8 @@ func _flyovers(s: Street) -> Array:
 		if o.kind != "highway" or o == s or (s.kind == "highway" and s.key < o.key):
 			continue
 		var x := _crossing(s, o)
-		if x.x < 0.0:
+		if x.x < 0.0 or _in_cuts(o.tunnels, x.y) or _in_cuts(s.tunnels, x.x):
+			# a street over a highway's tunnel just carries on over the hill
 			continue
 		var ds := (_ptf(s, minf(x.x + 1.0, s.pts.size() - 1)) - _ptf(s, maxf(x.x - 1.0, 0.0))).normalized()
 		var do := (_ptf(o, minf(x.y + 1.0, o.pts.size() - 1)) - _ptf(o, maxf(x.y - 1.0, 0.0))).normalized()
@@ -1526,10 +1620,39 @@ func _highway_kit(s: Street, buf: MeshBuf, upto: float, skip: PackedVector2Array
 				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, out)
 				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, -out)
 		since_gantry += POST_EVERY
-		if since_gantry >= GANTRY_EVERY and s.kind == "highway" and not on_bridge and not _in_cuts(skip, f) and f > 4.0 and f < upto - 4.0:
+		var by_tunnel := false
+		for t in s.tunnels:
+			by_tunnel = by_tunnel or (f > t.x - 30.0 and f < t.y + 30.0)
+		if since_gantry >= GANTRY_EVERY and s.kind == "highway" and not on_bridge and not by_tunnel and not _in_cuts(skip, f) and f > 4.0 and f < upto - 4.0:
 			since_gantry = 0.0
 			_gantry(s, buf, f, w)
 		f += POST_EVERY / SAMPLE
+
+
+## A tunnel mouth at sample f (the tunnel running on towards +dirn): a
+## concrete headwall into the hill with the opening dark beyond it, a row of
+## lamps lit under its lintel.
+func _portal(s: Street, buf: MeshBuf, f: float, dirn: float) -> void:
+	var nn := _sidef(s, f)
+	var n3 := Vector3(nn.x, 0.0, nn.y)
+	var d3 := Vector3(-nn.y, 0.0, nn.x)
+	var fwd := (_ptf(s, minf(f + 1.0, s.pts.size() - 1)) - _ptf(s, maxf(f - 1.0, 0.0))).normalized() * dirn
+	var into := Vector3(fwd.x, 0.0, fwd.y)
+	var open := s.w() + 0.4
+	var high := 2.0
+	var c := _atf(s, f, 0.0, 0.0)
+	var face := CONCRETE.darkened(0.04)
+	for side: float in [-1.0, 1.0]:
+		# the headwall either side of the opening, stepping down into the hill
+		buf.box(c + n3 * side * (open + 0.8) + Vector3.UP * 1.3 + into * 0.2, Vector3(1.6, 3.2, 0.5), n3, d3, face)
+	buf.box(c + Vector3.UP * (high + 0.55) + into * 0.2, Vector3(open * 2.0 + 3.2, 1.1, 0.5), n3, d3, face)
+	# the dark inside, a little way in
+	var a := c + into * 0.45 - n3 * open + Vector3.DOWN * 0.3
+	var b := c + into * 0.45 + n3 * open + Vector3.DOWN * 0.3
+	buf.quad(a, b, b + Vector3.UP * (high + 0.31), a + Vector3.UP * (high + 0.31), TUNNEL_DARK, 0.0, -into)
+	var la := c + into * 0.44 - n3 * (open - 0.2) + Vector3.UP * (high - 0.12)
+	var lb := c + into * 0.44 + n3 * (open - 0.2) + Vector3.UP * (high - 0.12)
+	buf.quad(la, lb, lb + Vector3.UP * 0.06, la + Vector3.UP * 0.06, Color(1.0, 0.82, 0.55), 2.0, -into)
 
 
 func _gantry(s: Street, buf: MeshBuf, f: float, w: float) -> void:
@@ -1740,7 +1863,13 @@ func street_data(s: Street) -> Dictionary:
 	var y := []
 	for v in s.ys:
 		y.append(snappedf(v, 0.01))
-	return {"id": s.key, "k": s.kind, "p": p, "y": y}
+	var d := {"id": s.key, "k": s.kind, "p": p, "y": y}
+	if not s.tunnels.is_empty():
+		var t := []
+		for v in s.tunnels:
+			t.append_array([v.x, v.y])
+		d["t"] = t
+	return d
 
 
 func from_data(data: Array) -> void:
@@ -1901,7 +2030,7 @@ func rekind(s: Street, kind: String, a: float, b: float) -> Array:
 			if _flies(o, c) and (o.kind != "highway" or o.key > c.key):
 				_grade(o)
 				_conform(o)
-		land.conform(c.pts, c.ys, c.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
+		_lower_onto(c)
 	for o in flew:
 		if o in streets and not o in pieces:
 			_grade(o)
@@ -2154,4 +2283,9 @@ func _from_dict(d: Variant) -> Street:
 	s.update_bounds()
 	s.spans = _bridges(s)
 	s.quay = _quays(s)
+	var t: Array = d.get("t", [])
+	for i in range(0, t.size() - 1, 2):
+		var a := clampi(int(t[i]), 0, s.pts.size() - 1)
+		var b := clampi(int(t[i + 1]), a, s.pts.size() - 1)
+		s.tunnels.append(Vector2(a, b))
 	return s

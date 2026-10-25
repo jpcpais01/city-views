@@ -63,6 +63,10 @@ func _ready() -> void:
 		await _flyovers()
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
+	if OS.get_environment("CV_ONLY") == "tunnels":
+		await _tunnels()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
 		return
 	if OS.get_environment("CV_ONLY") == "walks":
 		await _green_walks()
@@ -109,6 +113,7 @@ func _ready() -> void:
 	await _big_coast()
 	await _green_walks()
 	await _flyovers()
+	await _tunnels()
 	await _road_change()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -1583,6 +1588,57 @@ func _big_coast() -> void:
 ## them, cars never do, and where three meet there is a little square with a fountain.
 ## A street drawn across a highway flies over it on a bridge of its own,
 ## whichever is drawn first; one that only ends on it still meets it.
+## A highway through a hill tunnels under it, with the hill left standing;
+## the tunnel survives a save and a reload, and a street over the hill
+## crosses it without a junction or a deck.
+func _tunnels() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(4, "island")
+	var land := island.land
+	var st := island.streets
+	# a steep round hill across the middle
+	for k in 14:
+		land.sculpt(Vector3(0, 0, 0), 22.0 - k, 1.0)
+	var top := land.height_at(0.0, 0.0)
+	var pts := PackedVector2Array()
+	for k in 141:
+		pts.append(Vector2(-70 + k, 0.0))
+	var hw := st.add_stroke(pts, "highway")
+	st.flush()
+	var road: Vector3 = hw.closest(Vector2.ZERO)
+	check(not hw.tunnels.is_empty(), "a highway through a hill tunnels under it (%s, hill %.1f m)" % [str(hw.tunnels), top])
+	var over := land.height_at(0.0, 0.0) - road.y
+	check(over > Streets.TUNNEL_COVER, "and the hill stays standing over it (%.1f m over the road)" % over)
+	var steep := 0.0
+	for i in hw.ys.size() - 1:
+		steep = maxf(steep, absf(hw.ys[i + 1] - hw.ys[i]) / hw.pts[i].distance_to(hw.pts[i + 1]))
+	check(steep <= 0.07, "a highway keeps to gentle slopes (%.3f)" % steep)
+	# a street over the hill crosses the tunnel without meeting it
+	var cpts := PackedVector2Array()
+	for k in 41:
+		cpts.append(Vector2(2.0, -20.0 + k))
+	var cross := st.add_stroke(cpts, "main")
+	st.flush()
+	var met := 0
+	for jn in st.junctions():
+		var on: Array = jn.arms.map(func(a): return a.st)
+		met += int(on.has(hw) and on.has(cross))
+	var ramps: Array = st.streets.filter(func(r): return r.kind == "ramp")
+	check(met == 0 and cross.overs.is_empty() and ramps.is_empty(), "a street over the tunnel crosses the hill, no junction, deck or ramps (%d, %d, %d)" % [met, cross.overs.size(), ramps.size()])
+	check(hw.tunnels.size() >= 1 and cross.closest(Vector2(2.0, 0.0)).y - road.y > 1.5, "and runs over the hill, not down to the highway")
+	var before := hw.tunnels.duplicate()
+	var data := st.to_data()
+	st.from_data(data)
+	var hw2: Streets.Street = null
+	for s2: Streets.Street in st.streets:
+		if s2.kind == "highway":
+			hw2 = s2
+	check(hw2 != null and hw2.tunnels == before, "the tunnel comes back the same after a reload (%s vs %s)" % [str(hw2.tunnels if hw2 else []), str(before)])
+	island.queue_free()
+	await get_tree().process_frame
+
+
 func _flyovers() -> void:
 	var island := IslandWorld.new()
 	add_child(island)

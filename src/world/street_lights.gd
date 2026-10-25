@@ -72,7 +72,7 @@ func places() -> Array[Transform3D]:
 			var f := d / Streets.SAMPLE
 			var p := streets._ptf(s, f)
 			# none under a street flying over, nor on its deck
-			if not near and not streets.under_deck(p, 2.0) and not Streets._in_cuts(s.overs, f):
+			if not near and not streets.under_deck(p, 2.0) and not Streets._in_cuts(s.overs, f) and not Streets._in_cuts(s.tunnels, f):
 				var side := streets._sidef(s, f)
 				var y := streets._yf(s, f) + 0.03 + Streets.CURB
 				out.append(Transform3D(Basis(Vector3.UP, atan2(-side.y, side.x)) * Basis.from_scale(Vector3(reach, 1, 1)), Vector3(p.x, y, p.y)))
