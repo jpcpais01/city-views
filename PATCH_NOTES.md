@@ -1,5 +1,8 @@
 # City Views patch notes
 
+## 2026-10-25 12:00 UTC
+- No more pencil towers downtown: tall buildings now join their neighbours into one wider, more realistic skyscraper whenever they can, and a narrow plot that finds no one to join stays a sturdy apartment block instead of a thin spike. The skyline keeps its mix of heights and styles, and busy downtowns draw a little lighter too.
+
 ## 2026-10-25 11:00 UTC
 - Building is much smoother in big cities. Painting districts no longer stutters: the brush outline, the paint and the buildings it changes now cost a fraction of what they did, and buildings changed by a repaint are remade over the next few frames instead of all at once.
 - Drawing a road through a big town no longer freezes the game for a second when you lift your finger: junctions, the buildings in the road's way and the ground around it are worked out far faster, and the streets around a new road settle onto it over the next few frames.

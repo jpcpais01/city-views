@@ -917,6 +917,9 @@ func _try_merge(l: Lot) -> bool:
 		return false
 	# chance by place, so the same plots join up after a reload
 	var odds: float = [0.55, 0.8, 0.92][clampi(mini(l.stage, p.stage) - 3, 0, 2)]
+	# towers always join up where they can: a lone plot is far too narrow for one
+	if maxi(l.stage, p.stage) >= 6:
+		odds = 1.0
 	if _hash(roundi(l.origin.x * 10.0), l.origin.y, 9.1) > odds:
 		return false
 	group.append(l.id)
