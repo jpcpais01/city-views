@@ -1,6 +1,6 @@
 extends Node
 ## Screenshot of the island.
-## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_BRUSH=raise|lower|smooth|flatten
+## CV_SEED, CV_TIME, CV_DIST, CV_YAW (degrees), CV_FOCUS=x,z, CV_LOOK=x,z (camera, after growing), CV_CIVIC=kind (looks at the first public building of that kind), CV_BRUSH=raise|lower|smooth|flatten
 ## (holds that brush at the focus for a second), CV_STREETS=1 (lays a few streets; 2: one long one; 3: two 24 m apart), CV_GROW=radius (paints and grows the town),
 ## CV_LEVEL=1..4 (Grow level for CV_GROW), CV_TOP=metres (straight down, no HUD), CV_MARK=kind (looks at that landmark once it stands), CV_HOLD=brush (holds it, e.g. grow shows the painted districts), CV_PHOTO=1 (photo mode, hyper graphics unless CV_NOHYPER=1), CV_SPARKLE=1 (Magic sparkles over a few houses mid-view), CV_TAP=x,y (taps the screen there, as if asking what stands there), CV_MENU=page (opens the menu on that page: city, maps, coop, account, settings, controls, notes), CV_NOHUD=1 (hides the HUD), CV_OUT.
 
@@ -220,6 +220,13 @@ func _ready() -> void:
 		# look somewhere else than where the town was grown from
 		var parts := OS.get_environment("CV_LOOK").split(",")
 		island.rig.focus(Vector3(float(parts[0]), 0, float(parts[1])))
+	if OS.get_environment("CV_CIVIC") != "":
+		# look at the first public building of that kind (fire, police, hospital, ...)
+		for l: Town.Lot in island.town.lots.values():
+			if l.type == OS.get_environment("CV_CIVIC"):
+				print("%s at %s, facing %.0f°" % [l.type, l.origin, rad_to_deg(l.yaw)])
+				island.rig.focus(Vector3(l.origin.x, 0, l.origin.y))
+				break
 	if OS.get_environment("CV_LIVE") != "":
 		# paint and let the town grow in real time, watching the slowest frame
 		var r := float(OS.get_environment("CV_LIVE"))

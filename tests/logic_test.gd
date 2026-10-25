@@ -883,10 +883,17 @@ func _island_budget() -> void:
 	check(civic >= 1, "the town grows a square or a church (%d)" % civic)
 	var public := {}
 	for l: Town.Lot in island.town.lots.values():
-		if l.type in ["hall", "school", "market"]:
+		if l.type in ["hall", "school", "market", "fire", "police", "hospital"]:
 			public[l.type] = public.get(l.type, 0) + 1
 	check(public.size() >= 2, "the town grows public buildings: a town hall, schools, market halls (%s)" % str(public))
 	check(public.get("hall", 0) <= 1, "there is only one town hall in the middle of town")
+	check(public.has("fire") and public.has("police"), "the town grows its services: fire and police stations (%s)" % str(public))
+	var services_ok := true
+	for l: Town.Lot in island.town.lots.values():
+		if l.type in ["fire", "police", "hospital"]:
+			services_ok = services_ok and not l.arrays.is_empty() and (l.arrays[0] as PackedVector3Array).size() > 100
+			services_ok = services_ok and island.town.describe(l).title in ["Fire station", "Police station", "Hospital"]
+	check(services_ok, "every fire station, police station and hospital is built and named")
 	var bases := []
 	for l: Town.Lot in island.town.lots.values():
 		if l.type == "house" and l.group.size() < 2:
