@@ -28,7 +28,11 @@ const KINDS := {
 	"side": {"w": 0.56, "dash": false, "median": 0.0, "verge": false},
 	"avenue": {"w": 1.5, "dash": true, "median": 0.3, "verge": false},
 	"highway": {"w": 1.95, "dash": true, "median": 0.3, "verge": true},
+	# a paved walk through a park or green: no cars, only people (see Growth)
+	"walk": {"w": 0.7, "dash": false, "median": 0.0, "verge": false},
 }
+## a walk's paving, warmer and lighter than a pavement
+const PAVING := Color(0.86, 0.8, 0.7)
 ## the kinds a player can draw, with what a metre costs compared with a street
 const DRAWN := {"main": 1.0, "avenue": 2.5, "highway": 4.0}
 
@@ -686,6 +690,7 @@ func _build(s: Street) -> void:
 	var w := s.w()
 	var buf := MeshBuf.new()
 	var asphalt := Palette.ASPHALT.darkened(0.05) if s.kind != "side" else Palette.ASPHALT
+	var walk := s.kind == "walk"
 	var median: float = KINDS[s.kind].median
 	var verge: bool = KINDS[s.kind].verge
 	# where junction corners take over this street's pavements, per side,
@@ -792,6 +797,8 @@ func _build(s: Street) -> void:
 				var c := p1 + n1 * w
 				var d := p1 - n1 * w
 				buf.road(Vector3(a.x, y0, a.y), Vector3(b.x, y0, b.y), Vector3(c.x, y1, c.y), Vector3(d.x, y1, d.y), asphalt, MeshKit.ASPHALT_DASHED, f0 * SAMPLE, f1 * SAMPLE)
+			elif walk:
+				_band(buf, p0, n0, y0, p1, n1, y1, -w, 0.0, w, 0.0, PAVING, MeshKit.SLABS, Vector3.UP)
 			else:
 				_band(buf, p0, n0, y0, p1, n1, y1, -w, 0.0, w, 0.0, asphalt, MeshKit.ASPHALT, Vector3.UP)
 		for side: float in [-1.0, 1.0]:
@@ -837,6 +844,11 @@ func _build(s: Street) -> void:
 					_band(buf, p0, n0, y0, p1, n1, y1, side * edge, rail, side * edge, rail - 0.05, HouseGen.IRON, 0.0, out3)
 					_band(buf, p0, n0, y0, p1, n1, y1, side * (edge - lip), base, side * edge, base, CONCRETE.lightened(0.08), 0.0, Vector3.UP)
 					buf.quad(Vector3(e0.x, y0 + base, e0.y), Vector3(e1.x, y1 + base, e1.y), Vector3(e1.x, y1 + maxf(g1, -DECK_DEPTH - 3.0), e1.y), Vector3(e0.x, y0 + maxf(g0, -DECK_DEPTH - 3.0), e0.y), wall.darkened(0.06), 0.0, out3)
+				continue
+			if walk:
+				# a stone edging flush with the grass, and the edge down into the ground
+				_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * (w + 0.12), 0.0, kerb, 0.0, Vector3.UP)
+				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + 0.12), 0.0, side * (w + 0.3), -SKIRT, kerb.darkened(0.1), 0.0, out3 + Vector3.UP)
 				continue
 			if verge:
 				# a pale shoulder line and the edge of the road down into the ground
@@ -1234,8 +1246,13 @@ func _conform_junctions(s: Street) -> void:
 ## Builds a junction's asphalt and corner kerbs into a street's mesh.
 func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 	var main := false
+	var walks := true
 	for arm in jn.arms:
 		main = main or arm.st.kind != "side"
+		walks = walks and arm.st.kind == "walk"
+	if walks:
+		_build_plaza(jn, buf)
+		return
 	var asphalt := Palette.ASPHALT.darkened(0.05) if main else Palette.ASPHALT
 	var c3 := Vector3(jn.at.x, jn.y, jn.at.y)
 	var edge: Array = jn.edge
@@ -1261,6 +1278,55 @@ func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 			prev_p = p3
 			prev_o = o3
 			prev_n = n3
+
+
+## Where walks meet: a little round paved square, with a fountain in the
+## middle where three or more meet.
+func _build_plaza(jn: Dictionary, buf: MeshBuf) -> void:
+	const SEGS := 14
+	var c3 := Vector3(jn.at.x, jn.y, jn.at.y)
+	var edge: Array = jn.edge
+	for k in edge.size():
+		buf.tri(c3, edge[k], edge[(k + 1) % edge.size()], PAVING, MeshKit.SLABS, true)
+	var r := KINDS.walk.w + PAVE + 1.4
+	var kerb := Palette.SIDEWALK.darkened(0.12)
+	var ring := func(rad: float, dy: float, k: int) -> Vector3:
+		var a := TAU * k / SEGS
+		return c3 + Vector3(cos(a) * rad, dy, sin(a) * rad)
+	for k in SEGS:
+		var a0: Vector3 = ring.call(r, 0.004, k)
+		var a1: Vector3 = ring.call(r, 0.004, k + 1)
+		buf.tri(c3 + Vector3.UP * 0.004, a0, a1, PAVING.lightened(0.04), MeshKit.SLABS, true)
+		var mid := TAU * (k + 0.5) / SEGS
+		var out := Vector3(cos(mid), 0.0, sin(mid))
+		buf.quad(a0, a1, ring.call(r + 0.12, 0.004, k + 1), ring.call(r + 0.12, 0.004, k), kerb, 0.0, Vector3.UP)
+		buf.quad(ring.call(r + 0.12, 0.004, k), ring.call(r + 0.12, 0.004, k + 1), ring.call(r + 0.3, -SKIRT, k + 1), ring.call(r + 0.3, -SKIRT, k), kerb.darkened(0.1), 0.0, out + Vector3.UP)
+	if jn.arms.size() < 3:
+		return
+	# a stone basin, its water, and a column with a bowl spilling into it
+	const BASIN := 0.85
+	const WALL := 0.28
+	var stone := Color(0.8, 0.77, 0.72)
+	var water := Color(0.36, 0.62, 0.74)
+	for k in SEGS:
+		var mid := TAU * (k + 0.5) / SEGS
+		var out := Vector3(cos(mid), 0.0, sin(mid))
+		buf.quad(ring.call(BASIN, 0.0, k), ring.call(BASIN, 0.0, k + 1), ring.call(BASIN, WALL, k + 1), ring.call(BASIN, WALL, k), stone, 0.0, out)
+		buf.quad(ring.call(BASIN, WALL, k), ring.call(BASIN, WALL, k + 1), ring.call(BASIN - 0.12, WALL, k + 1), ring.call(BASIN - 0.12, WALL, k), stone.lightened(0.1), 0.0, Vector3.UP)
+		buf.quad(ring.call(BASIN - 0.12, WALL, k), ring.call(BASIN - 0.12, WALL, k + 1), ring.call(BASIN - 0.12, WALL - 0.08, k + 1), ring.call(BASIN - 0.12, WALL - 0.08, k), stone.darkened(0.08), 0.0, -out)
+		buf.tri(c3 + Vector3.UP * (WALL - 0.08), ring.call(BASIN - 0.12, WALL - 0.08, k), ring.call(BASIN - 0.12, WALL - 0.08, k + 1), water, 0.0, true)
+	for k in 6:
+		var a0 := TAU * k / 6.0
+		var a1 := TAU * (k + 1) / 6.0
+		var out := Vector3(cos((a0 + a1) * 0.5), 0.0, sin((a0 + a1) * 0.5))
+		var p0 := c3 + Vector3(cos(a0) * 0.1, 0.0, sin(a0) * 0.1)
+		var p1 := c3 + Vector3(cos(a1) * 0.1, 0.0, sin(a1) * 0.1)
+		buf.quad(p0, p1, p1 + Vector3.UP * 0.75, p0 + Vector3.UP * 0.75, stone, 0.0, out)
+		# the bowl on top, flaring out, with water in it
+		var b0 := c3 + Vector3(cos(a0) * 0.36, 0.86, sin(a0) * 0.36)
+		var b1 := c3 + Vector3(cos(a1) * 0.36, 0.86, sin(a1) * 0.36)
+		buf.quad(p0 + Vector3.UP * 0.75, p1 + Vector3.UP * 0.75, b1, b0, stone.lightened(0.05), 0.0, out + Vector3.DOWN)
+		buf.tri(c3 + Vector3.UP * 0.84, b0, b1, water.lightened(0.15), 0.0, true)
 
 
 # ------------------------------------------------------------------ sampling
@@ -1312,6 +1378,7 @@ func _build_cap(s: Street, buf: MeshBuf, f: float, asphalt: Color, pave: Color, 
 	var w := s.w()
 	var median: float = KINDS[s.kind].median
 	var verge: bool = KINDS[s.kind].verge
+	var walk := s.kind == "walk"
 	var c := _ptf(s, f)
 	var side := _sidef(s, f)
 	var out := (s.pts[0] - s.pts[1]).normalized() if f < 0.5 else (s.pts[n - 1] - s.pts[n - 2]).normalized()
@@ -1326,8 +1393,8 @@ func _build_cap(s: Street, buf: MeshBuf, f: float, asphalt: Color, pave: Color, 
 		var tm := (t0 + t1) * 0.5
 		var o := side * cos(tm) + out * sin(tm)
 		var o3 := Vector3(o.x, 0.0, o.y)
-		buf.tri(c3, at.call(t0, w, 0.0), at.call(t1, w, 0.0), asphalt, MeshKit.ASPHALT, true)
-		if verge:
+		buf.tri(c3, at.call(t0, w, 0.0), at.call(t1, w, 0.0), PAVING if walk else asphalt, MeshKit.SLABS if walk else MeshKit.ASPHALT, true)
+		if verge or walk:
 			buf.quad(at.call(t0, w, 0.0), at.call(t1, w, 0.0), at.call(t1, w + 0.12, 0.0), at.call(t0, w + 0.12, 0.0), kerb, 0.0, Vector3.UP)
 			buf.quad(at.call(t0, w + 0.12, 0.0), at.call(t1, w + 0.12, 0.0), at.call(t1, w + 0.3, -SKIRT), at.call(t0, w + 0.3, -SKIRT), kerb.darkened(0.1), 0.0, o3 + Vector3.UP)
 			continue

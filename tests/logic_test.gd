@@ -59,6 +59,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "walks":
+		await _green_walks()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "coast":
 		await _big_coast()
 		print("FAILURES: %d" % failures)
@@ -92,6 +97,7 @@ func _ready() -> void:
 	await _legacy_save()
 	await _map_kinds()
 	await _big_coast()
+	await _green_walks()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -1421,5 +1427,58 @@ func _big_coast() -> void:
 	# and back to an ordinary map
 	island.new_island(5, "river")
 	check(Land.SIZE == Land.NORMAL_SIZE and Town.RES == int(Land.SIZE / Town.CELL), "other maps stay %d m across" % int(Land.SIZE))
+	island.queue_free()
+	await get_tree().process_frame
+
+
+## Streets the town grows through painted green are paved walks: people use
+## them, cars never do, and where three meet there is a little square with a fountain.
+func _green_walks() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(4, "island")
+	var pts := PackedVector2Array()
+	for k in 61:
+		pts.append(Vector2(-30 + k, 0.0))
+	island.streets.add_stroke(pts, "main")
+	island.streets.flush()
+	# town on one side, a park on the other
+	island.land.paint_zone(Vector3(0, 0, 0), 34.0, 2.0)
+	island.land.paint_green(Vector3(0, 0, 18), 16.0, 2.0)
+	island.growth.focus = Vector2(0, 0)
+	island.growth.grow_all(60)
+	island.streets.flush()
+	island.town.fill_all()
+	var walks := 0
+	var sides := 0
+	var green_side := 0
+	for s: Streets.Street in island.streets.streets:
+		if s.kind == "walk":
+			walks += 1
+		elif s.kind == "side":
+			sides += 1
+			var mid := s.pts[s.pts.size() / 2]
+			if island.land.green_at(mid.x, mid.y) > 0.9 and island.land.green_at(s.pts[0].x, s.pts[0].y) > 0.9 and island.land.green_at(s.pts[-1].x, s.pts[-1].y) > 0.9:
+				green_side += 1
+	check(walks >= 2 and sides >= 2, "the town lays walks through the park and streets through the town (%d walks, %d streets)" % [walks, sides])
+	check(green_side == 0, "no car street runs through the middle of the park (%d)" % green_side)
+	var plazas := 0
+	for jn in island.streets.junctions():
+		var all_walk := true
+		for arm in jn.arms:
+			all_walk = all_walk and arm.st.kind == "walk"
+		if all_walk:
+			plazas += 1
+	print("  walk squares: %d" % plazas)
+	# traffic keeps to the roads
+	var tr := island.cars
+	tr._rng.seed = 5
+	var on_walk := 0
+	for k in 900:
+		tr._process(0.05)
+		for c in tr._cars:
+			if (c.s as Streets.Street).kind == "walk":
+				on_walk += 1
+	check(tr._cars.size() > 0 and on_walk == 0, "cars never drive on a walk (%d cars, %d on walks)" % [tr._cars.size(), on_walk])
 	island.queue_free()
 	await get_tree().process_frame

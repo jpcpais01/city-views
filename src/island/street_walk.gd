@@ -24,7 +24,8 @@ static func spawn(streets: Streets, rng: RandomNumberGenerator) -> Dictionary:
 
 
 ## Moves `m` on by `dist` metres. False if its street is gone.
-static func advance(streets: Streets, graph: Dictionary, m: Dictionary, dist: float, turn_chance: float, rng: RandomNumberGenerator) -> bool:
+## With `cars`, it never turns onto a walk.
+static func advance(streets: Streets, graph: Dictionary, m: Dictionary, dist: float, turn_chance: float, rng: RandomNumberGenerator, cars := false) -> bool:
 	var s: Streets.Street = m.s
 	if not graph.has(s.id):
 		return false
@@ -41,6 +42,8 @@ static func advance(streets: Streets, graph: Dictionary, m: Dictionary, dist: fl
 			if (jf - f) * m.dir < 0.0 or (jf - nf) * m.dir > 0.0:
 				continue
 			var at_end := jf < 1.0 or jf > n - 2.0
+			if cars and (l[1] as Streets.Street).kind == "walk":
+				continue
 			if rng.randf() < (0.85 if at_end and end else turn_chance):
 				var o: Streets.Street = l[1]
 				var of: float = l[2]

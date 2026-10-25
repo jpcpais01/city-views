@@ -74,6 +74,7 @@ func _ready() -> void:
 		print("streets: ", island.streets.streets.size())
 	if OS.get_environment("CV_GROW") != "":
 		var r := float(OS.get_environment("CV_GROW"))
+		print("grow focus ", f)
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r, 1.0)
 		island.land.paint_zone(Vector3(f.x, 0, f.z), r * 0.8, 1.0)
 		if OS.get_environment("CV_LEVEL") != "":
