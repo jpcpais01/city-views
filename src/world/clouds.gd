@@ -7,9 +7,9 @@ extends RefCounted
 ## patch drift across the town below. About 55 tris per cloud, both passes
 ## together: no more than the old round-blob clouds.
 
-const COUNT := 18
+const COUNT := 30
 ## the wind wraps clouds round at this x (cloud shaders fade them out before it)
-const WRAP := 300.0
+const WRAP := 560.0
 
 static var _noise: NoiseTexture2D
 
@@ -48,8 +48,8 @@ static func make(parent: Node3D) -> Array[Node3D]:
 		mi.add_child(sh)
 		# spread evenly over the wrap span so the sky never bunches up or empties
 		var x := -WRAP + (i + rng.randf_range(0.1, 0.9)) * (2.0 * WRAP / COUNT)
-		mi.position = Vector3(x, rng.randf_range(30, 42), rng.randf_range(-260, 260))
-		mi.scale = Vector3.ONE * rng.randf_range(0.85, 1.25)
+		mi.position = Vector3(x, rng.randf_range(32, 48), rng.randf_range(-520, 520))
+		mi.scale = Vector3.ONE * rng.randf_range(0.9, 1.5)
 		mi.rotation.y = rng.randf_range(-0.5, 0.5)
 		mi.set_meta("speed", rng.randf_range(0.9, 1.7))
 		parent.add_child(mi)

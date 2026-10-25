@@ -455,6 +455,8 @@ static var FAR := 320.0
 const FAR_STEP := 8.0
 const FAR_TILE := 16
 var _horizon: Array[MeshInstance3D] = []
+## the country further out still, to where the haze swallows it
+var far_land: FarLand
 
 
 ## On an open map the country carries on past the edge of the map: drawn
@@ -463,6 +465,12 @@ func _build_horizon() -> void:
 	for mi in _horizon:
 		mi.queue_free()
 	_horizon.clear()
+	if far_land == null:
+		far_land = FarLand.new()
+		far_land.land = self
+		far_land.material = material
+		add_child(far_land)
+	far_land.rebuild()
 	if not kind in OPEN_KINDS:
 		return
 	var n := int((SIZE + FAR * 2.0) / FAR_STEP)

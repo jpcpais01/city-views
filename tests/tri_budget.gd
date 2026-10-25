@@ -5,7 +5,11 @@ extends RefCounted
 
 const BUDGET := 200000
 ## all the way out, past CameraRig.FAR_D, a little more is allowed (João, 2026-10-24)
+## (up to CameraRig.OLD_MAX_D, as far as the camera went then)
 const FAR_BUDGET := 240000
+## pulled out twice as far again (CameraRig.MAX_D, João 2026-10-25) the whole
+## town and the country round it to the horizon fill the view
+const WIDE_BUDGET := 280000
 ## tilted right up to look across the town from the side (João, 2026-10-24)
 const SIDE_BUDGET := 260000
 
@@ -72,7 +76,7 @@ static func _label(c: Node) -> String:
 ## field of view `fov`, 16:9) can see: the map is bigger than one view, and the
 ## frame only ever draws what is in it. Shadow casters are counted when they
 ## stand in view too.
-static func count_view(root: Node, eye: Vector3, at: Vector3, fov := 40.0, far := 1100.0) -> Dictionary:
+static func count_view(root: Node, eye: Vector3, at: Vector3, fov := 40.0, far := 12000.0) -> Dictionary:
 	var fwd := (at - eye).normalized()
 	var right := fwd.cross(Vector3.UP).normalized()
 	var up := right.cross(fwd)
