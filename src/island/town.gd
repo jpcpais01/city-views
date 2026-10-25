@@ -180,6 +180,7 @@ func setup(l: Land, st: Streets, mat: Material) -> void:
 	_fit()
 	streets.added.connect(_on_added)
 	streets.removed.connect(_on_removed)
+	streets.rekinded.connect(_on_rekinded)
 
 
 ## Sizes the town map to the map (which is bigger on a coast).
@@ -465,6 +466,41 @@ func _on_removed(s: Streets.Street) -> void:
 	for o in streets._touching(s):
 		_mark_street(o)
 		_todo[o.id] = o
+
+
+## A street changed kind (Streets.rekind), maybe split into pieces: its plots
+## go over to the piece they stand beside (none stay along a highway), and
+## the plots the road now runs over, wider, make way for it.
+func _on_rekinded(old: Streets.Street, pieces: Array) -> void:
+	for id in lots.keys():
+		var l: Lot = lots[id]
+		if l.street != old.id:
+			continue
+		var best: Streets.Street = null
+		var bd := INF
+		for p: Streets.Street in pieces:
+			var d: float = p.closest(l.origin).x
+			if d < bd:
+				bd = d
+				best = p
+		if best == null or Streets.KINDS[best.kind].verge:
+			_drop(l)
+		else:
+			l.street = best.id
+			l.main = best.major()
+	# its cells are worked out afresh for each piece, at its new width
+	var pad := old.reach() + FRONTAGE + 1.0
+	var c0 := _cell(old.lo - Vector2(pad, pad)).max(Vector2i.ZERO)
+	var c1 := _cell(old.hi + Vector2(pad, pad)).min(Vector2i(RES - 1, RES - 1))
+	for cz in range(c0.y, c1.y + 1):
+		for k in range(cz * RES + c0.x, cz * RES + c1.x + 1):
+			if _occ[k] == -old.id:
+				_occ[k] = 0
+			if _front[k] == old.id:
+				_front[k] = 0
+				_front_d[k] = INF
+	for p: Streets.Street in pieces:
+		_new_streets.append(p)
 
 
 func _hits(s: Streets.Street, l: Lot) -> bool:

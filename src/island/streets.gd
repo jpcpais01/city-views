@@ -10,6 +10,9 @@ extends Node3D
 signal changed
 signal added(s: Street)
 signal removed(s: Street)
+## a street changed kind (see rekind): `pieces` are the streets it is now,
+## `old` itself among them when it changed all along its length
+signal rekinded(old: Street, pieces: Array)
 
 const SAMPLE := 0.5
 const MAX_GRADE := 0.16
@@ -49,6 +52,11 @@ const SIGN_GREEN := Color(0.12, 0.45, 0.3)
 const PAVING := Color(0.86, 0.8, 0.7)
 ## the kinds a player can draw, with what a metre costs compared with a street
 const DRAWN := {"main": 1.0, "avenue": 2.5, "highway": 4.0}
+## the kinds a road can be changed between with the Road tool's Change mode,
+## plainest first (a grown back street can be raised to a street and back)
+const GRADES := ["side", "main", "avenue", "highway"]
+## a changed stretch closer than this many samples to a street's end takes the end too
+const MIN_PIECE := 8
 
 var land: Land
 var material: Material
@@ -290,18 +298,26 @@ func regrade_in(lo: Vector2, hi: Vector2) -> void:
 	_refresh_ramps()
 
 
-func _remove(s: Street) -> void:
-	for k: Vector2i in _cross_cache.keys():
-		if k.x == s.id or k.y == s.id:
-			_cross_cache.erase(k)
+func _remove(s: Street, quiet := false) -> void:
+	_forget(s)
 	streets.erase(s)
 	_junctions_dirty = true
-	removed.emit(s)
+	if quiet:
+		_links_dirty = true
+	else:
+		removed.emit(s)
 	if _meshes.has(s.id):
 		_meshes[s.id].queue_free()
 		_meshes.erase(s.id)
 	_laying.erase(s.id)
 	_pending.erase(s.id)
+
+
+## Drops what was remembered about where s crosses others.
+func _forget(s: Street) -> void:
+	for k: Vector2i in _cross_cache.keys():
+		if k.x == s.id or k.y == s.id:
+			_cross_cache.erase(k)
 
 
 func _init() -> void:
@@ -1794,6 +1810,159 @@ func _take_up(s: Street) -> void:
 	for o in touching:
 		if o in streets:
 			_build_later(o)
+
+
+# ------------------------------------------------------------------ changing a road's kind
+
+## Whether the Road tool's Change mode can turn s into another kind.
+static func gradable(s: Street) -> bool:
+	return not s.auto and GRADES.has(s.kind)
+
+
+## The stretch of s, as (from, to) samples, that changes kind when the player
+## picks it between samples fa and fb: out to the junction either side, or to
+## its end, like a road between two crossroads in a real city.
+func stretch(s: Street, fa: float, fb: float) -> Vector2:
+	var n := s.pts.size()
+	var a := 0.0
+	var b := float(n - 1)
+	for m in links().get(s.id, []):
+		var o: Street = m[1]
+		if o.auto:
+			continue
+		var f: float = m[0]
+		if f <= fa + 1.0 and f > a:
+			a = f
+		if f >= fb - 1.0 and f < b:
+			b = f
+	if a <= MIN_PIECE:
+		a = 0.0
+	if b >= n - 1 - MIN_PIECE:
+		b = n - 1.0
+	return Vector2(a, b)
+
+
+## Changes s to `kind` from sample a to b (as stretch() gave them), splitting
+## it at those junctions when only part of it changes. Everything worked out
+## from a road's kind follows: its height over the land (highways go over
+## the streets they cross, and streets come back down to meet a highway made
+## a street), bridges and quays, interchanges, junctions, and the side
+## streets and walks that may not meet a highway stopping short of it.
+## Returns the streets s now is (empty if nothing changed).
+func rekind(s: Street, kind: String, a: float, b: float) -> Array:
+	if not GRADES.has(kind) or not gradable(s) or not s in streets or s.kind == kind:
+		return []
+	var n := s.pts.size()
+	var ia := roundi(a)
+	var ib := roundi(b)
+	if ia <= MIN_PIECE:
+		ia = 0
+	if ib >= n - 1 - MIN_PIECE:
+		ib = n - 1
+	if ib - ia < 2:
+		return []
+	var touching := _touching(s)
+	# streets flying over it (or it over them) may come down to meet it now
+	var flew := touching.filter(func(o): return _flies(o, s))
+	var pieces: Array = []
+	var c: Street = s
+	if ia == 0 and ib == n - 1:
+		_forget(s)
+		s.kind = kind
+		pieces.append(s)
+	else:
+		_remove(s, true)
+		var runs := []
+		if ia > 0:
+			runs.append([0, ia, s.kind])
+		runs.append([ia, ib, kind])
+		if ib < n - 1:
+			runs.append([ib, n - 1, s.kind])
+		for r in runs:
+			var ns := _new_street()
+			ns.kind = r[2]
+			ns.pts = s.pts.slice(r[0], r[1] + 1)
+			ns.ys = s.ys.slice(r[0], r[1] + 1)
+			ns.update_bounds()
+			ns.spans = _bridges(ns)
+			ns.quay = _quays(ns)
+			streets.append(ns)
+			pieces.append(ns)
+			if r[2] == kind:
+				# the stretch that changes keeps the road's key (saves, co-op)
+				ns.key = s.key
+				c = ns
+	_junctions_dirty = true
+	_grade(c)
+	_conform(c)
+	if c.kind == "highway":
+		# as when one is drawn: the streets it crosses go up and over it
+		for o in _touching(c):
+			if _flies(o, c) and (o.kind != "highway" or o.key > c.key):
+				_grade(o)
+				_conform(o)
+		land.conform(c.pts, c.ys, c.w() + PAVE + 0.15 + Land.STEP * 0.75, 0.0, true)
+	for o in flew:
+		if o in streets and not o in pieces:
+			_grade(o)
+			_conform(o)
+	_reconform_near(c)
+	_conform_junctions(c)
+	_laying[c.id] = 0.0
+	for p: Street in pieces:
+		_build(p)
+	for o in _touching(c):
+		_build_later(o)
+	rekinded.emit(s, pieces)
+	if KINDS[c.kind].verge:
+		_clear_off(c)
+	_refresh_ramps()
+	changed.emit()
+	return pieces
+
+
+## Nobody walks onto a highway and no back street joins one: the side
+## streets and walks that reach highway h stop short of it, a little way
+## off its shoulder (any crossing it on a bridge of their own stay).
+func _clear_off(h: Street) -> void:
+	var r := h.reach() + 1.2
+	for o: Street in _touching(h):
+		if o.auto or not (o.kind == "side" or o.kind == "walk") or _flies(o, h):
+			continue
+		var keep := PackedByteArray()
+		keep.resize(o.pts.size())
+		var cut := false
+		for i in o.pts.size():
+			var near := h.near_box(o.pts[i], r) and h.closest(o.pts[i]).x < r
+			keep[i] = 0 if near else 1
+			cut = cut or near
+		if not cut:
+			continue
+		var runs := []
+		var i := 0
+		while i < keep.size():
+			if keep[i] == 0:
+				i += 1
+				continue
+			var j := i
+			while j + 1 < keep.size() and keep[j + 1] == 1:
+				j += 1
+			if j - i >= 2 and (j - i) * SAMPLE >= 2.5:
+				runs.append([i, j])
+			i = j + 1
+		_take_up(o)
+		for run in runs:
+			var ns := _new_street()
+			ns.kind = o.kind
+			ns.pts = o.pts.slice(run[0], run[1] + 1)
+			ns.ys = o.ys.slice(run[0], run[1] + 1)
+			ns.update_bounds()
+			ns.spans = _bridges(ns)
+			ns.quay = _quays(ns)
+			streets.append(ns)
+			_junctions_dirty = true
+			_build(ns)
+			added.emit(ns)
 
 
 # ------------------------------------------------------------------ interchanges

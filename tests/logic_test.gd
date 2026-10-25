@@ -74,6 +74,11 @@ func _ready() -> void:
 		print("FAILURES: %d" % failures)
 		get_tree().quit(1 if failures > 0 else 0)
 		return
+	if OS.get_environment("CV_ONLY") == "change":
+		await _road_change()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "roads":
 		await _road_kinds()
 		print("FAILURES: %d" % failures)
@@ -104,8 +109,142 @@ func _ready() -> void:
 	await _big_coast()
 	await _green_walks()
 	await _flyovers()
+	await _road_change()
 	print("FAILURES: %d" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+## The Road tool's Change mode: a stretch between junctions changes kind and
+## everything worked out from the kind follows, and undo, saves and co-op
+## keep up.
+func _road_change() -> void:
+	var island := IslandWorld.new()
+	add_child(island)
+	island.new_island(4, "island")
+	var st := island.streets
+	var line := func(a: Vector2, b: Vector2) -> PackedVector2Array:
+		var out := PackedVector2Array()
+		var n := int(a.distance_to(b))
+		for k in n + 1:
+			out.append(a.lerp(b, float(k) / n))
+		return out
+	var road := st.add_stroke(line.call(Vector2(-60, 0), Vector2(60, 0)), "main")
+	var cross := st.add_stroke(line.call(Vector2(-20, -30), Vector2(-20, 30)), "side")
+	var tee := st.add_stroke(line.call(Vector2(25, -26), Vector2(25, -1)), "side")
+	st.flush()
+	var key := road.key
+	var before := island.snapshot()
+	# the stretch picked between x 0 and 5 runs out to the junctions either side
+	var r := st.stretch(road, road.closest(Vector2(0, 0)).z, road.closest(Vector2(5, 0)).z)
+	var xa := road.pts[int(r.x)].x
+	var xb := road.pts[int(r.y)].x
+	check(absf(xa + 20.0) < 1.0 and absf(xb - 25.0) < 1.0, "a picked stretch runs from junction to junction (%.1f to %.1f)" % [xa, xb])
+	var pieces := st.rekind(road, "avenue", r.x, r.y)
+	st.flush()
+	var mid: Array = pieces.filter(func(p): return p.kind == "avenue")
+	check(pieces.size() == 3 and mid.size() == 1 and mid[0].key == key and not road in st.streets,
+		"only that stretch becomes an avenue, keeping the road's key (%d pieces)" % pieces.size())
+	var meets := 0
+	for jn in st.junctions():
+		var on: Array = jn.arms.map(func(a): return a.st)
+		if on.has(mid[0]) and (on.has(cross) or on.has(tee)):
+			meets += 1
+	check(meets == 2, "and it still meets both cross streets (%d)" % meets)
+	# undo puts the one street back
+	island.restore(before)
+	st.flush()
+	var back: Array = st.streets.filter(func(p): return p.key == key)
+	check(back.size() == 1 and back[0].kind == "main" and st.to_data().size() == 3, "undo brings the street back whole")
+	road = back[0]
+	# the houses along it stay with the stretch they stand beside
+	island.land.paint_zone(Vector3.ZERO, 40.0, 2.0)
+	island.town.fill_all()
+	var on_road := func(ids: Array) -> int:
+		return island.town.lots.values().filter(func(l): return ids.has(l.street)).size()
+	var n0: int = on_road.call([road.id])
+	var r2 := st.stretch(road, road.closest(Vector2(0, 0)).z, road.closest(Vector2(5, 0)).z)
+	var split := st.rekind(road, "avenue", r2.x, r2.y)
+	st.flush()
+	island.town.fill_all()
+	var n1: int = on_road.call(split.map(func(p): return p.id))
+	check(n0 > 10 and n1 * 2 > n0 and on_road.call([road.id]) == 0, "the houses along it go over to its pieces (%d of %d)" % [n1, n0])
+	island.restore(before)
+	st.flush()
+	road = st.by_key(key)
+	cross = st.by_key(cross.key)
+	tee = st.by_key(tee.key)
+	# all of it a highway: the cross street goes over, the lane ending on it stops short
+	var all := st.rekind(road, "highway", 0.0, road.pts.size() - 1.0)
+	st.flush()
+	check(all.size() == 1 and all[0] == road and road.kind == "highway", "a whole street changes in place")
+	check(cross in st.streets and not cross.overs.is_empty(), "a highway made from a street lifts the street crossing it")
+	var touch := 0
+	for jn in st.junctions():
+		var on: Array = jn.arms.map(func(a): return a.st)
+		if on.has(road):
+			touch += 1
+	var lanes: Array = st.streets.filter(func(p): return p.kind == "side" and p != cross)
+	var gap := INF
+	for p: Streets.Street in lanes:
+		gap = minf(gap, road.closest(p.pts[p.pts.size() - 1]).x)
+	check(touch == 0 and lanes.size() == 1 and gap > road.reach() + 0.5, "and back streets never meet it (%d junctions, %.1f m off)" % [touch, gap])
+	var saved := st.to_data()
+	var kinds := saved.map(func(d): return d.k)
+	check(kinds.has("highway"), "the new kind is saved")
+	# and back down to a street: the crossing comes down to meet it
+	st.rekind(road, "main", 0.0, road.pts.size() - 1.0)
+	st.flush()
+	var down := false
+	for jn in st.junctions():
+		var on: Array = jn.arms.map(func(a): return a.st)
+		down = down or (on.has(road) and on.has(cross))
+	check(cross.overs.is_empty() and down, "made a street again, the crossing comes down and joins it")
+	# a co-op builder sees the roads as they are here, and every change after
+	var sync := IslandSync.new()
+	sync.world = island
+	var full: Dictionary = sync.full_state()
+	var other := IslandWorld.new()
+	add_child(other)
+	other.new_island(4, "island")
+	var their := IslandSync.new()
+	their.world = other
+	for k in full.streets:
+		their._street(k, full.streets[k])
+	sync.begin()
+	# the tool: dragging along the street (across a junction) plans only it
+	island.street_kind = "avenue"
+	island.street_change = true
+	island._path = PackedVector2Array()
+	island._change_hits.clear()
+	for k in 31:
+		island._extend_path(Vector3(-30.0 + k, 0.0, 0.3))
+	var planned: Array = island.change_plan.map(func(c): return c[0])
+	check(planned.size() == 1 and planned[0] == road and island.change_cost > 0.0, "dragging along a road plans just that road (%d, %.0f coins)" % [planned.size(), island.change_cost])
+	island.progress.coins = 100000.0
+	var coins := island.progress.coins
+	check(island._apply_change() and island.progress.coins < coins, "and changing it costs the difference (%.0f)" % (coins - island.progress.coins))
+	st.flush()
+	# lowering gives some back
+	island.street_kind = "side"
+	island._path = PackedVector2Array()
+	island._change_hits.clear()
+	island._extend_path(Vector3(-40.0, 0.0, 0.0))
+	coins = island.progress.coins
+	check(island.change_cost < 0.0 and island._apply_change() and island.progress.coins > coins, "and lowering one gives coins back (%.0f)" % (island.progress.coins - coins))
+	st.flush()
+	var patch := sync.changes()
+	for k: String in patch:
+		if k.begins_with("streets/"):
+			their.apply(k, patch[k])
+	other.streets.flush()
+	var same := other.streets.to_data().map(func(d): return [d.id, d.k])
+	var mine := st.to_data().map(func(d): return [d.id, d.k])
+	same.sort()
+	mine.sort()
+	check(same == mine and mine.map(func(m): return m[1]).has("avenue"), "a co-op builder gets the changed roads (%s)" % str(mine.map(func(m): return m[1])))
+	other.queue_free()
+	island.queue_free()
+	await get_tree().process_frame
 
 
 ## Hand-drawn streets meeting at every angle, shallow ones included: every
