@@ -2,6 +2,7 @@
 
 ## 2026-10-25 12:00 UTC
 - No more pencil towers downtown: tall buildings now join their neighbours into one wider, more realistic skyscraper whenever they can, and a narrow plot that finds no one to join stays a sturdy apartment block instead of a thin spike. The skyline keeps its mix of heights and styles, and busy downtowns draw a little lighter too.
+- The metro: once your city reaches 6,000 residents, metro stations open along the main streets and avenues wherever towers and tall blocks stand. Each entrance is a stairway down from the pavement under a glass canopy, with glass railings round it and the metro sign lit on a pole at the kerb. They keep clear of junctions, bridges, quays and bus stops.
 
 ## 2026-10-25 11:00 UTC
 - Building is much smoother in big cities. Painting districts no longer stutters: the brush outline, the paint and the buildings it changes now cost a fraction of what they did, and buildings changed by a repaint are remade over the next few frames instead of all at once.

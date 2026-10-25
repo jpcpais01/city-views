@@ -76,6 +76,7 @@ var landmarks: Landmarks
 var bunting: Bunting
 var wilds: Wilds
 var yards: Yards
+var metro: Metro
 var _broke := false
 # the line being drawn with the street brush, and the box a shaping stroke touched
 var _path := PackedVector2Array()
@@ -187,6 +188,9 @@ func _ready() -> void:
 	yards = Yards.new()
 	yards.world = self
 	add_child(yards)
+	metro = Metro.new()
+	metro.world = self
+	add_child(metro)
 	progress.coins_changed.connect(func():
 		if _save_timer <= 0.0:
 			_save_timer = 15.0)
