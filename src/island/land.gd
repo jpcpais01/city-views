@@ -7,21 +7,29 @@ extends Node3D
 ## ground allows (flat land and deep sea take a handful of triangles, hills
 ## keep every sample), stitched so neighbouring blocks always meet exactly.
 
-const SIZE := 384.0
-const HALF := SIZE * 0.5
-const CELLS := 384
-const STEP := SIZE / CELLS
-const SIDE := CELLS + 1
+# how big the map is: most maps are 384 m across, the coast 672 m (see use_size);
+# always a whole number of chunks, shadow tiles and horizon tiles
+const NORMAL_SIZE := 384
+const COAST_SIZE := 672
+static var SIZE := 384.0
+static var HALF := SIZE * 0.5
+static var CELLS := 384
+const STEP := 1.0
+static var SIDE := CELLS + 1
 const CHUNK := 32
 # blocks inside a chunk, each drawn every 1, 2, 4 or 8 samples
 const BLOCK := 8
-const BLOCKS := CELLS / BLOCK
+static var BLOCKS := CELLS / BLOCK
 # how far a coarser block may stray from the ground it stands for: closely
 # where anyone has built, shaped or painted, more loosely over wild country
 const TOL := 0.05
 const TOL_WILD := 0.08
 const TOL_DEEP := 0.5
 const TOL_COL := 0.07
+# the big coast's untouched country is seen in far greater sweeps, so it is
+# drawn a little more loosely (the same everywhere on it, near or far)
+const TOL_WILD_BIG := 0.14
+const TOL_COL_WILD_BIG := 0.11
 # the size of the first islands (version 1 saves), which sit in the middle of the map
 const LEGACY_SIZE := 128.0
 # the kinds of map a new game can start on
@@ -101,6 +109,42 @@ var _warp := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
 
 
+## How big a map of this kind is, in metres: a save that says nothing is from
+## before the coast grew, and keeps its old size.
+static func size_for(map_kind: String, saved := 0) -> int:
+	if saved > 0:
+		return saved
+	return COAST_SIZE if map_kind == "coast" else NORMAL_SIZE
+
+
+## Sets the map's size for everything that works in map samples. Call it
+## before a map of another size is cleared and generated.
+static func use_size(metres: int) -> void:
+	SIZE = float(metres)
+	HALF = SIZE * 0.5
+	CELLS = metres
+	SIDE = CELLS + 1
+	BLOCKS = CELLS / BLOCK
+	FARM_SIDE = int(SIZE / FARM_CELL) + 1
+	TILES = CELLS / TILE
+	# the country runs on to the horizon: on the big coast only a rim of it,
+	# since nearly all the land is the map itself
+	FAR = 320.0 if metres == NORMAL_SIZE else 112.0
+
+
+## Moves painted or reshaped samples saved on a map `from` samples across to
+## where the same ground lies on one `to` across (both centred on the middle).
+static func recentre_cells(e: Dictionary, from: int, to: int) -> Dictionary:
+	var out := {}
+	var off := (to - from) / 2
+	for k in e:
+		var i := int(k) % (from + 1) + off
+		var j := int(k) / (from + 1) + off
+		if i >= 0 and j >= 0 and i <= to and j <= to:
+			out[str(j * (to + 1) + i)] = e[k]
+	return out
+
+
 ## Fresh ground for a seed and a kind of map.
 ## With `build` off the ground is only worked out, not drawn, until finish()
 ## (so a save's edits go in first and every chunk is drawn once).
@@ -155,7 +199,7 @@ func generate(seed_value: int, map_kind := "island", build := true) -> void:
 	if kind != "legacy":
 		# rounded, rolling land: the big maps are seen from far out, where
 		# crisp little creases only cost triangles
-		for pass_i in (8 if kind == "island" else 4):
+		for pass_i in (8 if kind == "island" else (6 if SIZE > NORMAL_SIZE else 4)):
 			_blur(heights)
 	_base = heights.duplicate()
 	reach = 0.0
@@ -176,6 +220,10 @@ func generate(seed_value: int, map_kind := "island", build := true) -> void:
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
+	for mi in _shadow.values():
+		mi.queue_free()
+	_shadow.clear()
+	_shadow_tiles.clear()
 	_pending_build = true
 	if build:
 		finish()
@@ -248,7 +296,8 @@ func _plan_water(seed_value: int) -> void:
 	if kind == "coast":
 		# the sea lies on one side, the river comes down to it from inland
 		_coast_dir = -along
-		_coast_at = -HALF * 0.42 + rng.randf_range(-12.0, 12.0)
+		# (where it lay on the first, smaller coast maps, so their towns still fit)
+		_coast_at = -NORMAL_SIZE * 0.5 * 0.42 + rng.randf_range(-12.0, 12.0)
 	var off := rng.randf_range(-40.0, 40.0)
 	var ph := [rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU]
 	var wide := rng.randf_range(4.5, 6.0) if kind != "lakes" else rng.randf_range(3.2, 4.2)
@@ -338,7 +387,26 @@ func _country(p: Vector2) -> float:
 			h = lerpf(0.35, h, smoothstep(4.0, 26.0, inland))
 		if inland < 0.0:
 			h = lerpf(0.3, LOW, smoothstep(0.0, 45.0, -inland))
+	if SIZE > NORMAL_SIZE:
+		# the big coast is nearly all map: just past its edge the land ends in
+		# a ragged shore with rounded corners, the sea all round
+		var inland := -_outline(p)
+		if inland < 26.0:
+			h = lerpf(minf(h, 0.35), h, smoothstep(4.0, 26.0, inland))
+		if inland < 0.0:
+			h = lerpf(minf(h, 0.3), LOW, smoothstep(0.0, 70.0, -inland))
 	return h if h > 0.0 else _beach(h)
+
+
+## How far p lies outside the big coast's land (negative inside): a rounded
+## square about the size of the map, its sides warped into bays and points.
+func _outline(p: Vector2) -> float:
+	const ROUND := 150.0
+	# broad bays and headlands, with smaller coves on them
+	var w := Vector2(_warp.get_noise_2d(p.x * 0.3 + 400.0, p.y * 0.3), _warp.get_noise_2d(p.x * 0.3, p.y * 0.3 - 400.0)) * 50.0
+	w += Vector2(_warp.get_noise_2d(p.x * 0.8 - 250.0, p.y * 0.8), _warp.get_noise_2d(p.x * 0.8, p.y * 0.8 + 250.0)) * 7.0
+	var q := (p + w).abs() - Vector2.ONE * (HALF - 8.0 - ROUND)
+	return q.max(Vector2.ZERO).length() + minf(maxf(q.x, q.y), 0.0) - ROUND
 
 
 ## Whether ships can sail past: the sea all round an island, or along a coast.
@@ -376,7 +444,7 @@ func start_point() -> Vector2:
 # ------------------------------------------------------------------ the horizon
 
 # the land beyond the map, out to the horizon
-const FAR := 320.0
+static var FAR := 320.0
 const FAR_STEP := 8.0
 const FAR_TILE := 16
 var _horizon: Array[MeshInstance3D] = []
@@ -728,7 +796,7 @@ func green_at(x: float, z: float) -> float:
 ## clear of the town, the parks, the water and the hills.
 const FIELD := Vector2(15.0, 10.0)
 const FARM_CELL := 4.0
-const FARM_SIDE := int(SIZE / FARM_CELL) + 1
+static var FARM_SIDE := int(SIZE / FARM_CELL) + 1
 ## how far fields keep from ground painted for the town (in farm cells)
 const FARM_CLEAR := 5
 var farm_angle := 0.0
@@ -908,7 +976,7 @@ func take_touched() -> Rect2i:
 ## A revision count per TILE x TILE metres, bumped whenever anything there
 ## changes, so the woods and yards know which of their pieces to redo.
 const TILE := 16
-const TILES := CELLS / TILE
+static var TILES := CELLS / TILE
 var tile_rev := PackedInt32Array()
 
 
@@ -1235,6 +1303,10 @@ func _block_step(i0: int, j0: int) -> int:
 			if zone[k] > 0.0 or green[k] > 0.0 or absf(heights[k] - _base[k]) > 0.005:
 				wild = false
 	var tol := TOL_DEEP if deep else (TOL_WILD if wild else TOL)
+	var tol_col := TOL_COL
+	if wild and not deep and SIZE > NORMAL_SIZE:
+		tol = TOL_WILD_BIG
+		tol_col = TOL_COL_WILD_BIG
 	for s: int in [8, 4, 2]:
 		var ok := true
 		for j in range(j0, j0 + BLOCK + 1):
@@ -1256,7 +1328,7 @@ func _block_step(i0: int, j0: int) -> int:
 				if not deep:
 					var col := _col[a + ci].lerp(_col[a + ci1], u).lerp(_col[b + ci].lerp(_col[b + ci1], u), v)
 					var o := _col[j * SIDE + i]
-					if absf(col.r - o.r) > TOL_COL or absf(col.g - o.g) > TOL_COL or absf(col.b - o.b) > TOL_COL or absf(col.a - o.a) > TOL_COL:
+					if absf(col.r - o.r) > tol_col or absf(col.g - o.g) > tol_col or absf(col.b - o.b) > tol_col or absf(col.a - o.a) > tol_col:
 						ok = false
 						break
 			if not ok:
@@ -1312,8 +1384,10 @@ func _sample_colour(gi: int, gj: int) -> Color:
 ## level: its district's colour, deeper where it may grow taller, and parks
 ## a lusher green.
 func update_tint() -> bool:
-	if tint_img == null:
+	if tint_img == null or tint_img.get_width() != SIDE:
 		tint_img = Image.create(SIDE, SIDE, false, Image.FORMAT_RGBA8)
+		_tint_lo = Vector2i(0, 0)
+		_tint_hi = Vector2i(CELLS, CELLS)
 	if _tint_hi.x < _tint_lo.x:
 		return false
 	for j in range(_tint_lo.y, _tint_hi.y + 1):
@@ -1477,7 +1551,11 @@ func _fresh(p: Vector2) -> float:
 		return 0.0
 	if _coast_dir == Vector2.ZERO:
 		return 1.0
-	return smoothstep(45.0, 90.0, p.dot(_coast_dir) - _coast_at)
+	var f := smoothstep(45.0, 90.0, p.dot(_coast_dir) - _coast_at)
+	if SIZE > NORMAL_SIZE and f > 0.0:
+		# the big coast's other shores are sea too, with sandy beaches
+		f *= smoothstep(30.0, 70.0, -_outline(p))
+	return f
 
 
 # ------------------------------------------------------------------ maps for shaders

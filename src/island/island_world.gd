@@ -164,7 +164,6 @@ func _ready() -> void:
 		if _save_timer <= 0.0:
 			_save_timer = 15.0)
 	_load()
-	rig.limit = Land.HALF - 8.0
 	rig.focus(_home())
 	rig._t_dist = 70.0
 	rig.dist = 70.0
@@ -193,6 +192,7 @@ func new_island(s: int, map_kind := "river") -> void:
 	history_changed.emit()
 	streets.clear()
 	landmarks.reset()
+	_use_size(Land.size_for(map_kind))
 	town.clear()
 	town.keep_stages({})
 	land.generate(s, map_kind)
@@ -226,6 +226,13 @@ func _home() -> Vector3:
 	return Vector3(c.x, 0, c.y)
 
 
+## Sizes everything that works in map samples for a map `metres` across.
+func _use_size(metres: int) -> void:
+	Land.use_size(metres)
+	if rig:
+		rig.limit = Land.HALF - 8.0
+
+
 ## Your own island again (after leaving a co-op room).
 func load_own() -> void:
 	sync.end()
@@ -233,7 +240,7 @@ func load_own() -> void:
 
 
 func to_dict() -> Dictionary:
-	return {"v": SAVE_VERSION, "map": land.kind, "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
+	return {"v": SAVE_VERSION, "map": land.kind, "size": int(Land.SIZE), "t": Time.get_unix_time_from_system(), "seed": island_seed, "land": land.edits(),
 		"streets": streets.to_data(), "zone": land.zone_edits(), "green": land.green_edits(), "level": land.level_edits(),
 		"progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name}
 
@@ -243,16 +250,24 @@ func _apply_save(data: Dictionary) -> void:
 	_redo.clear()
 	history_changed.emit()
 	growth.stop()
+	var old := int(data.get("v", 1)) < 2
+	var map_kind := "legacy" if old else str(data.get("map", "island"))
+	if not map_kind in Land.KINDS and map_kind != "legacy":
+		map_kind = "island"
+	# saves from before a map grew keep their ground where it was, in the middle
+	var was := int(data.get("size", Land.NORMAL_SIZE))
+	var size := Land.size_for(map_kind)
+	if was != size and was > 0:
+		for layer in ["land", "zone", "green", "level"]:
+			if data.get(layer) is Dictionary:
+				data[layer] = Land.recentre_cells(data[layer], was, size)
+	_use_size(size)
 	town.clear()
 	var sg: Variant = data.get("stages", {})
 	town.keep_stages(sg if sg is Dictionary else {})
 	island_seed = int(data.seed)
 	island_name = str(data.get("name", "")).left(NAME_MAX)
 	name_changed.emit()
-	var old := int(data.get("v", 1)) < 2
-	var map_kind := "legacy" if old else str(data.get("map", "island"))
-	if not map_kind in Land.KINDS and map_kind != "legacy":
-		map_kind = "island"
 	land.generate(island_seed, map_kind, false)
 	if old:
 		# the ground samples of a 128 m island, moved to where they lie now
@@ -285,8 +300,8 @@ func _apply_save(data: Dictionary) -> void:
 
 
 ## Opens a co-op room's island: its seed, with everything the builders made on it.
-func load_room(seed_value: int, state: Variant, map_kind := "island") -> void:
-	var d := {"seed": seed_value, "v": SAVE_VERSION, "map": map_kind}
+func load_room(seed_value: int, state: Variant, map_kind := "island", size: int = Land.NORMAL_SIZE) -> void:
+	var d := {"seed": seed_value, "v": SAVE_VERSION, "map": map_kind, "size": size}
 	if state is Dictionary:
 		for layer in ["land", "zone", "green", "level"]:
 			var cells := {}
@@ -360,7 +375,7 @@ func _save(background := false) -> void:
 ## Works out to_dict() with the ground's edits done on another thread, then
 ## hands it to `done` (on that thread). Returns the task.
 func _dict_off_thread(done: Callable) -> int:
-	var data := {"v": SAVE_VERSION, "map": land.kind, "t": Time.get_unix_time_from_system(), "seed": island_seed,
+	var data := {"v": SAVE_VERSION, "map": land.kind, "size": int(Land.SIZE), "t": Time.get_unix_time_from_system(), "seed": island_seed,
 		"streets": streets.to_data(), "progress": progress.to_dict(), "marks": landmarks.to_dict(), "stages": town.stages(), "name": island_name}
 	var layers := [land.heights.duplicate(), land._base, land.zone.duplicate(), land.green.duplicate(), land.level.duplicate()]
 	return WorkerThreadPool.add_task(func():

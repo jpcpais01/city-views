@@ -11,7 +11,8 @@ extends RefCounted
 ## paint (district and level, or green, or a street), where, and why.
 
 const CELL := 8.0
-const N := int(Land.SIZE / CELL)
+## cells across the map (the coast map is bigger: see Land.use_size)
+static var N := int(Land.SIZE / CELL)
 ## a short walk, in cells either way (about 25 m)
 const WALK := 3
 ## how far people will travel to work, in cells
@@ -54,6 +55,7 @@ var _homes_smoky := 0.0
 ## [[name, 0..1, colour]], tips [{key, kind, title, text, pos, radius,
 ## colour, icon, action {brush, use, level}}]}.
 static func analyse(world: IslandWorld) -> Dictionary:
+	N = int(Land.SIZE / CELL)
 	var a := Advisor.new()
 	a.island = world
 	return a._run()

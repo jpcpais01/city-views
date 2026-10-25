@@ -21,7 +21,7 @@ extends Node3D
 ## plots, shaped by them, the way a town's old plots fill with blocks.
 
 const CELL := 0.5
-const RES := int(Land.SIZE / CELL)
+static var RES := int(Land.SIZE / CELL)
 const PATCH := 16.0
 const FRONT_GAP := 0.06
 # how deep the strip along a street is that only its own lots may use
@@ -177,13 +177,19 @@ func setup(l: Land, st: Streets, mat: Material) -> void:
 	land = l
 	streets = st
 	material = mat
+	_fit()
+	streets.added.connect(_on_added)
+	streets.removed.connect(_on_removed)
+
+
+## Sizes the town map to the map (which is bigger on a coast).
+func _fit() -> void:
+	RES = int(Land.SIZE / CELL)
 	_occ.resize(RES * RES)
 	_front.resize(RES * RES)
 	_front_d.resize(RES * RES)
 	_front_d.fill(INF)
 	_marked.resize(RES * RES)
-	streets.added.connect(_on_added)
-	streets.removed.connect(_on_removed)
 
 
 func clear() -> void:
@@ -194,6 +200,8 @@ func clear() -> void:
 		l.group = []
 	for id in lots.keys():
 		_drop(lots[id])
+	if RES != int(Land.SIZE / CELL):
+		_fit()
 	_occ.fill(0)
 	_front.fill(0)
 	_front_d.fill(INF)
@@ -308,15 +316,16 @@ func lot_on_ray(from: Vector3, dir: Vector3, reach := 400.0) -> Lot:
 		var c := _cell(Vector2(p.x, p.z))
 		if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
 			continue
-		var id := _occ[c.y * RES + c.x]
-		var l: Lot = null
-		if id > 0 and lots.has(id):
-			l = lots[id]
-			if l.host != 0 and lots.has(l.host):
-				l = lots[l.host]
-			if not seen.has(l.id):
-				seen[l.id] = true
-				order.append([t - 0.15, l])
+		var l: Lot = _lot_in(c)
+		# and the plots a metre either side, whose eaves, awnings and
+		# balconies may reach out over the ground the ray passes
+		for d in [Vector2i(-2, 0), Vector2i(2, 0), Vector2i(0, -2), Vector2i(0, 2)]:
+			_lot_in(c + d)
+		for o in _seen_now:
+			if not seen.has(o.id):
+				seen[o.id] = true
+				order.append([t - 1.15, o])
+		_seen_now.clear()
 		if p.y < land.height_at(p.x, p.z):
 			ground = l
 			break
@@ -331,6 +340,24 @@ func lot_on_ray(from: Vector3, dir: Vector3, reach := 400.0) -> Lot:
 			best_t = d
 			best = l
 	return best if best else ground
+
+
+var _seen_now: Array[Lot] = []
+
+
+## The lot (or the joined building it is part of) on town cell c, if any;
+## noted in _seen_now for lot_on_ray.
+func _lot_in(c: Vector2i) -> Lot:
+	if c.x < 0 or c.y < 0 or c.x >= RES or c.y >= RES:
+		return null
+	var id := _occ[c.y * RES + c.x]
+	if id <= 0 or not lots.has(id):
+		return null
+	var l: Lot = lots[id]
+	if l.host != 0 and lots.has(l.host):
+		l = lots[l.host]
+	_seen_now.append(l)
+	return l
 
 
 ## How far along the ray it first meets the lot's building (INF if not).
