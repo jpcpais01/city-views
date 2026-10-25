@@ -3,8 +3,10 @@ extends Node3D
 ## The space the town leaves between its buildings, lived in: back gardens
 ## with sheds, washing lines and vegetable patches behind the houses, paved
 ## courtyards with a tree and benches among the taller blocks, service yards
-## with bins and a parked van behind offices, café terraces beside cafés and
-## bakeries, and little greens with a bench wherever a patch is left over.
+## with bins and a parked van behind offices, car parks with painted bays
+## beside offices, shops, venues and works (and on the open ground inside
+## busy districts), café terraces beside cafés and bakeries, and little
+## greens with a bench wherever a patch is left over.
 ## Purely for looks: they fill whatever ground no plot or street has taken,
 ## and give way the moment a building grows or joins its neighbours into it.
 ## Everything follows from the island's seed and its town, so every co-op
@@ -32,6 +34,11 @@ const NUDGES: Array[Vector2] = [Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.
 const ENCLOSE := 11.0
 const IRON := Color(0.22, 0.24, 0.27)
 const WOOD := Color(0.55, 0.4, 0.28)
+const TARMAC := Color(0.3, 0.31, 0.33)
+const PAINT := Color(0.93, 0.93, 0.9)
+# what people actually drive: mostly white, silver, grey and black
+const CARS: Array[Color] = [Color("eef0f0"), Color("eef0f0"), Color("b9bfc4"), Color("b9bfc4"), Color("6b7178"), Color("26282c"), Color("26282c"),
+	Color("a8322e"), Color("2f4f86"), Color("2f6b4f"), Color("c7a36a")]
 
 var world: IslandWorld
 # the next chunk to fingerprint while looking for changes (-1: not looking)
@@ -41,6 +48,7 @@ var _seed := 0
 var _nodes := {}
 var _sigs := {}
 var _counts := {}
+var _parks := {}
 var _todo: Array[Vector2i] = []
 var _job := {}
 var _check := 1.0
@@ -87,6 +95,7 @@ func _resize() -> void:
 	_nodes.clear()
 	_sigs.clear()
 	_counts.clear()
+	_parks.clear()
 	_todo.clear()
 	_job = {}
 	_scan = -1
@@ -113,6 +122,14 @@ func yard_count() -> int:
 	var n := 0
 	for c in _counts:
 		n += _counts[c]
+	return n
+
+
+## How many car parks the town has laid out.
+func car_parks() -> int:
+	var n := 0
+	for c in _parks:
+		n += _parks[c]
 	return n
 
 
@@ -185,7 +202,7 @@ func _build(c: Vector2i) -> void:
 func _start(c: Vector2i) -> Dictionary:
 	var mk := MeshKit.new()
 	mk.quiet_sprites = true
-	return {"c": c, "mk": mk, "rng": RandomNumberGenerator.new(), "j": 0, "n": 0}
+	return {"c": c, "mk": mk, "rng": RandomNumberGenerator.new(), "j": 0, "n": 0, "parks": 0}
 
 
 ## Lays out rows of the chunk's yards until done or `budget_us` is spent;
@@ -218,11 +235,18 @@ func _work(job: Dictionary, budget_us: int) -> bool:
 				# open ground deep inside a block: a pocket park every so often
 				if room.is_empty() or room[0] != -1 or (i + j) % 2 != 0 or not _enclosed(p):
 					continue
-				_pocket(mk, rng, p)
+				# in a busy district it is a car park instead, more often the
+				# denser the district
+				var u := world.land.use_at(p.x, p.y)
+				if u != HouseGen.HOMES and rng.randf() < clampf(0.25 + world.land.level_at(p.x, p.y) * 0.1, 0.0, 0.85):
+					_car_park(mk, rng, p, 2)
+					job.parks += 1
+				else:
+					_pocket(mk, rng, p)
 			elif room[0] < FREE:
 				_corner(mk, rng, p, owner)
-			else:
-				_yard(mk, rng, p, owner)
+			elif _yard(mk, rng, p, owner):
+				job.parks += 1
 			job.n += 1
 			if job.n >= MOST:
 				break
@@ -241,6 +265,7 @@ func _finish(job: Dictionary) -> void:
 		old.queue_free()
 		_nodes.erase(c)
 	_counts[c] = n
+	_parks[c] = job.parks
 	if n == 0:
 		return
 	var node := Node3D.new()
@@ -369,13 +394,15 @@ func _pocket(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2) -> void:
 	mk.pop()
 
 
-## Picks and lays out the yard at p for the building it belongs to.
-func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> void:
+## Picks and lays out the yard at p for the building it belongs to; true
+## when it is a car park.
+func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> bool:
 	var y := world.land.height_at(p.x, p.y)
 	mk.push_at(Vector3(p.x, y, p.y), l.yaw + (rng.randi() % 2) * PI)
 	var near := p.distance_to(l.origin)
 	var tall := l.use == "office" or l.use == "retail" or l.use == "fun" or l.group.size() > 1 or l.stage >= 3
 	var roll := rng.randf()
+	var parks := false
 	if (l.trade == "cafe" or l.trade == "bakery") and near < 5.0 and roll < 0.7:
 		_terrace(mk, rng, p, y)
 	elif l.type == "park" or l.type == "square" or l.type == "church" or l.type == "hall":
@@ -386,12 +413,20 @@ func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> 
 		else:
 			_garden(mk, rng, p, y)
 	elif l.use == "office" or l.use == "industry" or l.use == "retail" or l.use == "fun":
-		if roll < 0.55 or l.use == "industry":
+		# staff and customers come by car: a car park, bigger ones beside
+		# the big stores, venues and works
+		if roll < (0.5 if l.use == "office" else 0.6):
+			parks = true
+			_car_park(mk, rng, p, 1 + int(l.use != "office" and l.stage >= 4))
+		elif roll < 0.8 or l.use == "industry":
 			_service(mk, rng, p, y)
 		else:
 			_court(mk, rng, p, y)
 	elif tall:
-		if roll < 0.45:
+		if l.stage >= 5 and roll < 0.15:
+			parks = true
+			_car_park(mk, rng, p, 1)
+		elif roll < 0.45:
 			_court(mk, rng, p, y)
 		elif roll < 0.7:
 			_service(mk, rng, p, y)
@@ -405,6 +440,7 @@ func _yard(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, l: Town.Lot) -> 
 		else:
 			_green(mk, rng, p, y)
 	mk.pop()
+	return parks
 
 
 ## A corner too small for a whole yard: one thing that fits a metre or so.
@@ -587,6 +623,68 @@ func _service(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, y: float) -> 
 		var b := Vector3(-bay * 1.1, g, 0.6)
 		mk.box_faces(b + Vector3(0, 0.04, 0), Vector3(0.3, 0.08, 0.3), WOOD, MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT | MeshKit.BACK)
 		mk.box_faces(b + Vector3(0.02, 0.15, -0.02), Vector3(0.22, 0.14, 0.22), Color("a87b50"), MeshKit.TOP | MeshKit.FRONT | MeshKit.LEFT | MeshKit.RIGHT | MeshKit.BACK)
+
+
+## A car park: tarmac with painted bays, most of them taken, and a lamp.
+## One row of bays along the back with the aisle in front, or two facing
+## rows across a middle aisle. Drawn in the yard's own frame when one is
+## pushed (rows 1), or pushes its own on open ground.
+func _car_park(mk: MeshKit, rng: RandomNumberGenerator, p: Vector2, rows: int) -> void:
+	var y := world.land.height_at(p.x, p.y)
+	var own := rows == 2
+	if own:
+		mk.push_at(Vector3(p.x, y, p.y), (rng.randi() % 2) * PI * 0.5)
+	mk.shadow = false
+	var pad: Array[Vector3] = []
+	for c in [Vector3(-0.98, 0, 0.98), Vector3(0.98, 0, 0.98), Vector3(0.98, 0, -0.98), Vector3(-0.98, 0, -0.98)]:
+		pad.append(Vector3(c.x, _ground(c, y, mk) + 0.03, c.z))
+	mk.quad(pad[0], pad[1], pad[2], pad[3], Vector3.UP, TARMAC)
+	var bays := 4
+	var w := 1.9 / bays
+	var deep := 0.72
+	# rows face the aisle: the back row's cars nose -z to +z
+	var rowz: Array[float] = [-0.98 + deep * 0.5]
+	if rows == 2:
+		rowz.append(0.98 - deep * 0.5)
+	for ri in rowz.size():
+		var z: float = rowz[ri]
+		var face := 1.0 if z < 0.0 else -1.0
+		# the lines between the bays, and one across their open ends
+		for k in bays + 1:
+			var x := -0.95 + k * w
+			_line(mk, y, Vector3(x, 0, z), 0.025, deep * 0.92)
+		_line(mk, y, Vector3(0, 0, z + face * deep * 0.5), 1.9, 0.025)
+		mk.shadow = true
+		for k in bays:
+			if rng.randf() < 0.2:
+				continue
+			var c := Vector3(-0.95 + (k + 0.5) * w + rng.randf_range(-0.03, 0.03), 0, z + rng.randf_range(-0.03, 0.03))
+			c.y = _ground(c, y, mk)
+			_car(mk, rng, c, face)
+		mk.shadow = false
+	mk.shadow = true
+	# a lamp at the end of the aisle, lit at night
+	var lc := Vector3(0.9 * (1.0 if rng.randf() < 0.5 else -1.0), 0, 0.0 if rows == 2 else 0.85)
+	CivicGen._lamp(mk, lc + Vector3(0, _ground(lc, y, mk), 0))
+	if own:
+		mk.pop()
+
+
+## A painted line on the tarmac, `w` wide along x and `d` deep along z.
+func _line(mk: MeshKit, y: float, c: Vector3, w: float, d: float) -> void:
+	var hy := _ground(c, y, mk) + 0.04
+	mk.quad(Vector3(c.x - w * 0.5, hy, c.z + d * 0.5), Vector3(c.x + w * 0.5, hy, c.z + d * 0.5), Vector3(c.x + w * 0.5, hy, c.z - d * 0.5),
+		Vector3(c.x - w * 0.5, hy, c.z - d * 0.5), Vector3.UP, PAINT)
+
+
+## A parked car, nosed along +z (face 1) or -z (face -1): a body and a
+## glasshouse, no wheels (they hide under it from above).
+func _car(mk: MeshKit, rng: RandomNumberGenerator, c: Vector3, face: float) -> void:
+	var col: Color = CARS[rng.randi() % CARS.size()]
+	var long := rng.randf_range(0.6, 0.7)
+	var tall := 0.13 if rng.randf() < 0.7 else 0.18
+	mk.box(c + Vector3(0, 0.03 + tall * 0.5, 0), Vector3(0.32, tall, long), col)
+	mk.box(c + Vector3(0, 0.03 + tall + 0.05, -face * long * 0.06), Vector3(0.28, 0.1, long * 0.5), Palette.GLASS.darkened(0.2), col)
 
 
 ## A café terrace: tables under parasols with chairs round them,

@@ -1166,6 +1166,9 @@ func _districts() -> void:
 	check(shops >= 2 and shops_all, "a shops district puts a shop under every house (%d)" % shops)
 	check(offices >= 2, "an office district grows offices (%d)" % offices)
 	check(tall >= 1 and homes_office == 0, "homes grow into residential towers, never offices (%d tall, %d not homes)" % [tall, homes_office])
+	# offices, shops and works get car parks among their yards
+	island.yards.rebuild_all()
+	check(island.yards.car_parks() > 0 and island.yards.car_parks() < island.yards.yard_count(), "busy districts get car parks among the yards (%d of %d)" % [island.yards.car_parks(), island.yards.yard_count()])
 	# smoke rises from the stacks of the works, never from anything else
 	var stacks := island.smoke.stacks()
 	var stacks_ok := true
