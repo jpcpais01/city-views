@@ -34,10 +34,10 @@ const CIVIC_WIDTH := {"square": 6.0, "church": 4.4, "hall": 4.6, "school": 5.2, 
 const CIVIC_DEPTH := {"square": 3.0, "church": 3.5, "hall": 3.2, "school": 3.8, "market": 2.8}
 const FH := 0.62
 ## how built-up each stage is (terraced from stage 2 up)
-const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0, 1.0, 1.0]
-const STAGE_NAMES := ["cottage", "house", "townhouse", "terrace", "tall terrace", "apartments", "tower"]
+const STAGE_DENSE := [0.3, 0.45, 0.72, 0.86, 1.0, 1.0, 1.0, 1.0]
+const STAGE_NAMES := ["cottage", "house", "townhouse", "terrace", "tall terrace", "apartments", "tower", "supertall"]
 ## the highest stage a house can reach
-const TOP_STAGE := 6
+const TOP_STAGE := 7
 # seconds between a house's stages, before its own variation
 const EVOLVE_TIME := 14.0
 const NEIGHBOURS := 10.0
@@ -132,9 +132,10 @@ class Lot:
 	## which side of the plot (-1 left, +1 right in its own frame) runs along
 	## another street, on a corner; 0 if neither
 	var corner := 0.0
-	## what the building is used for: home (with or without a shop) or office
+	## what the building is used for: home (with or without a shop), office,
+	## industry, retail (stores and malls) or fun (bars and venues)
 	var use := "home"
-	## the district painted under it (HouseGen HOMES, SHOPS, OFFICES or INDUSTRY)
+	## the district painted under it (HouseGen HOMES, SHOPS, OFFICES, INDUSTRY or FUN)
 	var district := 0
 	## the top of a works' chimney stack, in the world (INF if none), for its smoke
 	var smoke := Vector3.INF
@@ -180,6 +181,7 @@ func setup(l: Land, st: Streets, mat: Material) -> void:
 	_fit()
 	streets.added.connect(_on_added)
 	streets.removed.connect(_on_removed)
+	streets.rekinded.connect(_on_rekinded)
 
 
 ## Sizes the town map to the map (which is bigger on a coast).
@@ -389,13 +391,17 @@ func describe(l: Lot) -> Dictionary:
 	var title: String = STAGE_NAMES[clampi(l.stage, 0, STAGE_NAMES.size() - 1)].capitalize()
 	var joined := l.group.size() > 1
 	if l.use == "industry":
-		title = ["Workshop", "Workshop", "Warehouse", "Factory", "Factory", "Works", "Works"][clampi(l.stage, 0, 6)]
+		title = ["Workshop", "Workshop", "Warehouse", "Factory", "Factory", "Works", "Works", "Industrial complex"][clampi(l.stage, 0, 7)]
 	elif l.use == "office":
-		title = ("Office tower" if l.stage >= 6 else "Office block") if joined else "Offices"
+		title = ("Office supertall" if l.stage >= 7 else "Office tower" if l.stage >= 6 else "Office block") if joined or l.stage >= 7 else "Offices"
 	elif l.use == "retail":
 		title = HouseGen.RETAIL_NAMES.get(l.trade, "Store")
+	elif l.use == "fun":
+		title = VenueGen.NAMES.get(l.trade, "Venue")
 	elif l.trade != "":
 		title = "%s with flats above" % TRADE_NAMES.get(l.trade, "Shop") if l.floors > 1 else TRADE_NAMES.get(l.trade, "Shop")
+	elif l.stage >= 7:
+		title = "Residential supertall"
 	elif joined:
 		title = "Residential tower" if l.stage >= 6 else "Apartment block"
 	elif l.stage >= 5:
@@ -407,19 +413,40 @@ func describe(l: Lot) -> Dictionary:
 	var people := 0
 	for id in (l.group if joined else [l.id]):
 		var o: Lot = lots.get(id, l)
-		people += workers(o) if o.use != "home" else maxi(1, o.floors * 2 - int(o.shop))
+		people += workers(o) if o.use != "home" else residents(o)
 	lines.append(("%d residents" if l.use == "home" else "%d jobs") % people)
 	lines.append(quarter)
 	return {"title": title, "lines": lines}
 
 
-## The jobs an office or works brings: a few per office floor, more as a
-## works grows.
+## The people living in a home: a family in a cottage, a household or two
+## per floor of a terrace, a dozen and more per floor of apartments and towers
+## (less a floor's worth for a shop on the ground floor).
+static func residents(l: Lot) -> int:
+	var per: int = HOME_PER_FLOOR[clampi(l.stage, 0, HOME_PER_FLOOR.size() - 1)]
+	return maxi(2, l.floors * per - (per if l.shop else 0))
+
+
+## per floor of a home, by stage
+const HOME_PER_FLOOR := [3, 4, 4, 5, 6, 9, 11, 13]
+## jobs at a works, by stage: a workshop's handful up to a whole industrial complex
+const WORKS_JOBS := [6, 10, 18, 30, 45, 70, 100, 160]
+## jobs at a store, mall or cinema, before its floors
+const RETAIL_JOBS := {"store": 30, "cinema": 25, "mall": 90, "megamall": 160}
+
+
+## The jobs an office, works, store or venue brings.
 static func workers(l: Lot) -> int:
-	if l.use == "retail":
-		# shop staff, cinema ushers, the mall's cleaners and guards
-		return 8 + l.floors * 3
-	return l.floors * 2 if l.use == "office" else 4 + l.stage * 3
+	match l.use:
+		"retail":
+			# shop staff, cinema ushers, the mall's cleaners and guards
+			return int(RETAIL_JOBS.get(l.trade, 30)) + l.floors * 8
+		"fun":
+			return VenueGen.jobs(l)
+		"office":
+			# open-plan floors, busier in the towers
+			return l.floors * (6 if l.stage < 5 else 10 if l.stage < 7 else 12)
+	return WORKS_JOBS[clampi(l.stage, 0, WORKS_JOBS.size() - 1)]
 
 
 func house_count() -> int:
@@ -465,6 +492,41 @@ func _on_removed(s: Streets.Street) -> void:
 	for o in streets._touching(s):
 		_mark_street(o)
 		_todo[o.id] = o
+
+
+## A street changed kind (Streets.rekind), maybe split into pieces: its plots
+## go over to the piece they stand beside (none stay along a highway), and
+## the plots the road now runs over, wider, make way for it.
+func _on_rekinded(old: Streets.Street, pieces: Array) -> void:
+	for id in lots.keys():
+		var l: Lot = lots[id]
+		if l.street != old.id:
+			continue
+		var best: Streets.Street = null
+		var bd := INF
+		for p: Streets.Street in pieces:
+			var d: float = p.closest(l.origin).x
+			if d < bd:
+				bd = d
+				best = p
+		if best == null or Streets.KINDS[best.kind].verge:
+			_drop(l)
+		else:
+			l.street = best.id
+			l.main = best.major()
+	# its cells are worked out afresh for each piece, at its new width
+	var pad := old.reach() + FRONTAGE + 1.0
+	var c0 := _cell(old.lo - Vector2(pad, pad)).max(Vector2i.ZERO)
+	var c1 := _cell(old.hi + Vector2(pad, pad)).min(Vector2i(RES - 1, RES - 1))
+	for cz in range(c0.y, c1.y + 1):
+		for k in range(cz * RES + c0.x, cz * RES + c1.x + 1):
+			if _occ[k] == -old.id:
+				_occ[k] = 0
+			if _front[k] == old.id:
+				_front[k] = 0
+				_front_d[k] = INF
+	for p: Streets.Street in pieces:
+		_new_streets.append(p)
 
 
 func _hits(s: Streets.Street, l: Lot) -> bool:
@@ -666,7 +728,7 @@ func _neighbours(l: Lot) -> Vector2:
 ## How long a house waits before its next stage: longer as it gets bigger,
 ## shorter on main streets and where it has fallen behind its neighbours.
 ## how much the city wants more of each district (IslandProgress.demand)
-var demand: Array[float] = [0.6, 0.6, 0.6, 0.6]
+var demand: Array[float] = [0.6, 0.6, 0.6, 0.6, 0.6]
 
 
 func _delay(l: Lot, around: Vector2) -> float:
@@ -867,7 +929,8 @@ func _cap_at(s: Streets.Street, p: Vector2, side: float) -> int:
 	var j := (_hash(roundi(p.x * 7.0), p.y, side * 5.0) - 0.5) * 1.3 + (_wobble(p) - 0.5) * 0.4
 	if s.major():
 		j += 0.35
-	return clampi(roundi(lv - 0.45 + j), 0, TOP_STAGE)
+	# the Mega stage only where Mega was painted
+	return clampi(roundi(lv - 0.45 + j), 0, TOP_STAGE if lv > 6.5 else TOP_STAGE - 1)
 
 
 func _next_job() -> Dictionary:

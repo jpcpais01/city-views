@@ -9,11 +9,12 @@ extends Node3D
 ## A big shopping district at the top levels brings its own attractions: a
 ## Ferris wheel turning beside the stores, and a stadium under floodlights.
 
-const NEED := {"windmill": 30, "pier": 55, "lighthouse": 90, "wheel": 0, "stadium": 0}
+const NEED := {"windmill": 150, "pier": 275, "lighthouse": 450, "wheel": 0, "stadium": 0}
 const NAMES := {"windmill": "A windmill now turns on the hilltop", "pier": "A pier now reaches out from the harbour", "lighthouse": "A lighthouse now guards the headland",
 	"wheel": "A Ferris wheel now turns by the shops", "stadium": "A stadium now stands by the shopping district"}
 const ROOM := {"windmill": 1.6, "pier": 1.2, "lighthouse": 2.0, "wheel": 2.4, "stadium": 6.6}
-## how many stores, malls and cinemas a shopping district needs for each attraction
+## how many stores, malls, cinemas and venues a shopping or entertainment
+## district needs for each attraction
 const RETAIL := {"wheel": 3, "stadium": 6}
 const TEAM := [[Color("2f5f9f"), Color("e9e6df")], [Color("c8553d"), Color("f2f1ec")], [Color("2f8f83"), Color("e3a33b")], [Color("6a4c9c"), Color("e9e6df")]]
 const WHITE := Color(0.97, 0.96, 0.93)
@@ -94,18 +95,19 @@ func settle() -> void:
 
 
 ## Whether the town is big enough for `kind`: the old landmarks go by
-## residents, the attractions by how much the shopping district has grown.
+## residents, the attractions by how much the shopping and entertainment
+## districts have grown.
 func _wants(kind: String) -> bool:
 	if RETAIL.has(kind):
 		return _retail().size() >= int(RETAIL[kind])
 	return world.progress.residents >= int(NEED[kind])
 
 
-## Where the stores, malls and cinemas stand.
+## Where the stores, malls, cinemas and the bigger venues stand.
 func _retail() -> PackedVector2Array:
 	var out := PackedVector2Array()
 	for l: Town.Lot in world.town.lots.values():
-		if l.use == "retail" and l.host == 0:
+		if (l.use == "retail" or (l.use == "fun" and l.stage >= 4)) and l.host == 0:
 			out.append(l.origin)
 	return out
 

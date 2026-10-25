@@ -1,11 +1,24 @@
 # City Views patch notes
 
-## 2026-10-25 03:00 UTC
+## 2026-10-25 04:15 UTC
 - Sharper district painting: Grow and Green now paint crisp, solid areas at full strength the moment you touch, with clean edges and a fine outline instead of a soft, fading spray.
 - Smart edges: a stroke keeps to its own side of a street and stops right at the border of other districts and parks, so neighbouring colours meet in neat lines. Start a stroke on a district to repaint it.
 - Block fill: when a stroke covers most of a street block, the rest of that block fills in by itself.
 - The brush preview now shows exactly what will be painted: the area is washed in the district's colour inside an outline that hugs the streets and colours it stops at.
 - Clear rubs out painting in a crisp circle too.
+
+## 2026-10-25 04:00 UTC
+- A 7th Grow level, Mega: supertall towers of thirty to eighty floors (the offices tallest, with spires up to the clouds), mega malls with a lit pylon, and industrial complexes with a steaming cooling tower and a gantry crane. It opens at 20,000 residents.
+- A new district, Entertainment (pink): pubs and bars with neon first, then nightclubs, arcades and bowling alleys, theatres with columned porticos, multiplexes, concert halls under a copper vault, gold casinos and, across joined plots at the Mega level, an arena ringed by floodlights. It opens at 1,200 residents, brings jobs, and Pip tells you where people have nowhere to go out.
+- Glass skyscrapers: most office towers and many apartment and office blocks are now real curtain walls of blue, green, bronze, silver, black or aqua glass that mirror the sky, with panes lighting up one by one at night. Glass towers can twist as they rise or stack off to one side, and wear glass crowns and pyramids. More colours for offices, apartments and works too.
+- Cities are counted at a realistic scale: a family in a cottage, a dozen or more people a floor in apartments and towers, and far more jobs in offices, works, stores and venues. Milestones, unlocks, taxes and demand are rebalanced to match, up to a new Global City at 100,000 residents.
+- Highway tunnels: highways now keep to gentle slopes, cutting through rises and banking over dips, and where a hill is too big they run straight through it in a tunnel, with a concrete portal and lamps at each mouth and the hill left standing above. Streets over the hill cross it without a junction, and tunnels come back the same when you load or play co-op.
+
+## 2026-10-25 03:00 UTC
+- Change roads you already built: with the Street brush, tap Change, pick Lane, Street, Avenue or Highway, then drag along a road or tap it. The stretch between the junctions either side lights up with what it will cost, and lets go into the new road as you lift your finger.
+- Raising a road costs only the difference, and lowering one gives half of that back. Avenues and highways unlock at 750 and 2,000 residents.
+- Everything follows the new road: houses along it stay where there is room, bridges, quays, street lights and traffic lanes change with it, a street made a highway lifts the streets crossing it onto overpasses (with interchanges for main streets and avenues), and back streets pull back from it. Make a highway a street again and the crossings come back down to meet it.
+- Undo, saves and co-op all keep up with changed roads.
 
 ## 2026-10-25 02:00 UTC
 - Interchanges: draw a main street or an avenue across a highway and a diamond interchange builds itself, with a slip road in each corner leaving the highway alongside its outer lane and climbing to a crossroads on the street either side of the bridge. Cars use them to get on and off the highway.

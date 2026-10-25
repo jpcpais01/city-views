@@ -23,7 +23,7 @@ const MAX_TIPS := 3
 const APART := 16.0
 const APART_SAME := 28.0
 ## one shop for about this many residents (as IslandProgress wants them)
-const SHOP_PER := 0.06
+const SHOP_PER := 0.012
 const WORKERS := 0.55
 ## what Pip calls each district (Land.USES), with its icon
 const DISTRICTS := {"homes": ["Homes", "house"], "shops": ["Shops", "shop"], "offices": ["Offices", "office"],
@@ -71,7 +71,7 @@ func _run() -> Dictionary:
 	if island.streets.streets.is_empty():
 		return _empty("Every city starts with one street. Draw a Street, then paint Homes beside it with Grow, and I'll watch it come to life.")
 	_gather()
-	if pr.residents < 8:
+	if pr.residents < 40:
 		_bare(1.0)
 		var r := _report()
 		r.headline = "A fresh start!"
@@ -161,8 +161,7 @@ func _gather() -> void:
 			_add("wx", k, p.x)
 			_add("wz", k, p.y)
 		if l.use == "home" and l.district != _works:
-			var r := maxi(1, l.floors * 2 - int(l.shop))
-			_add("res", k, r)
+			_add("res", k, Town.residents(l))
 			_add("homes", k, 1.0)
 			_add("hx", k, p.x)
 			_add("hz", k, p.y)
@@ -309,7 +308,7 @@ func _rule_shops() -> void:
 		var shops := _sum("shops", k, WALK)
 		var need := near * SHOP_PER
 		_res_total += res
-		if shops >= need * 0.5 or near < 30.0:
+		if shops >= need * 0.5 or near < 150.0:
 			_res_shops += res
 			continue
 		if not open or _at("homes", k) < 2.0:
@@ -318,7 +317,7 @@ func _rule_shops() -> void:
 		if at == Vector2.INF or island.land.use_at(at.x, at.y) == _shop:
 			continue
 		var lv := _cap_level(clampi(int(round(_sum("stage", k, 1) / maxf(_sum("homes", k, 1), 1.0))) + 2, 2, 4))
-		var score := (1.0 - shops / maxf(need, 1.0)) * clampf(near / 160.0, 0.35, 1.0)
+		var score := (1.0 - shops / maxf(need, 1.0)) * clampf(near / 800.0, 0.35, 1.0)
 		_grow_tip("shops", score, at, _shop, lv, "Shops for these homes",
 			_pick("shops%d" % k, [
 				"%d people live around here with %s close by. Paint Shops along this street so they can pop out for bread.",
@@ -331,7 +330,7 @@ func _rule_shops() -> void:
 func _rule_jobs() -> void:
 	var pr := island.progress
 	var workers := pr.residents * WORKERS
-	if pr.residents < 40 or pr.jobs >= workers * 0.8:
+	if pr.residents < 200 or pr.jobs >= workers * 0.8:
 		return
 	var short := workers - pr.jobs
 	var u := clampf(short / maxf(workers, 1.0), 0.0, 1.0)
@@ -343,9 +342,9 @@ func _rule_jobs() -> void:
 		if _sum("street", k, 0) <= _at("highway", k):
 			continue
 		var commute := _sum("res", k, COMMUTE)
-		if commute < 15.0:
+		if commute < 75.0:
 			continue
-		var reach := 0.6 + 0.4 * clampf(commute / 250.0, 0.0, 1.0)
+		var reach := 0.6 + 0.4 * clampf(commute / 1250.0, 0.0, 1.0)
 		var big := _sum("major", k, 1) > 0.0 or _sum("highway", k, 2) > 0.0
 		if _can(_works):
 			var homes := _sum("homes", k, 1)
@@ -383,7 +382,7 @@ func _rule_workers() -> void:
 	var pr := island.progress
 	var workers := pr.residents * WORKERS
 	var spare := pr.jobs - workers
-	if pr.jobs < 20 or spare < workers * 0.2 + 10.0:
+	if pr.jobs < 100 or spare < workers * 0.2 + 50.0:
 		return
 	var best := [0.0, Vector2.INF, 0]
 	for k in _streets:
@@ -392,7 +391,7 @@ func _rule_workers() -> void:
 		var jobs := _sum("jobs", k, WALK + 1)
 		if jobs <= 0.0:
 			continue
-		var s := clampf(jobs / 60.0, 0.2, 1.0) * (1.0 - clampf(_sum("works", k, 1) / 2.0, 0.0, 1.0))
+		var s := clampf(jobs / 300.0, 0.2, 1.0) * (1.0 - clampf(_sum("works", k, 1) / 2.0, 0.0, 1.0))
 		s *= 1.0 - clampf(_sum("lots", k, 0) / 6.0, 0.0, 0.6)
 		if s > best[0]:
 			best = [s, cell_mid(k), k]
@@ -401,7 +400,7 @@ func _rule_workers() -> void:
 	var at := _street_near(best[1], 12.0)
 	if at == Vector2.INF:
 		return
-	var score: float = 0.35 + 0.6 * clampf(spare / maxf(workers, 20.0), 0.0, 1.0) * best[0]
+	var score: float = 0.35 + 0.6 * clampf(spare / maxf(workers, 100.0), 0.0, 1.0) * best[0]
 	_grow_tip("homes", score, at, _home, _cap_level(3), "Homes for the workers",
 		_pick("workers%d" % best[2], [
 			"Businesses have %d jobs nobody can fill. Paint Homes here so workers can live close by.",
@@ -444,9 +443,9 @@ func _rule_parks() -> void:
 			_res_green += res
 			continue
 		var near := _sum("res", k, WALK)
-		if near < 50.0 or _at("homes", k) < 2.0:
+		if near < 250.0 or _at("homes", k) < 2.0:
 			continue
-		_green_tip("park", clampf(near / 300.0, 0.2, 0.6), _homes_mid(k, 1), "A park within a walk",
+		_green_tip("park", clampf(near / 1500.0, 0.2, 0.6), _homes_mid(k, 1), "A park within a walk",
 			_pick("park%d" % k, [
 				"%d people here have no park nearby. Paint a little Green and they'll have somewhere to sit in the sun.",
 				"Not a tree in sight for %d residents. A small Green patch here would make the neighbourhood.",
@@ -513,12 +512,12 @@ func _rule_fun() -> void:
 		if _at("homes", k) < 2.0:
 			continue
 		var near := _sum("res", k, 5)
-		if near < 150.0 or _sum("fun", k, 5) > 0.0:
+		if near < 750.0 or _sum("fun", k, 5) > 0.0:
 			continue
 		var at := _street_near(_homes_mid(k, 2), 14.0)
 		if at == Vector2.INF:
 			continue
-		_grow_tip("fun", clampf(near / 600.0, 0.3, 0.75), at, _fun, _cap_level(3), "Somewhere to go out",
+		_grow_tip("fun", clampf(near / 3000.0, 0.3, 0.75), at, _fun, _cap_level(3), "Somewhere to go out",
 			"%d people live nearby with nothing to do of an evening. Paint Entertainment here." % int(near), 10.0)
 
 
@@ -572,7 +571,7 @@ func _report() -> Dictionary:
 	var pr := island.progress
 	var workers := pr.residents * WORKERS
 	var jobs := 1.0
-	if pr.residents >= 40 and (_can(_works) or _can(_office)):
+	if pr.residents >= 200 and (_can(_works) or _can(_office)):
 		jobs = 1.0 - clampf(absf(1.0 - pr.jobs / maxf(workers, 1.0)) * 1.2, 0.0, 1.0)
 	var shops := _res_shops / _res_total if _res_total > 0.0 else 1.0
 	var green := _res_green / _res_total if _res_total > 0.0 else 1.0
@@ -587,9 +586,9 @@ func _report() -> Dictionary:
 	elif score < 85:
 		headline = "Looking lovely!"
 	var line := "%s residents and %s jobs" % [_count(pr.residents), _count(pr.jobs)]
-	if pr.residents >= 40 and workers > pr.jobs * 1.05:
+	if pr.residents >= 200 and workers > pr.jobs * 1.05:
 		line += ", %d%% looking for work." % int(round(pr.unemployment() * 100.0))
-	elif pr.residents >= 40 and pr.jobs > workers * 1.2:
+	elif pr.residents >= 200 and pr.jobs > workers * 1.2:
 		line += ", more jobs than workers."
 	else:
 		line += "."
