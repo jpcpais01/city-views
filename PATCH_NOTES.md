@@ -1,5 +1,12 @@
 # City Views patch notes
 
+## 2026-10-25 05:00 UTC
+- Highways come with the map: every new map now lays out its own highway network the moment it's made. Highways run from one edge of the map to another along valleys and level ground, round hills, lakes and your town, over rivers and inlets on bridges (and through hills in tunnels), in long straights and wide, sweeping curves.
+- Where two highways meet they cross square on in a full cloverleaf interchange. Draw a street or an avenue across a highway and it still gets its own diamond interchange.
+- Don't like the network? With the Street brush, tap Highways to roll a brand new one, as many times as you like. Undo brings the last one back. Highways no longer need drawing, and the Clear brush and Change mode leave them be.
+- Highways now carry on past the edge of the map into the country beyond (and out across the sea on piers from an island), instead of stopping short.
+- Cities saved before this get their map's network the next time you open them, routed around what you've built.
+
 ## 2026-10-25 04:15 UTC
 - Sharper district painting: Grow and Green now paint crisp, solid areas at full strength the moment you touch, with clean edges and a fine outline instead of a soft, fading spray.
 - Smart edges: a stroke keeps to its own side of a street and stops right at the border of other districts and parks, so neighbouring colours meet in neat lines. Start a stroke on a district to repaint it.

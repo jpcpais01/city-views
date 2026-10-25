@@ -25,7 +25,6 @@ const ROADS := {
 	"side": ["Lane", "Drag along roads to calm them into quiet lanes, like the town's own back streets"],
 	"main": ["Street", "Draw a line: the street lays itself over the land"],
 	"avenue": ["Avenue", "A wide boulevard with a planted middle: side streets branch off it and shops line it"],
-	"highway": ["Highway", "Four fast lanes across the country: no houses along it, no side streets off it"],
 }
 const LEVELS := ["Village", "Town", "City", "Centre", "Downtown", "Skyline", "Mega"]
 const LEVEL_INFO := ["cottages and small houses", "houses and low terraces", "terraces with shops", "tall terraces and blocks, shops everywhere",
@@ -43,6 +42,9 @@ var _level_bar: Control
 var _road_bar: Control
 var _road_keys := {}
 var _change_key: Button
+## plans the map's highways afresh (IslandWorld.reroll_highways)
+var _reroll_key: Button
+var _rerolling := false
 ## what the Change mode's stroke would cost, floating over the road
 var _change_tag: PanelContainer
 var _change_label: Label
@@ -587,7 +589,45 @@ func _build_roads() -> void:
 		Sfx.play("click", 1.3 if island.street_change else 1.0, -4.0)
 		_refresh_brushes())
 	row.add_child(_change_key)
+	# Reroll: a new highway network for the whole map
+	_reroll_key = _key(116, 50)
+	var rr := HBoxContainer.new()
+	rr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rr.alignment = BoxContainer.ALIGNMENT_CENTER
+	rr.add_theme_constant_override("separation", 4)
+	rr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reroll_key.add_child(rr)
+	var ri := _icon("road_reroll", 34)
+	ri.custom_minimum_size = Vector2(34, 34)
+	rr.add_child(ri)
+	rr.add_child(_label("Highways", 14, true, INK))
+	_reroll_key.pressed.connect(_reroll)
+	row.add_child(_reroll_key)
 	_build_change_tag()
+
+
+## Plans the map's highways afresh: a word first (it takes a moment), then
+## the new network and what it has.
+func _reroll() -> void:
+	if _rerolling:
+		return
+	_rerolling = true
+	Sfx.play("click", 1.2, -4.0)
+	show_toast("Planning a new highway network...", "info")
+	# (two frames, so the word shows before the work)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var count := island.reroll_highways()
+	_rerolling = false
+	Sfx.play("unlock", 1.1, -6.0, 0.05)
+	Sfx.play("road", 0.8, -4.0)
+	if count == 0:
+		show_toast("No room for a highway on this map", "warn")
+	else:
+		show_toast("A new highway network: %d highway%s%s" % [count, "" if count == 1 else "s",
+			", %d interchange%s" % [count - 1, "" if count == 2 else "s"] if count > 1 else ""], "info")
+	_help.text = "Every tap plans the map's highways afresh, interchanges and all. Undo brings the last network back"
+	_flash_hint()
 
 
 ## The cost of a Change stroke, in a little glass tag over the road.

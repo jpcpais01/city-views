@@ -267,6 +267,11 @@ func _natural(p: Vector2) -> float:
 	return _country(p)
 
 
+## The untouched land at p, on the map or anywhere past its edge.
+func natural_at(p: Vector2) -> float:
+	return _natural(p)
+
+
 # ------------------------------------------------------------------ open country
 
 # the river: its centre line (well past the map at both ends), how wide it is
@@ -1070,6 +1075,47 @@ func conform(pts: PackedVector2Array, ys: PackedFloat32Array, core: float, blend
 			var g := j * SIDE + i
 			var target := lerpf(heights[g], by[k] - 0.03, wt)
 			heights[g] = minf(heights[g], target) if lower_only else target
+	_mark(i0, j0, i1, j1)
+
+
+## Eases the ground within `r` of a line back to the natural lie of the land
+## (where a highway was taken up), fading out over the last few metres.
+func renature(pts: PackedVector2Array, r: float) -> void:
+	if pts.size() < 2:
+		return
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in pts:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	var i0 := maxi(2, int(floor((lo.x - r + HALF) / STEP)))
+	var i1 := mini(CELLS - 2, int(ceil((hi.x + r + HALF) / STEP)))
+	var j0 := maxi(2, int(floor((lo.y - r + HALF) / STEP)))
+	var j1 := mini(CELLS - 2, int(ceil((hi.y + r + HALF) / STEP)))
+	if i0 > i1 or j0 > j1:
+		return
+	var w := i1 - i0 + 1
+	var best := PackedFloat32Array()
+	best.resize(w * (j1 - j0 + 1))
+	best.fill(INF)
+	for s in pts.size() - 1:
+		var a := pts[s]
+		var b := pts[s + 1]
+		var si0 := maxi(i0, int(floor((minf(a.x, b.x) - r + HALF) / STEP)))
+		var si1 := mini(i1, int(ceil((maxf(a.x, b.x) + r + HALF) / STEP)))
+		var sj0 := maxi(j0, int(floor((minf(a.y, b.y) - r + HALF) / STEP)))
+		var sj1 := mini(j1, int(ceil((maxf(a.y, b.y) + r + HALF) / STEP)))
+		for j in range(sj0, sj1 + 1):
+			for i in range(si0, si1 + 1):
+				var k := (j - j0) * w + (i - i0)
+				best[k] = minf(best[k], Geometry2D.get_closest_point_to_segment(_pos(i, j), a, b).distance_to(_pos(i, j)))
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var d := best[(j - j0) * w + (i - i0)]
+			if d >= r:
+				continue
+			var g := j * SIDE + i
+			heights[g] = lerpf(heights[g], _base[g], 1.0 - smoothstep(r - 3.0, r, d))
 	_mark(i0, j0, i1, j1)
 
 

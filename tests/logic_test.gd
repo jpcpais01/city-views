@@ -13,6 +13,13 @@ func check(cond: bool, msg: String) -> void:
 
 
 func _ready() -> void:
+	# the checks lay their own highways where they want them
+	IslandWorld.auto_highways = false
+	if OS.get_environment("CV_ONLY") == "highways":
+		await _highway_network()
+		print("FAILURES: %d" % failures)
+		get_tree().quit(1 if failures > 0 else 0)
+		return
 	if OS.get_environment("CV_ONLY") == "budget":
 		# just the triangle budget (with CV_BUDGET_R / CV_BUDGET_LEVEL)
 		await _island_budget()
@@ -1908,4 +1915,87 @@ func _brushes() -> void:
 	island._draw_ring()
 	check(island._ring_mesh.get_surface_count() == 2, "the preview draws a wash and an outline")
 	island.queue_free()
+
+
+## The map's highway network: planned with every new map, edge to edge,
+## in wide curves and easy grades, crossing in cloverleafs; rerolled at will
+## (and undone), kept in saves, and planned for islands saved before it.
+func _highway_network() -> void:
+	IslandWorld.auto_highways = true
+	var island := IslandWorld.new()
+	add_child(island)
+	var crossings := 0
+	var ramps_ok := true
+	for kind in ["river", "lakes", "island", "coast"]:
+		for sd in [3, 21, 777]:
+			var t0 := Time.get_ticks_msec()
+			island.new_island(sd, kind)
+			var ms := Time.get_ticks_msec() - t0
+			var st := island.streets
+			st.flush()
+			var hws: Array = st.streets.filter(func(o): return o.kind == "highway")
+			var ends_ok := true
+			var tight := INF
+			var steep := 0.0
+			for h: Streets.Street in hws:
+				for p in [h.pts[0], h.pts[h.pts.size() - 1]]:
+					ends_ok = ends_ok and maxf(absf(p.x), absf(p.y)) > Land.HALF - 2.0
+				# the tightest curve, over 6 m chords
+				for i in range(12, h.pts.size() - 12, 6):
+					var a := (h.pts[i] - h.pts[i - 12]).normalized()
+					var b := (h.pts[i + 12] - h.pts[i]).normalized()
+					var turn := absf(a.angle_to(b))
+					if turn > 1e-4:
+						tight = minf(tight, 6.0 / turn)
+				for i in h.ys.size() - 1:
+					steep = maxf(steep, absf(h.ys[i + 1] - h.ys[i]) / h.pts[i].distance_to(h.pts[i + 1]))
+			var ramps: Array = st.streets.filter(func(o): return o.kind == "ramp")
+			var graph := st.links()
+			for r: Streets.Street in ramps:
+				var to: Array = graph[r.id].map(func(l): return l[1].kind)
+				ramps_ok = ramps_ok and to.count("highway") >= 2
+			crossings += ramps.size() / 8
+			print("  %s %d: %d highways, %d ramps, tightest curve %.0f m, steepest %.2f, %d ms" % [kind, sd, hws.size(), ramps.size(), tight, steep, ms])
+			check(hws.size() >= 1 and ends_ok, "a new %s map (%d) comes with highways running edge to edge (%d)" % [kind, sd, hws.size()])
+			check(tight > 22.0 and steep <= Streets.MAX_GRADE + 0.01, "in wide curves (%.0f m) and easy grades (%.2f)" % [tight, steep])
+	check(crossings >= 4 and ramps_ok, "highways cross in cloverleafs joining both (%d)" % crossings)
+	# reroll: a new network, and undo brings the old one back
+	island.new_island(21, "river")
+	var st2 := island.streets
+	st2.flush()
+	var keys_of := func() -> Array:
+		var k: Array = st2.streets.filter(func(o): return o.kind == "highway").map(func(o): return o.key)
+		k.sort()
+		return k
+	var before: Array = keys_of.call()
+	var first_seed := island.highway_seed
+	island.reroll_highways()
+	st2.flush()
+	var after: Array = keys_of.call()
+	check(not after.is_empty() and after != before and island.highway_seed != first_seed, "Reroll plans a new network (%s)" % str(after))
+	island.undo()
+	st2.flush()
+	check(keys_of.call() == before, "and undo brings the last one back")
+	# saved and loaded: the same highways, not planned again
+	island.reroll_highways()
+	st2.flush()
+	var data := island.to_dict()
+	var saved: Array = keys_of.call()
+	island._apply_save(JSON.parse_string(JSON.stringify(data)))
+	st2.flush()
+	check(keys_of.call() == saved and island.highway_seed == int(data.hw), "a saved map keeps its network")
+	# an island saved before highways came with the map gets its network
+	data.erase("hw")
+	data.streets = (data.streets as Array).filter(func(d): return d.k != "highway")
+	island._apply_save(JSON.parse_string(JSON.stringify(data)))
+	st2.flush()
+	var planned: Array = keys_of.call()
+	check(not planned.is_empty() and island.highway_seed == island.default_highway_seed(), "an older save is given its network (%d)" % planned.size())
+	# the Clear brush and Change mode leave highways be
+	var h: Streets.Street = st2.streets.filter(func(o): return o.kind == "highway")[0]
+	var mid := h.pts[h.pts.size() / 2]
+	st2.erase_at(mid, 6.0, true)
+	check(h in st2.streets, "the Clear brush leaves the highways")
+	island.queue_free()
+	IslandWorld.auto_highways = false
 	await get_tree().process_frame

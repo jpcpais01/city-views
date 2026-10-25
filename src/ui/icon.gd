@@ -91,6 +91,17 @@ func _draw() -> void:
 			draw_rect(Rect2(P.call(0.67, 0.3), Vector2(0.1, 0.16) * s), a)
 			draw_colored_polygon(PackedVector2Array([P.call(0.72, 0.92), P.call(0.92, 0.68), P.call(0.52, 0.68)]), c)
 			draw_rect(Rect2(P.call(0.67, 0.54), Vector2(0.1, 0.16) * s), c)
+		"road_reroll":
+			# a highway sweeping round a bend, and a die rolled beside it
+			var bend := PackedVector2Array()
+			for k in 9:
+				var t := PI * 0.5 * k / 8.0
+				bend.append(P.call(0.1 + 0.62 * (1.0 - cos(t)), 0.92 - 0.62 * sin(t)))
+			draw_polyline(bend, Color(0.32, 0.34, 0.38), 0.22 * s)
+			draw_polyline(bend, Color(0.85, 0.85, 0.82), 0.03 * s)
+			_rr(Rect2(P.call(0.52, 0.06), Vector2(0.42, 0.42) * s), 0.08 * s, Color(1, 1, 1, 0.95))
+			for q: Vector2 in [Vector2(0.62, 0.16), Vector2(0.73, 0.27), Vector2(0.84, 0.38)]:
+				_circle(P.call(q.x, q.y), 0.04 * s, Color(0.15, 0.17, 0.22))
 		"house":
 			draw_colored_polygon(PackedVector2Array([P.call(0.12, 0.5), P.call(0.5, 0.14), P.call(0.88, 0.5)]), Color("e0684f"))
 			_rr(Rect2(P.call(0.22, 0.48), Vector2(0.56, 0.4) * s), 0.06 * s, Color("fbefd9"))
