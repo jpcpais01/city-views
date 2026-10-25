@@ -53,6 +53,8 @@ func _ready() -> void:
 	var fov := island.rig.cam.fov
 	hud.drive.set_active(true)
 	var car := hud.drive.car
+	# the car on its own first; the crowd comes later
+	hud.drive.crowd.stop()
 	check(hud.drive.active and car != null, "the car comes out onto a street")
 	check(not hud._root.get_child(0).visible or hud._drive_hidden.size() > 0, "the building HUD steps aside (%d hidden)" % hud._drive_hidden.size())
 	check(not island.rig.is_processing(), "the orbit camera hands over")
@@ -125,14 +127,67 @@ func _ready() -> void:
 			break
 	if wet != Vector2.INF:
 		check(car.blocked(wet), "open water stops the car")
-	# both cameras, and the street-level triangle budget
+	# the busy streets round the car: lots of cars and walkers, keeping to the streets
+	var crowd := hud.drive.crowd
+	car.place_on_street(Vector2(-5, 2), PI * 0.5)
+	crowd.start()
+	check(crowd.car_count() > 30 and crowd.ped_count() > 60, "the streets round the car fill up (%d cars, %d walkers)" % [crowd.car_count(), crowd.ped_count()])
+	check(not island.cars.visible and not island.folk.visible, "the everyday traffic and walkers make way meanwhile")
+	var t0 := Time.get_ticks_usec()
+	var starts := []
+	for p in crowd._peds:
+		starts.append([p, p.xf.origin])
+	for i in 120:
+		crowd._process(1.0 / 60.0)
+	var per_frame := (Time.get_ticks_usec() - t0) / 120.0
+	if OS.get_environment("CV_PROF") != "":
+		var g := island.streets.links()
+		var t1 := Time.get_ticks_usec()
+		for i in 60:
+			crowd._queue()
+		var t2 := Time.get_ticks_usec()
+		for i in 60:
+			for nc in crowd._cars:
+				crowd._drive(nc, g, 1.0 / 60.0, false)
+		var t3 := Time.get_ticks_usec()
+		for i in 60:
+			for p in crowd._peds:
+				crowd._walk(p, g, 1.0 / 60.0, false)
+		var t4 := Time.get_ticks_usec()
+		for i in 60:
+			crowd._draw()
+		var t5 := Time.get_ticks_usec()
+		for i in 60:
+			crowd._find_spots()
+		var t6 := Time.get_ticks_usec()
+		print("prof ms: queue %.2f drive %.2f walk %.2f draw %.2f spots %.2f" % [(t2 - t1) / 60000.0, (t3 - t2) / 60000.0, (t4 - t3) / 60000.0, (t5 - t4) / 60000.0, (t6 - t5) / 60000.0])
+	var worst_off := 0.0
+	for nc in crowd._cars:
+		var o: Vector3 = nc.xf.origin
+		var best := INF
+		for st: Streets.Street in island.streets.streets:
+			if st.near_box(Vector2(o.x, o.z), 3.0):
+				best = minf(best, st.closest(Vector2(o.x, o.z)).x - st.w())
+		worst_off = maxf(worst_off, best)
+	var moved := 0
+	for e in starts:
+		if crowd._peds.has(e[0]) and (e[0].xf.origin as Vector3).distance_to(e[1]) > 0.1:
+			moved += 1
+	check(worst_off < 0.15, "crowd cars keep to the carriageway (%.2f past the kerb at worst)" % worst_off)
+	check(moved > crowd.ped_count() / 3, "and the walkers walk (%d of %d moved)" % [moved, crowd.ped_count()])
+	print("drive: crowd of %d cars and %d walkers costs %.2f ms a frame here" % [crowd.car_count(), crowd.ped_count(), per_frame / 1000.0])
+	if not crowd._cars.is_empty():
+		var o: Vector3 = crowd._cars[0].xf.origin
+		check(crowd.hits(Vector2(o.x, o.z)), "the player's car bumps into crowd cars")
+	# every view, and the street-level triangle budget with the crowd about
 	var worst := 0
 	var worst_acc := {}
-	for fp in [false, true]:
-		hud.drive.first_person = fp
+	for v in DriveMode.VIEWS.size():
+		hud.drive.set_view(v)
 		for spot in [Vector2(-30, 2), Vector2(-5, 2), Vector2(15, 4), Vector2(6, -12), Vector2(6, 14)]:
+			car.place_on_street(spot, 0.0)
+			crowd.start()
 			for yaw_deg in [0, 60, 120, 180, 240, 300]:
-				car.place(spot, deg_to_rad(yaw_deg))
 				car.place_on_street(spot, deg_to_rad(yaw_deg))
 				hud.drive._cam_fresh = true
 				hud.drive._update_camera(1.0)
@@ -150,8 +205,13 @@ func _ready() -> void:
 	print("drive: %d houses, %d triangles in the busiest street-level view" % [island.town.house_count(), worst])
 	check(worst + reserve < TriBudget.SIDE_BUDGET, "street-level views stay under %dk (%d)" % [TriBudget.SIDE_BUDGET / 1000, worst + reserve])
 	if OS.get_environment("CV_OUT") != "":
-		hud.drive.first_person = OS.get_environment("CV_FP") != ""
+		hud.drive.set_view(0 if OS.get_environment("CV_FP") != "" else int(OS.get_environment("CV_VIEW")) if OS.get_environment("CV_VIEW") != "" else 2)
+		if OS.get_environment("CV_ORBIT") != "":
+			hud.drive._orbit = deg_to_rad(float(OS.get_environment("CV_ORBIT")))
+			hud.drive._touched = -100.0
 		car.place_on_street(Vector2(-12, 2), PI * 0.5)
+		crowd._rng.seed = 42
+		crowd.start()
 		# (the mode reads the pad every frame)
 		hud.drive._pad.throttle = 0.6
 		hud.drive._cam_fresh = true
@@ -172,5 +232,6 @@ func _ready() -> void:
 	hud.drive.set_active(false)
 	check(island.rig.is_processing() and is_equal_approx(island.rig.cam.fov, fov), "getting out gives the orbit camera back")
 	check(not hud.drive._ui.visible and hud._drive_hidden.is_empty(), "and the building HUD returns")
+	check(island.cars.visible and crowd.car_count() == 0, "and the everyday traffic comes back")
 	print("DRIVE TESTS: %s (%d failed)" % ["PASS" if _fails == 0 else "FAIL", _fails])
 	get_tree().quit(1 if _fails > 0 else 0)

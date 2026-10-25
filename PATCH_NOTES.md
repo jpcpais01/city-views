@@ -1,5 +1,9 @@
 # City Views patch notes
 
+## 2026-10-25 13:00 UTC
+- Drive mode streets come alive: up to 120 cars and 200 people fill the streets around your car. Hatchbacks, saloons, SUVs, vans, yellow taxis, pickups, buses and lorries keep to their lanes, slow down into junctions, queue behind each other (and behind you), dip their noses as they brake and light their brake lights. People walk the pavements swinging their arms and legs, in all sorts of outfits, hairstyles, caps, skirts and backpacks. Some stop to chat, and they step aside when you drive close. The everyday traffic steps back while you drive and returns when you get out.
+- More ways to see your drive: the eye button now steps from the driver's seat through five chase cameras, from right behind the bumper to high over the street. Drag anywhere off the controls (or with the mouse, or Q and E) to swing the camera round the car and tilt it, and pinch or scroll to zoom. In the driver's seat a drag looks around. Let go while driving and the camera eases back behind you.
+
 ## 2026-10-25 12:00 UTC
 - No more pencil towers downtown: tall buildings now join their neighbours into one wider, more realistic skyscraper whenever they can, and a narrow plot that finds no one to join stays a sturdy apartment block instead of a thin spike. The skyline keeps its mix of heights and styles, and busy downtowns draw a little lighter too.
 - The metro: once your city reaches 6,000 residents, metro stations open along the main streets and avenues wherever towers and tall blocks stand. Each entrance is a stairway down from the pavement under a glass canopy, with glass railings round it and the metro sign lit on a pole at the kerb. They keep clear of junctions, bridges, quays and bus stops.

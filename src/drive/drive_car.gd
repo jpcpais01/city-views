@@ -38,6 +38,8 @@ var input_steer := 0.0
 var on_road := false
 ## set for a frame when it bumps into something, with how hard
 var bumped := 0.0
+## other things in the way (the crowd's cars): point -> true if taken
+var obstacle: Callable
 
 var _pitch := 0.0
 var _roll := 0.0
@@ -340,7 +342,7 @@ func _free(p: Vector2, yaw: float) -> bool:
 	var r := Vector2(f.y, -f.x)
 	for k: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1), Vector2(0, 1), Vector2(0, -1)]:
 		var q := p + f * HALF_L * k.y + r * HALF_W * k.x
-		if blocked(q):
+		if blocked(q) or (obstacle.is_valid() and obstacle.call(q)):
 			return false
 	return true
 
