@@ -3,6 +3,8 @@ extends Node
 
 var player_name := "Mayor"
 var settings := {"music": true, "sfx": true, "shadows": true, "fps": true}
+## true while the pause menu covers the city: the camera keys stand still
+var menu_open := false
 
 const SETTINGS_PATH := "user://settings.json"
 

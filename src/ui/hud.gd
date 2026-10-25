@@ -44,7 +44,6 @@ var _use_keys: Array[Button] = []
 var _use_bar: Control
 var _help: Label
 var _island_name: LineEdit
-var _island_name_menu: LineEdit
 var _title_chip: Label
 var _locks := {}
 
@@ -56,36 +55,12 @@ var _coin_label: Label
 var _progress: ProgressBar
 var _toasts: VBoxContainer
 var _players_row: HBoxContainer
-var _menu: Control
+## the pause menu (GameMenu), over everything else in _root
+var _menu: GameMenu
 var _coins_shown := 0.0
 var _fps_label: Label
 var _fps_time := 0.0
-var _page := "island"
-var _pages := {}
-var _tab_buttons := {}
-var _pages_root: VBoxContainer
-var _new_btn: Button
-var _island_summary: Label
-var _coop_out: VBoxContainer
-var _coop_join: VBoxContainer
-var _coop_in: VBoxContainer
-var _room_big: Label
-var _room_players: Label
-var _acct_form: VBoxContainer
-var _acct_signed: HBoxContainer
-var _acct_msg: Label
-var _update_msg: Label
-var _acct_status: Label
-var _room_status: Label
-var _email: LineEdit
-var _password: LineEdit
-var _room_code: LineEdit
-var _name_edit: LineEdit
-var _confirm_new := false
-var _new_kind := "river"
-var _kind_btns := {}
 var _undo_btn: Button
-var _menu_card: PanelContainer
 var _redo_btn: Button
 var _goals: PanelContainer
 var _goal_rows: VBoxContainer
@@ -114,7 +89,6 @@ const SOFT := Color("6b7785")
 const CARD := Color(1, 1, 1, 0.9)
 const ACCENT := Color("ff7a6b")
 const MINT := Color("3fae8c")
-const MENU_TABS := [["island", "City"], ["coop", "Co-op"], ["account", "Account"], ["settings", "Settings"], ["notes", "What's new"]]
 const GLASS := Color(0.9, 0.93, 0.98)
 const GLASS_DARK := Color(0.1, 0.13, 0.18)
 
@@ -240,7 +214,7 @@ func _ready() -> void:
 	_glass_accent = _glass_mat(0.72)
 	if not OS.has_feature("mobile"):
 		get_window().size_changed.connect(_fit_desktop_scale)
-		_fit_desktop_scale()
+	apply_ui_scale()
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -277,9 +251,7 @@ func _ready() -> void:
 	Net.room_changed.connect(_refresh_players)
 	Net.players_changed.connect(_refresh_players)
 	Net.message.connect(func(t): _help.text = t)
-	Firebase.auth_changed.connect(_refresh_account)
 	_refresh_brushes()
-	_refresh_account()
 	_refresh_players()
 
 
@@ -374,43 +346,6 @@ func _build_island_top() -> void:
 	stats.add_child(menu_btn)
 
 
-## The menu's first page: your name, this island and starting over.
-func _build_world_page(page: VBoxContainer) -> void:
-	var prof := _section(page, "Your name")
-	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "Mayor"
-	_name_edit.max_length = 16
-	_name_edit.text_changed.connect(func(t):
-		Game.player_name = t if t.strip_edges() != "" else "Mayor")
-	prof.add_child(_name_edit)
-	prof.add_child(_wrap_label("Builders in your co-op room see this name."))
-	var about := _section(page, "This city")
-	_island_name_menu = LineEdit.new()
-	_island_name_menu.placeholder_text = "Your city"
-	_island_name_menu.max_length = IslandWorld.NAME_MAX
-	_island_name_menu.text_submitted.connect(func(t): island.set_island_name(t))
-	_island_name_menu.focus_exited.connect(func(): island.set_island_name(_island_name_menu.text))
-	about.add_child(_island_name_menu)
-	_refresh_island_name()
-	_island_summary = _wrap_label("", 17, true, INK)
-	about.add_child(_island_summary)
-	var kinds := GridContainer.new()
-	kinds.columns = 2
-	kinds.add_theme_constant_override("h_separation", 8)
-	kinds.add_theme_constant_override("v_separation", 8)
-	about.add_child(kinds)
-	for k: String in Land.KINDS:
-		var b := _button(Land.KIND_NAMES[k], func(): _pick_kind(k))
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		kinds.add_child(b)
-		_kind_btns[k] = b
-	_pick_kind(_new_kind)
-	_new_btn = _button("Start a new map", func(): pass)
-	_new_btn.pressed.connect(_on_new_island)
-	about.add_child(_new_btn)
-	about.add_child(_wrap_label("Pick a landscape: a river through open country, a coast with an estuary, lakes, or an island in the sea. It replaces this map. Tap twice to confirm."))
-
-
 ## A name that reads like a title until tapped, then edits in place.
 func _name_field(px: int) -> LineEdit:
 	var e := LineEdit.new()
@@ -435,15 +370,8 @@ func _name_field(px: int) -> LineEdit:
 
 
 func _refresh_island_name() -> void:
-	for e: LineEdit in [_island_name, _island_name_menu]:
-		if e and not e.has_focus():
-			e.text = island.island_name
-
-
-func _world_summary() -> String:
-	var pr := island.progress
-	return "%d residents in %d homes  ·  %d jobs  ·  %d shops  ·  %d parks  ·  %d m of streets\nThe city pays %s coins every few seconds" % [
-		pr.residents, pr.homes, pr.jobs, pr.shops, pr.parks, int(pr.street_m), str(pr.income())]
+	if _island_name and not _island_name.has_focus():
+		_island_name.text = island.island_name
 
 
 func _refresh_stats() -> void:
@@ -518,45 +446,6 @@ func _claim(i: int) -> float:
 	return island.progress.claim_goal(i)
 
 
-func _save_cloud() -> void:
-	island.save_cloud()
-
-
-## Which landscape "Start a new map" makes.
-func _pick_kind(k: String) -> void:
-	_new_kind = k
-	for key: String in _kind_btns:
-		var b: Button = _kind_btns[key]
-		var on := key == k
-		for st in ["normal", "hover", "pressed"]:
-			if on:
-				b.add_theme_stylebox_override(st, _box(ACCENT, 25, 16, st != "pressed"))
-			else:
-				b.remove_theme_stylebox_override(st)
-		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
-			if on:
-				b.add_theme_color_override(fc, Color.WHITE)
-			else:
-				b.remove_theme_color_override(fc)
-	if _confirm_new:
-		_confirm_new = false
-		_new_btn.text = "Start a new map"
-
-
-func _on_new_island() -> void:
-	if not _confirm_new:
-		_confirm_new = true
-		_new_btn.text = "Tap again: new %s" % Land.KIND_NAMES[_new_kind].to_lower()
-		return
-	_confirm_new = false
-	_new_btn.text = "Start a new map"
-	if Net.in_room():
-		Net.leave_room()
-	Sfx.play("unlock", 1.0, -6.0)
-	island.new_island(randi() % 1000000, _new_kind)
-	_set_menu(false)
-
-
 func _refresh_players() -> void:
 	for c in _players_row.get_children():
 		c.queue_free()
@@ -574,7 +463,6 @@ func _refresh_players() -> void:
 			dot.add_child(_label(str(p.get("name", "?")), 14, true, Color.WHITE))
 			h.add_child(dot)
 		_players_row.add_child(chip)
-	_refresh_account()
 
 
 func _build_brushes() -> void:
@@ -1042,7 +930,8 @@ func _build_stats_panel() -> void:
 	_stats_bar.max_value = 1.0
 	_stats_bar.step = 0.0
 	v.add_child(_stats_bar)
-	_stats_next = _wrap_label("", 13, false, SOFT)
+	_stats_next = _label("", 13, false, SOFT)
+	_stats_next.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_stats_next.custom_minimum_size.x = 290
 	v.add_child(_stats_next)
 	_stats_lines = _label("", 14, false, INK)
@@ -1380,28 +1269,43 @@ func _fly_coins(start: Vector2, count: int) -> void:
 
 func _toggle_menu() -> void:
 	Sfx.play("click")
-	_set_menu(not _menu.visible)
+	_set_menu(not _menu.is_open())
 
 
-func _set_menu(open: bool) -> void:
-	if open == _menu.visible:
-		return
-	_menu.visible = open
-	_confirm_new = false
-	_new_btn.text = "Start a new map"
+func _set_menu(open: bool, page := "") -> void:
 	if open:
-		_name_edit.text = Game.player_name
-		_show_page(_page)
-		# springy sheet entrance
-		_menu_card.pivot_offset = _menu_card.size * 0.5
-		_menu_card.scale = Vector2(0.92, 0.92)
-		_menu.modulate.a = 0.0
-		var tw := create_tween().set_parallel(true)
-		tw.tween_property(_menu_card, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		tw.tween_property(_menu, "modulate:a", 1.0, 0.18)
+		_hide_info()
+		_fade_hud(false)
+		_menu.open(page)
 	else:
-		_name_edit.release_focus()
-		Game.save_settings()
+		_menu.close()
+
+
+## While the menu is up the rest of the HUD steps back, so nothing ghosts
+## through the blur behind it.
+func _fade_hud(show: bool) -> void:
+	for c in _root.get_children():
+		if c == _menu or not c is CanvasItem:
+			continue
+		var ci := c as CanvasItem
+		var tw := ci.create_tween()
+		tw.tween_property(ci, "modulate:a", 1.0 if show else 0.0, 0.2 if show else 0.15)
+
+
+## Builds the pause menu on top of the rest of the HUD.
+func _build_menu() -> void:
+	_menu = GameMenu.new(self)
+	_root.add_child(_menu)
+	_menu.closed.connect(func(): _fade_hud(true))
+
+
+func set_fps_visible(on: bool) -> void:
+	_fps_label.visible = on
+
+
+## What the Settings page says after a check for updates (kept here for older callers).
+static func update_text(status: String, version: String) -> String:
+	return GameMenu.update_text(status, version)
 
 
 func _build_photo_exit() -> void:
@@ -1431,7 +1335,7 @@ func set_photo(on: bool) -> void:
 	if on:
 		_photo_hidden.clear()
 		for c: Control in _root.get_children():
-			if c != _photo_exit and c.visible:
+			if c != _photo_exit and c != _menu and c.visible:
 				_photo_hidden.append(c)
 				var tw := create_tween()
 				tw.tween_property(c, "modulate:a", 0.0, 0.25)
@@ -1465,7 +1369,7 @@ func set_drive(on: bool) -> void:
 		_hide_info()
 		_drive_hidden.clear()
 		for c: Control in _root.get_children():
-			if c.visible and c != _fps_label and c != _toasts:
+			if c.visible and c != _fps_label and c != _toasts and c != _menu:
 				_drive_hidden.append(c)
 				c.hide()
 	else:
@@ -1480,69 +1384,22 @@ func _notification(what: int) -> void:
 	# Android back gesture leaves photo mode, or closes the menu
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST and _photo:
 		set_photo(false)
-	elif what == NOTIFICATION_WM_GO_BACK_REQUEST and _menu != null and _menu.visible:
+	elif what == NOTIFICATION_WM_GO_BACK_REQUEST and _menu != null and _menu.is_open():
 		_set_menu(false)
 
 
 func _input(event: InputEvent) -> void:
+	UiKit.track_input(event)
 	if _photo and event.is_action_pressed("ui_cancel"):
 		set_photo(false)
 		get_viewport().set_input_as_handled()
-	elif _menu != null and _menu.visible and event.is_action_pressed("ui_cancel"):
-		_set_menu(false)
-		get_viewport().set_input_as_handled()
-
-
-func _section(parent: Control, title: String) -> VBoxContainer:
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label(title, 18, true, ACCENT))
-	parent.add_child(v)
-	return v
-
-
-func _button(text: String, cb: Callable, primary := false) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(0, 50)
-	b.add_theme_font_size_override("font_size", 18)
-	if primary:
-		b.add_theme_stylebox_override("normal", _box(ACCENT, 25, 16))
-		b.add_theme_stylebox_override("hover", _box(ACCENT.lightened(0.1), 25, 16))
-		b.add_theme_stylebox_override("pressed", _box(ACCENT.darkened(0.1), 25, 16, false))
-		b.add_theme_color_override("font_color", Color.WHITE)
-		b.add_theme_color_override("font_hover_color", Color.WHITE)
-		b.add_theme_color_override("font_pressed_color", Color.WHITE)
-	b.pressed.connect(func():
-		Sfx.play("click")
-		cb.call())
-	return b
-
-
-func _wrap_label(text: String, size := 16, bold := false, col := SOFT) -> Label:
-	var l := _label(text, size, bold, col)
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size.x = 200
-	return l
-
-
-## One page of the menu: a scrollable column that only shows when its tab is picked.
-func _page_box(id: String) -> VBoxContainer:
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	_pages_root.add_child(scroll)
-	var m := MarginContainer.new()
-	m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	m.add_theme_constant_override("margin_right", 4)
-	scroll.add_child(m)
-	var v := VBoxContainer.new()
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.add_theme_constant_override("separation", 20)
-	m.add_child(v)
-	_pages[id] = scroll
-	return v
+	elif _menu != null and not _menu.visible and not _driving and not get_viewport().gui_get_focus_owner() is LineEdit:
+		# Esc or a pad's Start opens the menu, like any PC or console game
+		var esc: bool = event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE
+		var start: bool = event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_START
+		if esc or start:
+			_set_menu(true)
+			get_viewport().set_input_as_handled()
 
 
 ## The layout is sized for a 720-tall phone screen stretched to fit. On a monitor that
@@ -1555,9 +1412,21 @@ func _fit_desktop_scale() -> void:
 		return
 	var dpi := float(DisplayServer.screen_get_dpi(w.current_screen))
 	var px := maxf(DisplayServer.screen_get_scale(w.current_screen), dpi / 96.0 if dpi > 0.0 else 1.0)
-	var f := clampf(0.95 * clampf(px, 0.85, 3.0) / stretch, 0.45, 1.0)
+	var f := clampf(0.95 * clampf(px, 0.85, 3.0) / stretch, 0.45, 1.0) * ui_scale()
 	if absf(w.content_scale_factor - f) > 0.001:
 		w.content_scale_factor = f
+
+
+## The player's Interface size setting (Settings > Interface), 1.0 = normal.
+static func ui_scale() -> float:
+	return clampf(float(Game.settings.get("ui_scale", 1.0)), 0.75, 1.3)
+
+
+func apply_ui_scale() -> void:
+	if OS.has_feature("mobile"):
+		get_window().content_scale_factor = ui_scale()
+	else:
+		_fit_desktop_scale()
 
 
 func _apply_side_margins() -> void:
@@ -1568,407 +1437,4 @@ func _apply_side_margins() -> void:
 	_root.offset_left = 0
 	_root.offset_right = 0
 
-
-func _build_menu() -> void:
-	_menu = Control.new()
-	_menu.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_menu.visible = false
-	_root.add_child(_menu)
-	var dim := ColorRect.new()
-	dim.color = Color(0.06, 0.09, 0.14, 0.35)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	# the dimmer still covers the whole screen, past the side margins
-	dim.offset_left = -400
-	dim.offset_right = 400
-	dim.gui_input.connect(func(e):
-		if (e is InputEventMouseButton and e.pressed) or (e is InputEventScreenTouch and e.pressed):
-			_toggle_menu())
-	_menu.add_child(dim)
-	var card := PanelContainer.new()
-	card.set_anchors_preset(Control.PRESET_CENTER)
-	card.offset_left = -380
-	card.offset_right = 380
-	card.offset_top = -300
-	card.offset_bottom = 300
-	_menu_card = card
-	card.material = _glass_mat(0.72)
-	card.add_theme_stylebox_override("panel", _glass_box(Color(0.96, 0.97, 0.99), 34, 28))
-	_menu.add_child(card)
-	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 14)
-	card.add_child(outer)
-
-	# header: title + close
-	var head := HBoxContainer.new()
-	outer.add_child(head)
-	var t := _label("City Views", 30, true)
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(t)
-	var close := _glass_button(48, "close")
-	close.pressed.connect(_toggle_menu)
-	head.add_child(close)
-
-	# segmented tabs, iOS style
-	var track := PanelContainer.new()
-	track.add_theme_stylebox_override("panel", _box(Color(0.2, 0.25, 0.32, 0.08), 24, 4, false))
-	outer.add_child(track)
-	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 4)
-	track.add_child(tabs)
-	var group := ButtonGroup.new()
-	for tab in MENU_TABS:
-		var tb := Button.new()
-		tb.text = tab[1]
-		tb.toggle_mode = true
-		tb.button_group = group
-		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		tb.custom_minimum_size.y = 42
-		tb.add_theme_font_size_override("font_size", 17)
-		tb.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-		tb.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.4), 20, 8, false))
-		tb.add_theme_stylebox_override("pressed", _box(Color.WHITE, 20, 8))
-		tb.add_theme_stylebox_override("hover_pressed", _box(Color.WHITE, 20, 8))
-		tb.add_theme_color_override("font_color", SOFT)
-		tb.add_theme_color_override("font_hover_color", INK)
-		tb.add_theme_color_override("font_pressed_color", INK)
-		tb.add_theme_color_override("font_hover_pressed_color", INK)
-		tb.pressed.connect(func():
-			Sfx.play("click", 1.1, -4.0)
-			_show_page(tab[0]))
-		tabs.add_child(tb)
-		_tab_buttons[tab[0]] = tb
-
-	_pages_root = VBoxContainer.new()
-	_pages_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	outer.add_child(_pages_root)
-
-	# ---- island
-	_build_world_page(_page_box("island"))
-
-	# ---- co-op
-	var coop := _page_box("coop")
-	_coop_out = _section(coop, "Build together")
-	_coop_out.add_child(_wrap_label("Host your city and share the code, and up to 3 friends can build on it with you in real time."))
-	_coop_out.add_child(_button("Host this city", _host, true))
-	var jl := _section(coop, "Join a friend")
-	_coop_join = jl
-	var crow := HBoxContainer.new()
-	crow.add_theme_constant_override("separation", 8)
-	jl.add_child(crow)
-	_room_code = LineEdit.new()
-	_room_code.placeholder_text = "Room code"
-	_room_code.max_length = 6
-	_room_code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_room_code.text_submitted.connect(func(_s): _join())
-	crow.add_child(_room_code)
-	var jb := _button("Join", _join)
-	jb.custom_minimum_size.x = 120
-	crow.add_child(jb)
-	_coop_in = _section(coop, "You're in a room")
-	_room_big = _label("", 44, true, INK)
-	_coop_in.add_child(_room_big)
-	_room_players = _wrap_label("", 17, true, INK)
-	_coop_in.add_child(_room_players)
-	_coop_in.add_child(_button("Leave room", func():
-		Net.leave_room()
-		_room_status.text = "You left the room. This is your own city again."
-		_refresh_account()))
-	_room_status = _wrap_label("", 16, true, MINT)
-	coop.add_child(_room_status)
-
-	# ---- account
-	var acct := _page_box("account")
-	var asec := _section(acct, "Account & cloud saves")
-	_acct_status = _wrap_label("")
-	asec.add_child(_acct_status)
-	_acct_form = VBoxContainer.new()
-	_acct_form.add_theme_constant_override("separation", 8)
-	asec.add_child(_acct_form)
-	_email = LineEdit.new()
-	_email.placeholder_text = "Email"
-	_email.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_EMAIL_ADDRESS
-	_acct_form.add_child(_email)
-	_password = LineEdit.new()
-	_password.placeholder_text = "Password (6+ characters)"
-	_password.secret = true
-	_password.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_PASSWORD
-	_password.text_submitted.connect(func(_s): _sign_in())
-	_acct_form.add_child(_password)
-	var arow := HBoxContainer.new()
-	arow.add_theme_constant_override("separation", 8)
-	_acct_form.add_child(arow)
-	var si := _button("Sign in", _sign_in)
-	si.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	arow.add_child(si)
-	var reg := _button("Create account", _register, true)
-	reg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	arow.add_child(reg)
-	_acct_signed = HBoxContainer.new()
-	_acct_signed.add_theme_constant_override("separation", 8)
-	asec.add_child(_acct_signed)
-	var save := _button("Save to cloud now", func():
-		if Firebase.signed_in:
-			_save_cloud()
-			_acct_msg.text = "Saved to the cloud ✓"
-		else:
-			_acct_msg.text = "Not connected yet, try again in a moment")
-	save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_acct_signed.add_child(save)
-	var so := _button("Sign out", func():
-		await Firebase.sign_out()
-		_acct_msg.text = "Signed out. You're playing as a guest."
-		_refresh_account())
-	so.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_acct_signed.add_child(so)
-	_acct_msg = _wrap_label("", 16, true, MINT)
-	acct.add_child(_acct_msg)
-
-	# ---- settings
-	var st := _section(_page_box("settings"), "Settings")
-	for key in [["music", "Music"], ["sfx", "Sound effects"], ["shadows", "Shadows"], ["hyper", "Hyper graphics in photo mode"], ["fps", "Show FPS & triangles"]]:
-		var cb := CheckButton.new()
-		cb.text = key[1]
-		cb.add_theme_font_size_override("font_size", 18)
-		cb.custom_minimum_size.y = 54
-		var row := _box(Color(1, 1, 1, 0.85), 18, 16, false)
-		for st_name in ["normal", "pressed", "hover", "hover_pressed"]:
-			cb.add_theme_stylebox_override(st_name, row)
-		cb.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-		for c in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
-			cb.add_theme_color_override(c, INK)
-		cb.add_theme_icon_override("checked", _switch_icon(true))
-		cb.add_theme_icon_override("unchecked", _switch_icon(false))
-		cb.button_pressed = Game.settings.get(key[0], true)
-		cb.toggled.connect(func(on):
-			Game.settings[key[0]] = on
-			match key[0]:
-				"shadows": island.sun.shadow_enabled = on
-				"fps": _fps_label.visible = on
-			Game.save_settings())
-		st.add_child(cb)
-	# the time of day: round the clock by itself, or held where the player likes it
-	st.add_child(_label("Time of day", 16, true, SOFT))
-	var times := HBoxContainer.new()
-	times.add_theme_constant_override("separation", 6)
-	st.add_child(times)
-	var time_group := ButtonGroup.new()
-	for key in [["auto", "Auto"], ["sunrise", "Sunrise"], ["day", "Day"], ["sunset", "Sunset"], ["night", "Night"]]:
-		var b := Button.new()
-		b.text = key[1]
-		b.toggle_mode = true
-		b.button_group = time_group
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size.y = 48
-		b.add_theme_font_size_override("font_size", 16)
-		b.add_theme_stylebox_override("normal", _box(Color(1, 1, 1, 0.85), 18, 6, false))
-		b.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.95), 18, 6, false))
-		b.add_theme_stylebox_override("pressed", _box(ACCENT, 18, 6, false))
-		b.add_theme_stylebox_override("hover_pressed", _box(ACCENT, 18, 6, false))
-		b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-		for c in ["font_color", "font_hover_color"]:
-			b.add_theme_color_override(c, INK)
-		for c in ["font_pressed_color", "font_hover_pressed_color"]:
-			b.add_theme_color_override(c, Color.WHITE)
-		b.button_pressed = Game.settings.get("time", "auto") == key[0]
-		b.pressed.connect(func():
-			Sfx.play("click")
-			Game.settings["time"] = key[0]
-			Game.save_settings())
-		times.add_child(b)
-	# which way the sun's daily arc runs across the city, swung round the compass
-	var sun_title := _label("", 16, true, SOFT)
-	st.add_child(sun_title)
-	var sun_slider := HSlider.new()
-	sun_slider.min_value = 0
-	sun_slider.max_value = 360
-	sun_slider.step = 5
-	sun_slider.custom_minimum_size.y = 44
-	var sun_track := _box(Color(1, 1, 1, 0.85), 6, 0, false)
-	sun_track.content_margin_top = 5
-	sun_track.content_margin_bottom = 5
-	var fill := _box(ACCENT, 6, 0, false)
-	fill.content_margin_top = 5
-	fill.content_margin_bottom = 5
-	sun_slider.add_theme_stylebox_override("slider", sun_track)
-	sun_slider.add_theme_stylebox_override("grabber_area", fill)
-	sun_slider.add_theme_stylebox_override("grabber_area_highlight", fill)
-	sun_slider.value = float(Game.settings.get("sun_angle", 0.0))
-	sun_title.text = "Sun direction  %d°" % int(sun_slider.value)
-	sun_slider.value_changed.connect(func(v: float):
-		Game.settings["sun_angle"] = v
-		sun_title.text = "Sun direction  %d°" % int(v))
-	sun_slider.drag_ended.connect(func(_changed: bool): Game.save_settings())
-	st.add_child(sun_slider)
-	# updates: look for a new version now, not only at start
-	st.add_child(_label("Version %s" % Updater.current, 16, true, SOFT))
-	var upd := Button.new()
-	upd.text = "Check for updates"
-	upd.custom_minimum_size.y = 54
-	upd.add_theme_font_size_override("font_size", 18)
-	upd.add_theme_stylebox_override("normal", _box(Color(1, 1, 1, 0.85), 18, 16, false))
-	upd.add_theme_stylebox_override("hover", _box(Color(1, 1, 1, 0.95), 18, 16, false))
-	upd.add_theme_stylebox_override("pressed", _box(Color(1, 1, 1, 0.7), 18, 16, false))
-	upd.add_theme_stylebox_override("disabled", _box(Color(1, 1, 1, 0.6), 18, 16, false))
-	upd.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color"]:
-		upd.add_theme_color_override(c, INK)
-	st.add_child(upd)
-	_update_msg = _wrap_label("", 16, true, SOFT)
-	_update_msg.visible = false
-	st.add_child(_update_msg)
-	upd.pressed.connect(func():
-		Sfx.play("click")
-		upd.disabled = true
-		upd.text = "Checking…"
-		_update_msg.visible = false
-		Updater.check_now())
-	Updater.checked.connect(func(status: String, version: String):
-		upd.disabled = false
-		upd.text = "Check for updates"
-		_update_msg.visible = true
-		_update_msg.add_theme_color_override("font_color", MINT if status == "latest" or status == "newer" else SOFT)
-		_update_msg.text = update_text(status, version))
-
-	# ---- what's new
-	var notes := _page_box("notes")
-	var rt := RichTextLabel.new()
-	rt.bbcode_enabled = true
-	rt.fit_content = true
-	rt.scroll_active = false
-	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rt.add_theme_font_override("normal_font", font_reg)
-	rt.add_theme_font_override("bold_font", font_bold)
-	rt.add_theme_font_size_override("normal_font_size", 16)
-	rt.add_theme_font_size_override("bold_font_size", 17)
-	rt.add_theme_color_override("default_color", INK)
-	rt.text = _patch_notes_bbcode()
-	notes.add_child(rt)
-	_show_page("island")
-
-
-## What the Settings page says after a check for updates.
-static func update_text(status: String, version: String) -> String:
-	match status:
-		"latest":
-			return "You have the latest version (%s)." % version
-		"newer":
-			return "Version %s is out: tap Update on the card at the top." % version
-		"pending":
-			return "Version %s is on its way. Try again in a few minutes." % version
-		"failed":
-			return "Couldn't reach GitHub. Check your connection and try again."
-	return "This build (%s) doesn't update itself: updates come to the Android and Windows releases." % version
-
-
-## iOS-style switch drawn once into a texture: green pill with the knob right when on.
-func _switch_icon(on: bool) -> Texture2D:
-	var w := 56
-	var h := 32
-	var img := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
-	var track := MINT if on else Color(0.78, 0.8, 0.84)
-	var r := h * 0.5
-	var knob := Vector2(w - r, r) if on else Vector2(r, r)
-	for y in h:
-		for x in w:
-			var p := Vector2(x + 0.5, y + 0.5)
-			var cx := clampf(p.x, r, w - r)
-			var d := p.distance_to(Vector2(cx, r)) - r
-			var a := clampf(0.5 - d, 0.0, 1.0)
-			var col := track
-			var kd := p.distance_to(knob) - (r - 3.0)
-			var ka := clampf(0.5 - kd, 0.0, 1.0)
-			col = col.lerp(Color.WHITE, ka)
-			img.set_pixel(x, y, Color(col.r, col.g, col.b, a))
-	return ImageTexture.create_from_image(img)
-
-
-func _show_page(id: String) -> void:
-	_page = id
-	for k in _pages:
-		_pages[k].visible = k == id
-		_tab_buttons[k].button_pressed = k == id
-	_pages[id].scroll_vertical = 0
-	_refresh_account()
-
-
-func _patch_notes_bbcode() -> String:
-	var path := "res://PATCH_NOTES.md"
-	if not FileAccess.file_exists(path):
-		return ""
-	var out := ""
-	var count := 0
-	for line in FileAccess.get_file_as_string(path).split("\n"):
-		if line.begins_with("## "):
-			count += 1
-			if count > 6:
-				break
-			out += "\n[b]%s[/b]\n" % line.substr(3)
-		elif line.begins_with("- "):
-			out += "  •  %s\n" % line.substr(2)
-	return out.strip_edges()
-
-
-func _host() -> void:
-	_room_status.text = "Creating room…"
-	var err: String = await Net.create_room()
-	_room_status.text = err if err != "" else "Room open! Share the code with up to 3 friends."
-	_refresh_account()
-
-
-func _join() -> void:
-	if _room_code.text.strip_edges() == "":
-		_room_status.text = "Type the room code your friend shared"
-		return
-	_room_status.text = "Joining…"
-	var err: String = await Net.join_room(_room_code.text)
-	_room_status.text = err
-	_refresh_account()
-	if err == "":
-		_room_code.text = ""
-		_set_menu(false)
-
-
-func _sign_in() -> void:
-	_acct_msg.text = "Signing in…"
-	var err: String = await Firebase.sign_in_email(_email.text.strip_edges(), _password.text)
-	_acct_msg.text = err if err != "" else "Welcome back!"
-	_password.text = ""
-	_refresh_account()
-
-
-func _register() -> void:
-	_acct_msg.text = "Creating account…"
-	var err: String = await Firebase.register_email(_email.text.strip_edges(), _password.text)
-	_acct_msg.text = err if err != "" else "Account created. Your city is saved to the cloud."
-	_password.text = ""
-	_refresh_account()
-
-
-## Shows only the controls that make sense right now (in a room or not, guest or signed in).
-func _refresh_account() -> void:
-	if _acct_status == null:
-		return
-	var online := Firebase.enabled and Firebase.signed_in
-	if not Firebase.enabled:
-		_acct_status.text = "Online services aren't set up in this build, so your city is saved on this device."
-	elif not Firebase.signed_in:
-		_acct_status.text = "Connecting…"
-	elif Firebase.is_guest:
-		_acct_status.text = "Playing as a guest. Your city is backed up, but create an account to keep it across phones."
-	else:
-		_acct_status.text = "Signed in as %s. Your city syncs to the cloud automatically." % Firebase.email
-	_acct_form.visible = online and Firebase.is_guest
-	_acct_signed.visible = online and not Firebase.is_guest
-	var in_room := Net.in_room()
-	_coop_out.visible = not in_room
-	_coop_join.visible = not in_room
-	_coop_in.visible = in_room
-	if in_room:
-		_room_big.text = Net.room_code
-		var names := []
-		for p in Net.active_players():
-			names.append(str(p.get("name", "?")))
-		_room_players.text = "Building now: %s" % ", ".join(names) if not names.is_empty() else "Waiting for friends to join…"
-	if _island_summary:
-		_island_summary.text = _world_summary()
 
