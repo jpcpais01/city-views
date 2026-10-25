@@ -1506,12 +1506,33 @@ func _flyovers() -> void:
 	for k in 61:
 		lane_pts.append(Vector2(-45.0, -30.0 + k))
 	st.add_stroke(lane_pts, "side")
-	st.erase_at(Vector2(-20, -25), 3.0)
-	st.erase_at(Vector2(-20, 25), 3.0)
-	st.erase_at(Vector2(-20, 0), 12.0)
+	st.remove_street(cross)
 	st.flush()
 	var left_ramps: int = st.streets.filter(func(r): return r.kind == "ramp").size()
 	check(left_ramps == 0, "a side street gets none, and they go with the street they served (%d left)" % left_ramps)
+	# two highways crossing: one over the other, and a cloverleaf of ramps
+	var ns_pts := PackedVector2Array()
+	for k in 141:
+		ns_pts.append(Vector2(0.0, -70.0 + k))
+	var hw_ns := st.add_stroke(ns_pts, "highway")
+	st.flush()
+	var clover: Array = st.streets.filter(func(r): return r.kind == "ramp")
+	var graph2 := st.links()
+	var both := 0
+	for r: Streets.Street in clover:
+		var to: Array = graph2[r.id].map(func(l): return l[1])
+		if to.has(hw) and to.has(hw_ns):
+			both += 1
+	var hw_jn := 0
+	for jn in st.junctions():
+		var on: Array = jn.arms.map(func(a): return a.st)
+		if on.has(hw) and on.has(hw_ns):
+			hw_jn += 1
+	var gap: float = absf(hw_ns.closest(Vector2(0, 0)).y - hw.closest(Vector2(0, 0)).y)
+	check(hw_jn == 0 and gap > Streets.CLEARANCE - 0.1, "two highways cross one over the other (%.2f m apart)" % gap)
+	check(clover.size() == 8 and both == 8, "with a cloverleaf of loops and ramps joining them (%d of %d)" % [both, clover.size()])
+	st.remove_street(hw_ns)
+	st.flush()
 	# a highway drawn across a street already there lifts it; erased, it comes back down
 	var old_pts := PackedVector2Array()
 	for k in 61:

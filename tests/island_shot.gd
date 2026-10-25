@@ -57,6 +57,13 @@ func _ready() -> void:
 				lines[0].append(Vector2(f.x - 120.0 + 240.0 * t, f.z + sin(t * PI) * 12.0))
 				lines[1].append(Vector2(f.x - 30.0, f.z - 40.0 + 80.0 * t))
 				lines[2].append(Vector2(f.x + 10.0 + 60.0 * t, f.z - 30.0 + 80.0 * t))
+		if OS.get_environment("CV_STREETS") == "clover":
+			# two long highways crossing
+			lines = [[], []]
+			for k in 61:
+				var t := k / 60.0
+				lines[0].append(Vector2(f.x - 120.0 + 240.0 * t, f.z + sin(t * PI) * 8.0))
+				lines[1].append(Vector2(f.x + sin(t * PI) * 6.0, f.z - 110.0 + 220.0 * t))
 		if OS.get_environment("CV_STREETS") == "fuzz":
 			# the hand-drawn tangle the logic test checks junctions on
 			lines = []

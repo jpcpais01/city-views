@@ -193,9 +193,10 @@ func add_stroke(raw: PackedVector2Array, kind := "main") -> Street:
 	_junctions_dirty = true
 	_conform(s)
 	if s.kind == "highway":
-		# streets it crosses go up and over it
+		# streets it crosses go up and over it (as does a highway with a
+		# later key: one with an earlier key, it goes over itself)
 		for o in _touching(s):
-			if _flies(o, s):
+			if _flies(o, s) and (o.kind != "highway" or o.key > s.key):
 				_grade(o)
 				_conform(o)
 		# and the banks their ramps stand on stop at its shoulders
@@ -1127,11 +1128,16 @@ func _meetings(s: Street, o: Street) -> PackedVector2Array:
 
 
 ## Whether one of the two is a highway the other crosses on a bridge of its
-## own instead of meeting it at a junction.
+## own instead of meeting it at a junction (of two highways, the one with the
+## later key goes over).
 func _flies(a: Street, b: Street) -> bool:
-	if (a.kind == "highway") == (b.kind == "highway"):
+	var ha := a.kind == "highway"
+	var hb := b.kind == "highway"
+	if not ha and not hb:
 		return false
-	var low := a if a.kind == "highway" else b
+	var low := a if ha else b
+	if ha and hb:
+		low = b if a.key > b.key else a
 	var high := b if low == a else a
 	return _crossing(high, low).x >= 0.0
 
@@ -1170,10 +1176,10 @@ func _crossing(s: Street, o: Street) -> Vector2:
 ## at whatever angle the two cross.
 func _flyovers(s: Street) -> Array:
 	var out: Array = []
-	if s.kind == "highway":
+	if s.kind == "ramp":
 		return out
 	for o: Street in streets:
-		if o.kind != "highway" or o == s:
+		if o.kind != "highway" or o == s or (s.kind == "highway" and s.key < o.key):
 			continue
 		var x := _crossing(s, o)
 		if x.x < 0.0:
@@ -1788,10 +1794,10 @@ const RAMP_MEET := 6.0
 func _refresh_ramps() -> void:
 	var want := {}
 	for s: Street in streets:
-		if s.auto or not s.major():
+		if s.auto or not (s.major() or s.kind == "highway"):
 			continue
 		for fly in _flyovers(s):
-			for r in _diamond(s, fly):
+			for r in (_cloverleaf(s, fly) if s.kind == "highway" else _diamond(s, fly)):
 				want[r.key] = r.pts
 	for s: Street in streets.duplicate():
 		if not s.auto:
@@ -1821,6 +1827,63 @@ func _refresh_ramps() -> void:
 		for o in _touching(s):
 			_build_later(o)
 		added.emit(s)
+
+
+## Where highway s flies over highway o, a cloverleaf: in each corner a loop
+## (leaving one highway alongside, turning three quarters of a circle and
+## joining the other alongside) and, round the outside of it, a sweeping
+## ramp from one highway further out to the other. [{key, pts}]
+func _cloverleaf(s: Street, fly: Dictionary) -> Array:
+	const R := 7.0
+	var out: Array = []
+	var o: Street = fly.hw
+	var x := _ptf(o, fly.fo)
+	var d1 := (_ptf(o, minf(fly.fo + 1.0, o.pts.size() - 1)) - _ptf(o, maxf(fly.fo - 1.0, 0.0))).normalized()
+	var d2 := (_ptf(s, minf(fly.f + 1.0, s.pts.size() - 1)) - _ptf(s, maxf(fly.f - 1.0, 0.0))).normalized()
+	var sin_a := absf(d1.cross(d2))
+	if sin_a < 0.5:
+		return out
+	var off := o.w() + KINDS.ramp.w
+	for t1: float in [-1.0, 1.0]:
+		for t2: float in [-1.0, 1.0]:
+			var e1 := d1 * t1
+			var e2 := d2 * t2
+			# the corner between the highways heading e1 and e2: its loop's
+			# middle stands off both by its radius and the ramp's own offset
+			var n1 := Vector2(-e1.y, e1.x) * signf(Vector2(-e1.y, e1.x).dot(e2))
+			var n2 := Vector2(-e2.y, e2.x) * signf(Vector2(-e2.y, e2.x).dot(e1))
+			var a := (off + R) / sin_a
+			var c := x + e1 * a + e2 * a
+			var p1 := c - n1 * R
+			var p2 := c - n2 * R
+			var far := (off + R * 2.0) / sin_a + 26.0
+			var g1: float = fly.fo + t1 * far / SAMPLE
+			var g2: float = fly.f + t2 * far / SAMPLE
+			if g1 < 1.0 or g1 > o.pts.size() - 2.0 or g2 < 1.0 or g2 > s.pts.size() - 2.0:
+				continue
+			# the loop, the long way round (away from the crossing)
+			var a1 := (p1 - c).angle()
+			var a2 := (p2 - c).angle()
+			var sweep := wrapf(a2 - a1, -PI, PI)
+			sweep = sweep - TAU * signf(sweep)
+			var loop := PackedVector2Array()
+			for k in 37:
+				loop.append(c + Vector2.from_angle(a1 + sweep * k / 36.0) * R)
+			var tag := "~%s~%s~%d%d" % [s.key, o.key, int(t1), int(t2)]
+			out.append({"key": tag + "l", "pts": loop})
+			# round the outside, from further out on one to further out on the
+			# other, leaving and joining each alongside
+			var q1 := _ptf(o, g1) + n1 * off
+			var q2 := _ptf(s, g2) + n2 * off
+			var k1 := q1 - e1 * far * 0.25
+			var k2 := q2 - e2 * far * 0.25
+			var sweep_pts := PackedVector2Array()
+			for k in 41:
+				var t := k / 40.0
+				var u := 1.0 - t
+				sweep_pts.append(q1 * u * u * u + k1 * 3.0 * u * u * t + k2 * 3.0 * u * t * t + q2 * t * t * t)
+			out.append({"key": tag + "o", "pts": sweep_pts})
+	return out
 
 
 ## The four ramps of a diamond where street s flies over a highway, as
