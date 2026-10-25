@@ -31,6 +31,16 @@ const KINDS := {
 	# a paved walk through a park or green: no cars, only people (see Growth)
 	"walk": {"w": 0.7, "dash": false, "median": 0.0, "verge": false},
 }
+## a highway's crash barrier (down the middle) and guardrails (along the edges)
+const BARRIER := 0.2
+const BARRIER_GREY := Color(0.74, 0.73, 0.7)
+const RAIL_AT := 1.95 + 0.22
+const RAIL_LO := 0.12
+const RAIL_HI := 0.2
+const GUARDRAIL := Color(0.72, 0.75, 0.78)
+const POST_EVERY := 5.0
+const GANTRY_EVERY := 150.0
+const SIGN_GREEN := Color(0.12, 0.45, 0.3)
 ## a walk's paving, warmer and lighter than a pavement
 const PAVING := Color(0.86, 0.8, 0.7)
 ## the kinds a player can draw, with what a metre costs compared with a street
@@ -637,6 +647,17 @@ class MeshBuf:
 		else:
 			idx.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
 
+	## A lidded box with no floor: size.x along `ax`, size.y up, size.z along `az`.
+	func box(c: Vector3, size: Vector3, ax: Vector3, az: Vector3, col: Color) -> void:
+		var x := ax * size.x * 0.5
+		var z := az * size.z * 0.5
+		var lo := c + Vector3.DOWN * size.y * 0.5
+		var hi := c + Vector3.UP * size.y * 0.5
+		for f: Vector3 in [x, -x, z, -z]:
+			var g := z if f == x or f == -x else x
+			quad(lo + f - g, lo + f + g, hi + f + g, hi + f - g, col, 0.0, f)
+		quad(hi - x - z, hi + x - z, hi + x + z, hi - x + z, col, 0.0, Vector3.UP)
+
 	## A stretch of carriageway whose markings the city shader paints: a-b
 	## across the start (a on the left kerb), c-d across the end. Colour alpha
 	## carries the way across (0 left kerb, 1 right), UV.y the way along.
@@ -789,6 +810,13 @@ func _build(s: Street) -> void:
 				var out_dir := (n0 + n1) * 0.5 * side
 				_band(buf, p0, n0, y0, p1, n1, y1, side * median, 0.0, side * median, CURB, kerb, 0.0, Vector3(out_dir.x, 0.0, out_dir.y))
 			_band(buf, p0, n0, y0, p1, n1, y1, -median, CURB, median, CURB, Palette.VERGE, MeshKit.MOWN_X, Vector3.UP)
+			if verge:
+				# a concrete crash barrier down the middle, sloping in to a narrow top
+				var nm := (n0 + n1) * 0.5
+				var nm3 := Vector3(nm.x, 0.0, nm.y)
+				_band(buf, p0, n0, y0, p1, n1, y1, -0.09, CURB, -0.035, CURB + BARRIER, BARRIER_GREY, 0.0, -nm3 + Vector3.UP * 0.3)
+				_band(buf, p0, n0, y0, p1, n1, y1, -0.035, CURB + BARRIER, 0.035, CURB + BARRIER, BARRIER_GREY.lightened(0.08), 0.0, Vector3.UP)
+				_band(buf, p0, n0, y0, p1, n1, y1, 0.035, CURB + BARRIER, 0.09, CURB, BARRIER_GREY, 0.0, nm3 + Vector3.UP * 0.3)
 		elif not _in_cuts(skip, fm):
 			if KINDS[s.kind].dash:
 				# the centre line is painted by the shader, not drawn
@@ -851,9 +879,12 @@ func _build(s: Street) -> void:
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + 0.12), 0.0, side * (w + 0.3), -SKIRT, kerb.darkened(0.1), 0.0, out3 + Vector3.UP)
 				continue
 			if verge:
-				# a pale shoulder line and the edge of the road down into the ground
+				# a pale shoulder line, a steel guardrail along the edge (its posts
+				# are put in below), and the edge of the road down into the ground
 				_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * (w + 0.12), 0.0, kerb, 0.0, Vector3.UP)
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + 0.12), 0.0, side * (w + 0.3), -SKIRT, kerb.darkened(0.1), 0.0, out3 + Vector3.UP)
+				_band(buf, p0, n0, y0, p1, n1, y1, side * RAIL_AT, RAIL_LO, side * RAIL_AT, RAIL_HI, GUARDRAIL, 0.0, -out3)
+				_band(buf, p0, n0, y0, p1, n1, y1, side * RAIL_AT, RAIL_HI, side * RAIL_AT, RAIL_LO, GUARDRAIL.darkened(0.15), 0.0, out3)
 				continue
 			# kerb face, pavement, and the pavement's outer edge down into the ground
 			_band(buf, p0, n0, y0, p1, n1, y1, side * w, 0.0, side * w, CURB, kerb, 0.0, -out3)
@@ -869,6 +900,8 @@ func _build(s: Street) -> void:
 				_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE - 0.09), CURB + 0.16, side * (w + PAVE - 0.09), CURB + 0.19, HouseGen.IRON, 0.0, out3)
 				continue
 			_band(buf, p0, n0, y0, p1, n1, y1, side * (w + PAVE), CURB, side * (w + PAVE), -SKIRT, kerb, 0.0, out3)
+	if verge and not _laying.has(s.id):
+		_highway_kit(s, buf, upto, skip)
 	# a dead end rounds off in a half circle, like a turning head
 	if not _laying.has(s.id):
 		for f: float in [0.0, upto]:
@@ -1278,6 +1311,54 @@ func _build_junction(jn: Dictionary, buf: MeshBuf) -> void:
 			prev_p = p3
 			prev_o = o3
 			prev_n = n3
+
+
+## A highway's guardrail posts, and now and then a gantry of direction signs
+## over both carriageways.
+func _highway_kit(s: Street, buf: MeshBuf, upto: float, skip: PackedVector2Array) -> void:
+	var w := s.w()
+	var f := 1.0
+	var since_gantry := GANTRY_EVERY * 0.5
+	while f < upto - 1.0:
+		var on_bridge := _in_cuts(s.spans, f)
+		if not _in_cuts(skip, f) and not on_bridge:
+			for side: float in [-1.0, 1.0]:
+				var base := _atf(s, f, side * RAIL_AT, 0.0)
+				var nn := _sidef(s, f)
+				var t := Vector3(-nn.y, 0.0, nn.x) * 0.025
+				var out := Vector3(nn.x, 0.0, nn.y) * side
+				# a thin steel post, its two broad faces along the road
+				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, out)
+				buf.quad(base - t, base + t, base + t + Vector3.UP * RAIL_HI, base - t + Vector3.UP * RAIL_HI, GUARDRAIL.darkened(0.25), 0.0, -out)
+		since_gantry += POST_EVERY
+		if since_gantry >= GANTRY_EVERY and not on_bridge and not _in_cuts(skip, f) and f > 4.0 and f < upto - 4.0:
+			since_gantry = 0.0
+			_gantry(s, buf, f, w)
+		f += POST_EVERY / SAMPLE
+
+
+func _gantry(s: Street, buf: MeshBuf, f: float, w: float) -> void:
+	var nn := _sidef(s, f)
+	var n3 := Vector3(nn.x, 0.0, nn.y)
+	var t3 := Vector3(-nn.y, 0.0, nn.x)
+	var span := w + 0.4
+	var top := 2.1
+	var steel := Color(0.62, 0.64, 0.66)
+	for side: float in [-1.0, 1.0]:
+		var b := _atf(s, f, side * span, 0.0)
+		buf.box(b + Vector3.UP * top * 0.5, Vector3(0.12, top, 0.12), n3, t3, steel)
+	# the beam, and a sign over each carriageway facing its traffic
+	var mid := _atf(s, f, 0.0, top)
+	buf.box(mid, Vector3(span * 2.0 + 0.1, 0.1, 0.12), n3, t3, steel)
+	for side: float in [-1.0, 1.0]:
+		var c := _atf(s, f, side * (w + KINDS[s.kind].median) * 0.5, top - 0.32)
+		var face := t3 * side
+		buf.box(c, Vector3(w * 0.8, 0.5, 0.04), n3, t3, SIGN_GREEN)
+		for row in 2:
+			var stripe := c + face * 0.025 + Vector3.UP * (0.1 - row * 0.2)
+			var a := stripe - n3 * (w * 0.3 - row * 0.06)
+			var b := stripe + n3 * (w * 0.3 - row * 0.06)
+			buf.quad(a + Vector3.DOWN * 0.03, b + Vector3.DOWN * 0.03, b + Vector3.UP * 0.03, a + Vector3.UP * 0.03, Color(0.95, 0.96, 0.95), 0.0, face)
 
 
 ## Where walks meet: a little round paved square, with a fountain in the
